@@ -28,6 +28,8 @@ const AC_PALETTE_BINDING = `${SPEC}/acs/ac-8`;
 const AC_DRIFT_OVERRIDE = `${SPEC}/acs/ac-9`;
 const AC_EDGESET_FILTER = `${SPEC}/acs/ac-10`;
 const AC_NO_EE = `${SPEC}/acs/ac-13`;
+const AC_DISCIPLINE_LABEL = `${SPEC}/acs/ac-14`;
+const AC_DRIFT_INBOX = `${SPEC}/acs/ac-15`;
 
 // A small vault: two facets, two standards (one drifted), one spec owning two
 // decisions (one drifted), a mention edge, a semantic edge (must be dropped),
@@ -221,6 +223,7 @@ describe('colour encoding (dec-2)', () => {
   it('open drift turns both endpoints and the edge rose, overriding type hues', () => {
     tagAc(AC_DRIFT_OVERRIDE);
     tagAc(AC_SCOPE_DRIFT_RED);
+    tagAc(AC_DRIFT_INBOX);
     const { nodes, links } = buildBrainGraph(KG, PALETTE);
     const byId = new Map(nodes.map((n) => [n.id, n]));
     // Clean nodes wear their type hues…
@@ -233,12 +236,17 @@ describe('colour encoding (dec-2)', () => {
     expect(byId.get('s-drift')!.drifted).toBe(true);
     expect(byId.get('d-bad')!.color).toBe(PALETTE.drift);
     expect(byId.get('d-bad')!.drifted).toBe(true);
-    // The drift edge is the only colour-overridden link, in rose, and wider.
+    // The drift edge is the only colour-overridden link, in rose, and wider —
+    // and it carries the Drift-Inbox deep link for its drifted standard (ac-15).
     const drift = links.find((l) => l.rel === 'drift')!;
     expect(drift.color).toBe(PALETTE.drift);
     expect(drift.width).toBeGreaterThan(1);
+    expect(drift.href).toBe('/drift?doc=std-2');
     for (const l of links) {
-      if (l.rel !== 'drift') expect(l.color).toBeUndefined();
+      if (l.rel !== 'drift') {
+        expect(l.color).toBeUndefined();
+        expect(l.href).toBeUndefined();
+      }
     }
   });
 
@@ -307,7 +315,7 @@ import { fetchKnowledgeGraph } from '../api/insights';
 
 function LocationProbe() {
   const location = useLocation();
-  return <div data-testid="location">{location.pathname}</div>;
+  return <div data-testid="location">{location.pathname + location.search}</div>;
 }
 
 async function renderBrain() {
@@ -376,12 +384,15 @@ describe('Brain page shell', () => {
   it('renders the map surface with the always-visible five-entry legend', async () => {
     tagAc(AC_SCOPE_SURFACE);
     tagAc(AC_SCOPE_COLOURS);
+    tagAc(AC_DISCIPLINE_LABEL);
     await renderBrain();
     expect(screen.getByTestId('brain-map-canvas')).toBeTruthy();
     const legend = screen.getByTestId('brain-legend');
-    for (const label of ['Facet', 'Spec', 'Decision', 'Standard', 'Drift (open)']) {
+    // dec-6: the facet entity displays as "Discipline" on this surface.
+    for (const label of ['Discipline', 'Spec', 'Decision', 'Standard', 'Drift (open)']) {
       expect(legend.textContent).toContain(label);
     }
+    expect(legend.textContent).not.toContain('Facet');
   });
 
   it('decision filter mirrors the API filter, chip shows shown-of-total, positions survive', async () => {
@@ -424,13 +435,44 @@ describe('Brain page shell', () => {
     );
   });
 
-  it('facets show description + counts and no Open action (no page to open)', async () => {
+  it('facets show as Discipline with description + counts and no Open action (no page to open)', async () => {
     tagAc(AC_SCOPE_CLICK_THROUGH);
+    tagAc(AC_DISCIPLINE_LABEL);
+    tagAc(AC_DRIFT_INBOX);
     const renderer = await renderBrain();
     act(() => renderer.callbacks.onNodeFocus(FACET_NODE));
-    expect(screen.getByTestId('brain-focus-card').textContent).toContain('Facet');
+    // dec-6: the kind label reads "Discipline" (display-only rename).
+    const card = screen.getByTestId('brain-focus-card');
+    expect(card.textContent).toContain('Discipline');
+    expect(card.textContent).not.toContain('Facet');
+    // The mono handle is hidden for facets — the key would just repeat the
+    // name ("security Security"), so only the display name renders (ac-15).
+    expect(screen.getByTestId('brain-focus-title').textContent).not.toContain('security');
+    expect(screen.getByTestId('brain-focus-title').textContent).toContain('Security');
     expect(screen.getByTestId('brain-focus-detail').textContent).toContain('1 standard');
     expect(screen.queryByTestId('brain-focus-open')).toBeNull();
+  });
+
+  it('clicking a drift edge lands in the Drift Inbox filtered to the drifted standard', async () => {
+    tagAc(AC_DRIFT_INBOX);
+    tagAc(AC_SCOPE_DRIFT_RED);
+    const renderer = await renderBrain();
+    const driftLink = {
+      id: 'drift:d-bad->s-drift',
+      source: 'd-bad',
+      target: 's-drift',
+      kind: 'mention' as const,
+      width: 1.6,
+      rel: 'drift' as const,
+      color: PALETTE.drift,
+      href: '/drift?doc=std-2',
+    };
+    act(() => renderer.callbacks.onEdgeClick(driftLink));
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe('/acme/team/drift?doc=std-2'),
+    );
+    // No evidence panel opens for a drift edge — the inbox IS the detail view.
+    expect(screen.queryByTestId('brain-edge-evidence')).toBeNull();
   });
 
   it('an empty vault explains itself instead of rendering a blank canvas', async () => {

@@ -33,6 +33,8 @@ export interface BrainNode extends SimNode {
 
 export interface BrainLink extends SimLink {
   rel: BrainRel;
+  /** Where a click on this edge navigates (drift → the Drift Inbox, filtered). */
+  href?: string;
 }
 
 export interface BrainGraph {
@@ -166,7 +168,7 @@ export function buildBrainGraph(data: KnowledgeGraphData, palette: BrainPalette)
     rel: BrainRel,
     source: string,
     target: string,
-    extra: Partial<Pick<SimLink, 'width' | 'color' | 'count' | 'evidence'>> = {},
+    extra: Partial<Pick<BrainLink, 'width' | 'color' | 'count' | 'evidence' | 'href'>> = {},
   ) => {
     if (!present.has(source) || !present.has(target)) return;
     links.push({
@@ -204,9 +206,17 @@ export function buildBrainGraph(data: KnowledgeGraphData, palette: BrainPalette)
   }
 
   // Drift last: the rose thread (dec-2) — wider than everything else so the
-  // one red edge on the surface reads at constellation zoom.
+  // one red edge on the surface reads at constellation zoom. Clicking it lands
+  // in the Drift Inbox filtered to the drifted standard (the existing
+  // /drift?doc=std-N deep link).
+  const standardHandleById = new Map(data.nodes.standards.map((s) => [s.docId, s.handle]));
   for (const e of data.edges.drift) {
-    push('drift', e.decisionId, e.standardDocId, { width: 1.6, color: palette.drift });
+    const standardHandle = standardHandleById.get(e.standardDocId);
+    push('drift', e.decisionId, e.standardDocId, {
+      width: 1.6,
+      color: palette.drift,
+      href: standardHandle ? `/drift?doc=${standardHandle}` : undefined,
+    });
   }
   // data.edges.semantic is intentionally unused (dec-3).
 

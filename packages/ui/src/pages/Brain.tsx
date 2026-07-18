@@ -47,8 +47,10 @@ type BrainTestWindow = Window & {
   };
 };
 
+// spec-498 dec-6: the facet ENTITY displays as "Discipline" on this surface —
+// a display-only rename; the machine-facing noun stays `facet` everywhere.
 const KIND_LABELS: Record<BrainNode['kind'], string> = {
-  facet: 'Facet',
+  facet: 'Discipline',
   standard: 'Standard',
   spec: 'Spec',
   decision: 'Decision',
@@ -134,6 +136,11 @@ export function Brain() {
         },
         onEdgeClick: (link: SimLink) => {
           const b = link as BrainLink;
+          // A drift edge IS the inbox item — clicking it lands there (ac-15).
+          if (b.rel === 'drift' && b.href) {
+            navigateRef.current(tenantPath(b.href));
+            return;
+          }
           if (!b.evidence || b.evidence.length === 0) return;
           const s = typeof b.source === 'string' ? b.source : b.source.id;
           const t = typeof b.target === 'string' ? b.target : b.target.id;
@@ -249,8 +256,9 @@ export function Brain() {
                   ) : (
                     <>
                       The Brain draws how everything in a memex connects — specs own decisions,
-                      decisions touch facets, facets govern standards, and open drift shows up
-                      red. It lights up once this memex has standards, facets, or decisions.
+                      decisions touch disciplines, disciplines govern standards, and open drift
+                      shows up red. It lights up once this memex has standards, disciplines, or
+                      decisions.
                     </>
                   )}
                 </p>
@@ -299,7 +307,12 @@ export function Brain() {
                   <span className="uppercase tracking-wide text-[10px] text-muted mr-1.5">
                     {KIND_LABELS[focus.kind]}
                   </span>
-                  <span className="font-mono text-muted mr-1">{focus.handle}</span>
+                  {/* A facet's handle IS its name (key) — showing both reads
+                      duplicated ("performance Performance"), so the mono
+                      handle renders only for handle-bearing kinds (ac-15). */}
+                  {focus.kind !== 'facet' && (
+                    <span className="font-mono text-muted mr-1">{focus.handle}</span>
+                  )}
                   {focus.title}
                 </span>
                 <button
