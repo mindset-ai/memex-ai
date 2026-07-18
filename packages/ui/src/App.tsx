@@ -32,6 +32,9 @@ const IssuesList = lazy(() => import('./pages/IssuesList').then((m) => ({ defaul
 const NamespaceHome = lazy(() =>
   import('./pages/NamespaceHome').then((m) => ({ default: m.NamespaceHome })),
 );
+const NamespaceSettings = lazy(() =>
+  import('./pages/NamespaceSettings').then((m) => ({ default: m.NamespaceSettings })),
+);
 const HomeCanvas = lazy(() => import('./pages/HomeCanvas').then((m) => ({ default: m.HomeCanvas })));
 const StandardList = lazy(() =>
   import('./pages/StandardList').then((m) => ({ default: m.StandardList })),
@@ -593,6 +596,13 @@ export function PostLoginRouter() {
           OrgHome / Personal Home. More specific /:namespace/:memex routes below
           take precedence (React Router 7 specificity). */}
       <Route path="/:namespace" element={<FlatShell><NamespaceHome /></FlatShell>} />
+
+      {/* spec-481 t-2 (ac-4): per-namespace settings — the namespace-slug rename
+          surface. `settings` is a reserved slug (no Memex can be named it), so
+          this static segment safely wins over the `/:namespace/:memex` dynamic
+          route below (RRv7 ranks static above dynamic). Declared before it to
+          keep the precedence obvious to a reader too. */}
+      <Route path="/:namespace/settings" element={<FlatShell><NamespaceSettings /></FlatShell>} />
 
       {/* Tenancy-scoped routes — every path segment lives under /:ns/:mx. */}
       <Route path="/:namespace/:memex" element={<TenantLayout />}>

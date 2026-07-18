@@ -13,6 +13,16 @@
 // (dec-7); this drip only READS that log for dedup — it never writes it. Dedup and the
 // two-per-cohort ceiling are therefore keyed on the stable template key, never the
 // mutable subject line (ac-14).
+//
+// spec-480 amendment (dec-8 / s-4): the signed_in_dormant cohort sends the video-centric
+// buildWinbackEmail, keyed on the EXISTING signed_in_dormant comms key (dec-8 re-resolved
+// — reused, not a new key, to keep the cross-repo comms-conversion contract intact) at its
+// 3-day dwell anchored to email_verified_at (dec-7).
+//
+// spec-487 amendment (t-2 / dec-1): connected_inactive is REVIVED — it sends its own Day-2
+// "create a spec" email (buildConnectedInactiveEmail) again, at its 2-day dwell anchored to
+// first mcp.connected. This reverses spec-480 dec-9 (CTA-mismatch deferral) and dec-10 (the
+// launch blast now includes connected_inactive, since the backlog shares this send path).
 
 import { and, eq, isNotNull } from "drizzle-orm";
 import { type Db, db } from "../../db/connection.js";
@@ -21,7 +31,7 @@ import { evaluateActivationState, type ActivationCohort } from "../activation-co
 import { hasComm } from "../comms-log.js";
 import { activationEmailsEnabled } from "./activation-flag.js";
 import { sendLifecycleEmail } from "./lifecycle-send.js";
-import { buildConnectedInactiveEmail, buildSignedInDormantEmail } from "./templates.js";
+import { buildConnectedInactiveEmail, buildWinbackEmail } from "./templates.js";
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -35,6 +45,12 @@ export const ACTIVATION_DWELL_DAYS: Record<ActivationCohort, number> = {
 // Stable comms_log keys (dec-7 / ac-14). Dedup + sequencing key on THESE, never the
 // mutable subject line. Kept in sync with the `commsType` the Slice A builders stamp
 // onto the returned message.
+// spec-480 dec-8 (re-resolved): the win-back REUSES the existing signed_in_dormant key
+// rather than minting `activation.winback` — a new key would have split the cross-repo
+// comms-conversion contract (the metric is mirrored in memex-backstage; the pinned
+// comms-conversion.fixture.ts). buildWinbackEmail stamps this same key, so dedup below +
+// the activation-metrics join stay correct and the pinned fixture is untouched.
+// connected_inactive uses its own stable key for the Day-2 "create a spec" email (spec-487).
 export const ACTIVATION_COMMS_KEY: Record<ActivationCohort, string> = {
   connected_inactive: "activation.connected_inactive",
   signed_in_dormant: "activation.signed_in_dormant",
@@ -51,6 +67,13 @@ function appBaseUrl(): string {
   // Mirrors welcome-send.ts: int → int.memex.ai, prod → memex.ai (dec-8).
   return process.env.APP_BASE_URL ?? "https://memex.ai";
 }
+
+// spec-480 dec-9 — the "Connect your agent" CTA target: the one-click desktop connect
+// flow. That is the desktop-app download page (spec-460 — the desktop app is the
+// one-click MCP-setup path that clears the browser→terminal cliff). A fixed marketing
+// URL on www.memex.ai (single host across envs), NOT a tenant/app path, so it is a
+// constant here rather than an APP_BASE_URL-derived link. `src` tags the referral.
+const WINBACK_CONNECT_URL = "https://www.memex.ai/download?src=winback-email";
 
 function firstName(name: string | null): string | undefined {
   return name?.trim().split(/\s+/)[0] || undefined;
@@ -117,8 +140,10 @@ async function buildActivationMessage(
   const base = appBaseUrl();
   const name = firstName(user.name);
   if (cohort === "signed_in_dormant") {
-    // Email 2 CTA "Open Memex AI" → the app root (Q1: unambiguous either way).
-    return buildSignedInDormantEmail({ to: user.email, firstName: name, appUrl: base });
+    // spec-480 dec-9 — the win-back email: single segment, CTA "Connect your agent"
+    // → the desktop connect flow (WINBACK_CONNECT_URL). Stamps commsType
+    // "activation.winback" (matches ACTIVATION_COMMS_KEY.signed_in_dormant).
+    return buildWinbackEmail({ to: user.email, firstName: name, connectUrl: WINBACK_CONNECT_URL });
   }
   // Email 1 CTA "Create a spec" → the new-spec modal deep-link (Q1: SpecList's ?new=1),
   // with "your Memex" pointing at the same board. Fall back to the app root if we can't
@@ -143,6 +168,14 @@ export async function sendActivationEmailForUser(
 
   const { cohort, enteredAt } = await evaluateActivationState(user.id, conn);
   if (!cohort || !enteredAt) return { ...base, cohort: null, sent: false, reason: "no_cohort" };
+
+  // spec-487 (t-2, dec-1) — connected_inactive is REVIVED: it now sends its own Day-2
+  // "create a spec" email (buildConnectedInactiveEmail), reversing spec-480 dec-9 (the
+  // CTA-mismatch deferral, moot now the email has its own "Create a spec" CTA) AND
+  // dec-10 (Fred 2026-07-17: the launch blast now includes connected_inactive — the
+  // backlog delegates to this same path, so the ~4 connected-inactive stalled users get
+  // the Day-2 in the first wave alongside the ~133 win-back). Both cohorts now route
+  // through dwell → dedup → send below.
 
   if (!dwellElapsed(cohort, enteredAt, now)) {
     return { ...base, cohort, sent: false, reason: "dwell_pending" };

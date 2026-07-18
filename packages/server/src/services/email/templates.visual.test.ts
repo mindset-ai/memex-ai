@@ -35,7 +35,7 @@ describe.each(samples.map((m) => [m.subject, m.html ?? ""] as const))(
     it("uses a solid coral CTA button, never a gradient", () => {
       tagAc(AC(1)); // scope: all six emails carry the corrected treatment (cascades)
       // Button colour is now coral — owned by spec-465 (reverses spec-226 dec-1/ac-4).
-      expect(html).toContain("background:#FC4F64;color:#FFFFFF");
+      expect(html).toContain("background:#0482DC;color:#FFFFFF");
       expect(html).not.toContain("linear-gradient");
     });
 

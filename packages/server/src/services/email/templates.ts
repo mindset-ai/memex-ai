@@ -8,7 +8,7 @@ import type { EmailMessage } from "./sender.js";
 // renders consistently across Gmail, Apple Mail, Outlook, etc.
 
 const BRAND_INK = "#0E1128";
-const BRAND_CORAL = "#FC4F64";
+const BRAND_ACCENT = "#0482DC";
 const BRAND_SKY = "#0C9FE3";
 const BRAND_MUTED = "#6B7280";
 const BRAND_BORDER = "#E5E7EB";
@@ -38,7 +38,10 @@ export interface EmailResource {
 
 interface RenderInput {
   preheader: string;
-  heading: string;
+  // Optional headline. Omit or pass "" → the email leads straight into
+  // bodyParagraphs with no <h1> (spec-488: the welcome v2 carries no repeated
+  // headline). Every other email passes a non-empty heading and is unchanged.
+  heading?: string;
   // Interpreted as HTML — caller must escape any dynamic values it interpolates.
   bodyParagraphs: string[];
   ctaLabel: string;
@@ -78,7 +81,7 @@ export function renderSteps(steps?: EmailStep[]): string {
     .map(
       (s) =>
         `<div style="margin:20px 0;">` +
-        `<div style="font-family:${FONT_STACK};font-size:15px;font-weight:700;color:${BRAND_CORAL};">${escapeHtml(s.label)}</div>` +
+        `<div style="font-family:${FONT_STACK};font-size:15px;font-weight:700;color:${BRAND_ACCENT};">${escapeHtml(s.label)}</div>` +
         `<div style="margin:6px 0 2px;font-size:16px;font-weight:600;color:${BRAND_INK};">${escapeHtml(s.title)}</div>` +
         `<div style="color:${BRAND_INK};font-size:15px;line-height:1.6;">${escapeHtml(s.body)}</div>` +
         `</div>`,
@@ -95,12 +98,107 @@ export function renderResources(resources?: EmailResource[]): string {
     .map(
       (r) =>
         `<tr><td style="padding:12px 0;border-top:1px solid ${BRAND_BORDER};">` +
-        `<a href="${escapeHtml(r.url)}" style="color:${BRAND_CORAL};font-size:15px;font-weight:600;text-decoration:none;">${escapeHtml(r.title)}</a>` +
+        `<a href="${escapeHtml(r.url)}" style="color:${BRAND_ACCENT};font-size:15px;font-weight:600;text-decoration:none;">${escapeHtml(r.title)}</a>` +
         `<div style="margin-top:2px;color:${BRAND_MUTED};font-size:13px;line-height:1.5;">${escapeHtml(r.description)}</div>` +
         `</td></tr>`,
     )
     .join("");
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0 0;">${rows}</table>`;
+}
+
+// spec-480 — hosted email video + clickable thumbnail assets (dec-1/dec-2).
+// Public objects on the prod static bucket (same bucket + media/ path as the
+// /welcome video). Stable, non-expiring, immutable-cached. SHARED with the
+// welcome email (spec-488) — hence neutral `email-*` object names, not `winback-*`.
+// The base video URL is shared; each builder appends its OWN utm_campaign so a
+// click is attributable to the right email (dec-6). A swap must mint a NEW
+// versioned object (…-v2) — never a same-name overwrite (immutable cache).
+export const EMAIL_EXPLAINER_VIDEO_URL =
+  "https://storage.googleapis.com/memex-ai-prod-app-static/media/email-explainer-60s.mp4";
+export const EMAIL_VIDEO_THUMB_1X_URL =
+  "https://storage.googleapis.com/memex-ai-prod-app-static/media/email-video-thumb-480.png";
+export const EMAIL_VIDEO_THUMB_2X_URL =
+  "https://storage.googleapis.com/memex-ai-prod-app-static/media/email-video-thumb-960.png";
+// The still Christine chose (spec-480 s-5) — used as the thumbnail alt (dec-4).
+export const EMAIL_VIDEO_TITLE =
+  "The spec-driven development system for AI coding agents";
+
+// spec-487 dec-3 (t-1) — the three per-email HOW-TO videos (Day-2 / Day-3 / Day-12),
+// hosted on the SAME static bucket + media/ path as the explainer (spec-480 pattern):
+// stable, public, non-expiring, immutable-cached. Uploaded + verified public 2026-07-17.
+// Distinct from EMAIL_EXPLAINER_VIDEO_URL ("what is Memex") — these each show HOW to do
+// that email's action. Each builder appends its OWN utm_campaign (dec-6); a swap mints a
+// NEW versioned object (…-v2), never a same-name overwrite (immutable cache).
+const EMAIL_MEDIA_BASE =
+  "https://storage.googleapis.com/memex-ai-prod-app-static/media";
+export interface HowToVideoAsset {
+  videoUrl: string;
+  thumb1xUrl: string;
+  thumb2xUrl: string;
+}
+function howToAsset(slug: string): HowToVideoAsset {
+  return {
+    videoUrl: `${EMAIL_MEDIA_BASE}/${slug}.mp4`,
+    thumb1xUrl: `${EMAIL_MEDIA_BASE}/${slug}-thumb-480.png`,
+    thumb2xUrl: `${EMAIL_MEDIA_BASE}/${slug}-thumb-960.png`,
+  };
+}
+export const EMAIL_HOWTO_CREATE_SPEC = howToAsset("email-howto-create-spec"); // Day-2 "create a spec"
+export const EMAIL_HOWTO_CONNECT_MCP = howToAsset("email-howto-connect-mcp"); // Day-3 "connect MCP + spec"
+export const EMAIL_HOWTO_CONNECT_PEOPLE = howToAsset("email-howto-connect-people"); // Day-12 "connect with people"
+
+// spec-480 dec-2/dec-3/dec-4 — the clickable video-thumbnail block: a single
+// static poster image (play button baked in, dec-3) hyperlinked to the hosted
+// mp4. Returned as an HTML string injected into `bodyParagraphs` (mid-body, so
+// the video sits above the fold) — `<a>`/`<img>` are phrasing content, valid in
+// the renderer's <p> wrapper, so this needs no change to renderEmailHtml and
+// touches none of the other (image-free) emails. Bulletproof/table-safe:
+// `border:0`+`outline:none` kill Outlook's blue link border; explicit
+// width/height + `display:block`; `srcset` serves retina where supported
+// (Gmail/Outlook fall back to the 1x `src`). 480px = the email's content width
+// (560 − 2×40 padding). The image-blocked fallback (dec-4) is a SEPARATE visible
+// body line built by the caller — see `renderVideoFallbackLine`.
+export function renderVideoThumbnail(opts: {
+  videoUrl: string;
+  thumb1xUrl: string;
+  thumb2xUrl: string;
+  alt: string;
+}): string {
+  const href = escapeHtml(opts.videoUrl);
+  return (
+    `<a href="${href}" style="display:block;border:0;outline:none;text-decoration:none;">` +
+    `<img src="${escapeHtml(opts.thumb1xUrl)}" srcset="${escapeHtml(opts.thumb2xUrl)} 2x" ` +
+    `width="480" height="269" alt="${escapeHtml(opts.alt)}" ` +
+    `style="display:block;width:100%;max-width:480px;height:auto;border:0;outline:none;text-decoration:none;border-radius:8px;">` +
+    `</a>`
+  );
+}
+
+// spec-480 dec-4 — the image-blocked fallback: a visible text line so the video
+// is never unreachable when a client blocks images. "Watch it here" is the brand
+// accent (#0482DC, spec-468) and links the same video URL.
+export function renderVideoFallbackLine(videoUrl: string): string {
+  return (
+    `Can't see the video above? ` +
+    `<a href="${escapeHtml(videoUrl)}" style="color:${BRAND_ACCENT};text-decoration:none;">Watch it here</a>`
+  );
+}
+
+// spec-487 formatting — hanging-indent bullet / numbered lists, email-safe (<ul>/<ol>
+// with inline styles). Injected as a bodyParagraph string; items are escaped here.
+function renderBulletList(items: string[]): string {
+  return (
+    `<ul style="margin:0;padding-left:22px;color:${BRAND_INK};font-size:16px;line-height:1.6;">` +
+    items.map((i) => `<li style="margin:0 0 6px;">${escapeHtml(i)}</li>`).join("") +
+    `</ul>`
+  );
+}
+function renderNumberList(items: string[]): string {
+  return (
+    `<ol style="margin:0;padding-left:22px;color:${BRAND_INK};font-size:16px;line-height:1.6;">` +
+    items.map((i) => `<li style="margin:0 0 6px;">${escapeHtml(i)}</li>`).join("") +
+    `</ol>`
+  );
 }
 
 function renderEmailHtml(input: RenderInput): string {
@@ -112,6 +210,12 @@ function renderEmailHtml(input: RenderInput): string {
     .join("");
 
   const safeUrl = escapeHtml(input.ctaUrl);
+  // spec-488 — suppress the <h1> when no heading is given (welcome v2 leads with
+  // the greeting). Title falls back to the preheader so it is never empty.
+  const headingHtml = input.heading
+    ? `<h1 style="margin:0 0 16px;color:${BRAND_INK};font-size:22px;line-height:1.3;font-weight:600;letter-spacing:-0.01em;">${escapeHtml(input.heading)}</h1>`
+    : "";
+  const titleText = input.heading || input.preheader;
   const stepsHtml = renderSteps(input.steps);
   const resourcesHtml = renderResources(input.resources);
   const pasteLink = (input.showPasteLink ?? true)
@@ -128,7 +232,7 @@ function renderEmailHtml(input: RenderInput): string {
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>${escapeHtml(input.heading)}</title>
+    <title>${escapeHtml(titleText)}</title>
   </head>
   <body style="margin:0;padding:0;background-color:#F7F7F8;font-family:${FONT_STACK};-webkit-font-smoothing:antialiased;">
     <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">
@@ -141,11 +245,11 @@ function renderEmailHtml(input: RenderInput): string {
             <tr>
               <td style="padding:32px 40px;">
                 <div style="margin:0 0 20px;font-size:20px;font-weight:700;letter-spacing:-0.01em;color:${BRAND_INK};">Memex AI</div>
-                <h1 style="margin:0 0 16px;color:${BRAND_INK};font-size:22px;line-height:1.3;font-weight:600;letter-spacing:-0.01em;">${escapeHtml(input.heading)}</h1>
+                ${headingHtml}
                 ${paragraphs}
                 ${stepsHtml}
                 <div style="margin:24px 0 8px;">
-                  <a href="${safeUrl}" style="display:inline-block;padding:12px 24px;background:${BRAND_CORAL};color:#FFFFFF;font-size:15px;font-weight:600;text-decoration:none;border-radius:8px;">${escapeHtml(input.ctaLabel)}</a>
+                  <a href="${safeUrl}" style="display:inline-block;padding:12px 24px;background:${BRAND_ACCENT};color:#FFFFFF;font-size:15px;font-weight:600;text-decoration:none;border-radius:8px;">${escapeHtml(input.ctaLabel)}</a>
                 </div>
                 ${pasteLink}
                 ${afterCta}
@@ -256,10 +360,20 @@ export interface WelcomeEmailInput {
   senderName?: string;
 }
 
-// spec-428 — the day-one welcome (Option 3). Renders through the shared renderer
-// using the step + resources primitives (spec-226 dec-2). Transactional stream,
-// always sends; logged under the stable `welcome` key (dec-7). The CTA + resource
-// blocks are table/inline-CSS constructs (no imagery) per the Postmark constraints.
+// spec-480 dec-6 / spec-488 t-2 — the welcome links the SAME hosted explainer cut
+// as the win-back email (spec-480), tagged utm_campaign=welcome so a welcome-video
+// click is attributable separately from the win-back's (WINBACK_VIDEO_URL). The UTM
+// on a raw GCS mp4 is only meaningful once Postmark rewrites the link, so the send
+// carries trackLinks. (utm_source/medium mirror the win-back for one grouping.)
+const WELCOME_VIDEO_URL = `${EMAIL_EXPLAINER_VIDEO_URL}?utm_source=lifecycle&utm_medium=email&utm_campaign=welcome`;
+
+// spec-488 t-1 — the day-one welcome, v2 copy (supersedes spec-428's Option 3;
+// source of truth is spec-488 s-2). Renders through the shared renderer and LEADS
+// WITH THE GREETING — no repeated H1 headline (heading: ""). Transactional stream,
+// always sends; logged under the stable `welcome` key (spec-428 dec-7, inherited).
+// The clickable explainer-video thumbnail (spec-480 mechanism) is wired at the
+// spec-488 t-2 seam marked below; until then the email carries copy only and the
+// video degrades to nothing (t-2 adds the thumbnail + image-blocked fallback).
 export function buildWelcomeEmail(input: WelcomeEmailInput): EmailMessage {
   const firstName = input.firstName?.trim();
   const greeting = firstName ? `Hi ${firstName},` : "Hi there,";
@@ -269,81 +383,85 @@ export function buildWelcomeEmail(input: WelcomeEmailInput): EmailMessage {
   const signOffText = `Best,\n${senderName}`;
   const signOffHtml = `Best,<br>${escapeHtml(senderName)}`;
 
-  const value =
-    "Your agents are about to start building from what you actually decided, not what they guessed. Every decision is captured as you go, so nothing important gets buried in a chat thread or quietly chosen for you mid-build. And done means verified, not just claimed. No more vibe coding.";
-  const afterCtaText =
-    "We'll send you a few short emails over the next couple of weeks, and there are some resources below to get you started. If you get stuck, just reply here or find us in #help on Discord.";
-
-  const steps: EmailStep[] = [
-    {
-      label: "// Step 1",
-      title: "Connect to the Memex MCP",
-      body: "The app shows you exactly how to connect, whatever coding agent you're using.",
-    },
-    {
-      label: "// Step 2",
-      title: "Create your first Spec",
-      body: "Bring an idea and we'll help you shape it, start to finish.",
-    },
-  ];
-
-  const resources: EmailResource[] = [
-    {
-      title: "Understanding Memex AI",
-      description: "The 10-minute read on why it exists and how it works.",
-      url: "https://www.memex.ai/understanding-memex.pdf",
-    },
-    {
-      title: "Documentation",
-      description: "The complete reference, from getting started to the deep technical detail.",
-      url: "https://www.memex.ai/docs",
-    },
-    {
-      title: "Community",
-      description: "Say hello on Discord, whether you're weighing Memex up or already building.",
-      url: "https://discord.com/invite/WJfBYG9eV",
-    },
-  ];
+  const intro = "Glad you're on board. Here's why frontier teams build on Memex:";
+  const para1 =
+    "We all went all in on MD docs for building with AI: first for specifying features, then for passing context between humans and agents at scale. Exciting at first (we did it too!).";
+  // spec-488 s-2 — the "sh*t" spelling is a deliberate voice choice; the asterisk
+  // softens spam-filter risk. Accepted for the day-one transactional send.
+  // spec-487 formatting fix — "The problem?" on its own line, then the paragraph.
+  const problem = "The problem?";
+  const para2 =
+    "They're sh*t because they're only documents. They don't force agents to build specific things, so agents interpret, skip parts, and make executive decisions without your say-so. That's why AI coding gets so frustrating. And as the way you pass context, they go stale, need versions, and turn chaotic fast: a burst of productivity, then a ceiling.";
+  const fix1 =
+    "Your docs become living specs. Each decision becomes a perfectly scoped agent task with an acceptance criterion that forces the agent to build exactly what you want. Right the first time (yes, it's as good as it sounds).";
+  const fix2 =
+    "Each spec then speeds up the next. Memex surfaces what teammates are deciding in real time and tells you how it impacts your build, compounding into a knowledge layer that makes every new spec faster. No docs, no folders, no upkeep (finally!).";
+  const bullet1 = "Connect your agent over MCP (Claude Code, Cursor, Codex, Copilot)";
+  const bullet2 = "Create your first spec";
 
   const text = renderEmailText({
     intro: [
       greeting,
-      "Welcome to Memex AI.",
-      value,
-      "Two steps to get there.",
-      "// Step 1 — Connect to the Memex MCP: The app shows you exactly how to connect, whatever coding agent you're using.",
-      "// Step 2 — Create your first Spec: Bring an idea and we'll help you shape it, start to finish.",
-      afterCtaText,
-      "Resources: Understanding Memex AI (https://www.memex.ai/understanding-memex.pdf), Documentation (https://www.memex.ai/docs), Community (Discord).",
+      intro,
+      para1,
+      problem,
+      para2,
+      "Memex fixes both:",
+      `1. ${fix1}`,
+      `2. ${fix2}`,
+      "Here's a short animated walkthrough:",
+      `Watch the video: ${WELCOME_VIDEO_URL}`,
+      "To start:",
+      `- ${bullet1}`,
+      `- ${bullet2}`,
     ],
     url: input.appUrl,
     closing: signOffText,
   });
 
   const html = renderEmailHtml({
-    preheader: "Welcome to Memex AI — two steps to your first Spec.",
-    heading: "Build what you decided. Not what your agent guessed.",
+    preheader: "Why frontier teams build on Memex — right the first time.",
+    // No heading — v2 leads with the greeting (spec-488 s-2, headline dropped).
+    heading: "",
     bodyParagraphs: [
       escapeHtml(greeting),
-      "Welcome to Memex AI.",
-      escapeHtml(value),
-      "<strong>Two steps to get there.</strong>",
+      escapeHtml(intro),
+      escapeHtml(para1),
+      escapeHtml(problem),
+      escapeHtml(para2),
+      "<strong>Memex fixes both:</strong>",
+      `<strong>1.</strong> ${escapeHtml(fix1)}`,
+      `<strong>2.</strong> ${escapeHtml(fix2)}`,
+      escapeHtml("Here's a short animated walkthrough:"),
+      // spec-488 t-2 — the clickable video thumbnail + image-blocked fallback,
+      // reusing spec-480's shared hosted-video + `email-*` thumbnail assets.
+      renderVideoThumbnail({
+        videoUrl: WELCOME_VIDEO_URL,
+        thumb1xUrl: EMAIL_VIDEO_THUMB_1X_URL,
+        thumb2xUrl: EMAIL_VIDEO_THUMB_2X_URL,
+        alt: `Watch: ${EMAIL_VIDEO_TITLE}`,
+      }),
+      renderVideoFallbackLine(WELCOME_VIDEO_URL),
+      `<strong>To start:</strong><br>&bull; ${escapeHtml(bullet1)}<br>&bull; ${escapeHtml(bullet2)}`,
     ],
-    steps,
     ctaLabel: "Open Memex AI",
     ctaUrl: input.appUrl,
     showPasteLink: false,
-    afterCtaParagraphs: [escapeHtml(afterCtaText), signOffHtml],
-    resources,
+    afterCtaParagraphs: [signOffHtml],
     footerNote: "You're getting this because you signed up for Memex AI, built by Mindset AI.",
   });
 
   return {
     to: input.to,
-    subject: "Build what you decided. Not what your agent guessed.",
+    subject:
+      "Agents that build it right first time, and every spec speeds up the next",
     text,
     html,
     commsType: "welcome",
+    // spec-488 t-2 / spec-480 dec-6 — enable Postmark click tracking so a click on
+    // the video thumbnail / fallback link (the raw GCS mp4) is recorded and the
+    // utm_campaign=welcome attribution is real. Click tracking only, no open pixel.
+    trackLinks: true,
   };
 }
 
@@ -408,23 +526,52 @@ export interface ConnectedInactiveEmailInput {
 
 // Email 1 — connected-but-inactive (MCP connected, no tool call, no Spec).
 // Subject "Memex is connected. Here's what to do next." · CTA "Create a spec".
+// spec-487 dec-6 — the Day-2 how-to video ("create a spec"), attributable via its
+// own utm_campaign (distinct from the win-back + welcome, which use the explainer).
+const CONNECTED_INACTIVE_VIDEO_URL = `${EMAIL_HOWTO_CREATE_SPEC.videoUrl}?utm_source=lifecycle&utm_medium=email&utm_campaign=connected_inactive`;
+
+// spec-487 (t-2) — the Day-2 "Connected but no Spec" email, v2 copy (s-2) + how-to
+// video. Leads with the greeting (no headline, like the welcome v2). The video is a
+// clickable poster + image-blocked fallback line (spec-480 pattern, dec-4) — NO
+// separate "Watch the 3-min guide" button (dec-4: one video, one link). commsType /
+// dedup key unchanged (activation.connected_inactive).
 export function buildConnectedInactiveEmail(
   input: ConnectedInactiveEmailInput,
 ): EmailMessage {
   const greeting = activationGreeting(input.firstName);
-  const afterCta1 =
-    "Memex will work with your agent to structure the work, and comes back with a Spec and the decisions it needs you to resolve. That's the moment it clicks.";
-  const afterCta2 = "Memex does not touch your code.";
-  const stuck = "If you get stuck, just reply here or find us in #help on Discord.";
+  const p1 =
+    "Memex is connected, but the change you signed up for does not show until there is a Spec. Without one, your agent is still working off a document: it reads what it likes, skips the rest, and fills the gaps with its own assumptions, so you are back to re-prompting and re-reviewing.";
+  const p2 = "A Memex spec fixes that. You create it right from your coding agent:";
+  // spec-487 formatting fix — the three clauses each on their own line.
+  const p2lines = [
+    "It reads your repo, and together you work through the major decisions and the why behind what you are building.",
+    "Each one becomes a task with an acceptance criterion your agent has to build to, not prose it can pass over.",
+    "The more you settle upfront, the more it gets right first time.",
+  ];
+  const videoIntro = "See it done in 3 minutes: a quick guide to creating your first spec.";
+  const thenBring = "Then bring one small piece of work and paste this into your coding agent:";
+  const prompt1 =
+    "I want to create a new spec in Memex for [your idea]. Look at my codebase, and let's work through the major decisions and why we're building it.";
+  const rollingIntro = "Once you are rolling, these help too:";
+  const rollingPrompts = [
+    "Let's work through the decisions",
+    "What's our standard for this?",
+    "What's outstanding before we build?",
+    "Move to build and implement this in a worktree",
+  ];
+  const stuck = "Stuck? Reply here, or find us in #help on Discord.";
 
   const text = renderEmailText({
     intro: [
       greeting,
-      "Your Memex MCP is connected. The hard part is done.",
-      "The next step is to create your first Spec. Bring an idea and we'll help you shape it, start to finish. Not sure where to start? Click the button below and we'll guide you through step by step.",
-      afterCta1,
-      afterCta2,
-      `Watch your Spec come to life in your Memex: ${input.memexUrl}`,
+      p1,
+      p2,
+      ...p2lines.map((l) => `- ${l}`),
+      `${videoIntro} Watch it here: ${CONNECTED_INACTIVE_VIDEO_URL}`,
+      thenBring,
+      `"${prompt1}"`,
+      rollingIntro,
+      ...rollingPrompts.map((p) => `"${p}"`),
       stuck,
     ],
     url: input.createSpecUrl,
@@ -432,20 +579,35 @@ export function buildConnectedInactiveEmail(
   });
 
   const html = renderEmailHtml({
-    preheader: "Your Memex MCP is connected — create your first Spec.",
-    heading: "Your Memex MCP is connected. The hard part is done.",
+    preheader: "Memex is connected — one Spec turns it into output.",
+    // No headline — v2 leads with the greeting (spec-488 renderer supports this).
+    heading: "",
     bodyParagraphs: [
       escapeHtml(greeting),
-      "The next step is to create your first Spec. Bring an idea and we'll help you shape it, start to finish. Not sure where to start? Click the button below and we'll guide you through step by step.",
+      escapeHtml(p1),
+      escapeHtml(p2),
+      renderBulletList(p2lines),
+      escapeHtml(videoIntro),
+      renderVideoThumbnail({
+        videoUrl: CONNECTED_INACTIVE_VIDEO_URL,
+        thumb1xUrl: EMAIL_HOWTO_CREATE_SPEC.thumb1xUrl,
+        thumb2xUrl: EMAIL_HOWTO_CREATE_SPEC.thumb2xUrl,
+        alt: "Watch: how to create your first spec",
+      }),
+      renderVideoFallbackLine(CONNECTED_INACTIVE_VIDEO_URL),
+      escapeHtml(thenBring),
+      `<em>&ldquo;${escapeHtml(prompt1)}&rdquo;</em>`,
     ],
     ctaLabel: "Create a spec",
     ctaUrl: input.createSpecUrl,
     showPasteLink: false,
     afterCtaParagraphs: [
-      escapeHtml(afterCta1),
-      escapeHtml(afterCta2),
-      `Watch your Spec come to life in <a href="${escapeHtml(input.memexUrl)}" style="color:${BRAND_CORAL};">your Memex</a>.`,
-      escapeHtml(stuck),
+      escapeHtml(rollingIntro),
+      rollingPrompts.map((p) => `&ldquo;${escapeHtml(p)}&rdquo;`).join("<br>"),
+      escapeHtml(stuck).replace(
+        "#help",
+        `<a href="${DISCORD_INVITE_URL}" style="color:${BRAND_ACCENT};text-decoration:none;">#help</a>`,
+      ),
       ACTIVATION_SIGNOFF_HTML,
     ],
     resources: ACTIVATION_RESOURCES,
@@ -454,12 +616,15 @@ export function buildConnectedInactiveEmail(
 
   return {
     to: input.to,
-    subject: "Memex is connected. Here's what to do next.",
+    subject: "Connected, but the output has not changed yet",
     text,
     html,
-    // spec-427 ac-14 / dec-7: stable comms key — Slice B's dedup + two-per-cohort
-    // cap count this key in comms_log, never the subject line.
+    // spec-427 ac-14 / dec-7: stable comms key — dedup counts this key in comms_log,
+    // never the subject line. Unchanged from v1 (spec-487 keeps the key).
     commsType: "activation.connected_inactive",
+    // spec-487 dec-6 — the video link is a raw GCS mp4; Postmark click-tracking makes
+    // the utm_campaign attributable (same as the win-back).
+    trackLinks: true,
   };
 }
 
@@ -486,7 +651,7 @@ export function buildSignedInDormantEmail(
   // escaped string is safe; the plain-text body keeps "#help" as prose.
   const afterCtaHtml = escapeHtml(afterCtaText).replace(
     "#help",
-    `<a href="${DISCORD_INVITE_URL}" style="color:${BRAND_CORAL};text-decoration:none;">#help</a>`,
+    `<a href="${DISCORD_INVITE_URL}" style="color:${BRAND_ACCENT};text-decoration:none;">#help</a>`,
   );
 
   const steps: EmailStep[] = [
@@ -543,6 +708,154 @@ export function buildSignedInDormantEmail(
 }
 
 // ──────────────────────────────────────────────────────────────────────────
+// spec-480 — win-back email (single video-centric re-intro)
+// ──────────────────────────────────────────────────────────────────────────
+// One warm re-intro built around the clickable explainer-video thumbnail, sent
+// to the SINGLE `signed_in_dormant` cohort — verified, never connected an MCP,
+// no Spec (dec-9). The `connected_inactive` cohort is deliberately NOT a
+// recipient (its members have already connected, so this email's one CTA —
+// "Connect your agent" — would be nonsensical); it has its own Day-2 email (spec-487).
+// So there is ONE segment: one fixed stall-line, one CTA, no per-segment branch.
+//
+// PURE RENDER like the spec-427 builders: no cohort/timing/send/env logic. The
+// team-identity From + monitored Reply-To + broadcast stream + suppression are
+// applied at the send site by sendLifecycleEmail; commsType IS stamped here.
+//
+// The one intentional image in the lifecycle program: the video thumbnail
+// (dec-2 overturned spec-427's self-imposed "no imagery" rule for this image
+// only). It renders via the shared renderVideoThumbnail primitive injected into
+// bodyParagraphs, so the rest of the email stays the same table/inline-CSS,
+// image-free construct as the others.
+
+// spec-480 dec-6 — UTM on the video link so a click is attributable to THIS
+// email (vs the welcome email, spec-488, which links the same asset with
+// utm_campaign=welcome). Postmark link-tracking (t-4) records the click server-side.
+// spec-487 (t-3) — the win-back now carries the "connect the MCP + create a spec"
+// how-to video (replacing the "what is Memex" explainer, which stays on the welcome).
+// utm_campaign=winback keeps the click attributable to this email.
+const WINBACK_VIDEO_URL = `${EMAIL_HOWTO_CONNECT_MCP.videoUrl}?utm_source=lifecycle&utm_medium=email&utm_campaign=winback`;
+
+export interface WinbackEmailInput {
+  to: string;
+  /** Recipient's first name; absent/empty → a graceful "Hi there,". */
+  firstName?: string;
+  /**
+   * CTA "Connect your agent" target — the one-click desktop connect flow (dec-9).
+   * Derived at the send site (dec-8 / std-2 via buildAppBaseUrl), never a hardcoded
+   * host here. t-3 resolves what this concretely is (the desktop-app download at
+   * www.memex.ai/download is the current one-click MCP-setup path, spec-460).
+   */
+  connectUrl: string;
+}
+
+export function buildWinbackEmail(input: WinbackEmailInput): EmailMessage {
+  const name = input.firstName?.trim();
+  const greeting = name ? `Hi ${name},` : "Hi there,";
+
+  // spec-487 s-3 copy (the code is the canonical authoring source; s-3 mirrors it).
+  const p1 =
+    "Right now, your agent works from markdown files it interprets, skips, and fills in with its own assumptions. That is what drives the re-prompting and re-reviewing, and it only gets worse on brownfield code.";
+  // spec-487 formatting fix — merge the bridge intro into one line, then the three
+  // clauses each on their own line.
+  const bridge =
+    "Memex never touches your repo, but your coding agent does. So connecting the MCP makes your agent the bridge:";
+  const bridgeLines = [
+    "It reads your real codebase, and everything you decide gets grounded in it, in one place instead of scattered across threads and MD files.",
+    "Once connected, you start speccing against your actual code, not a blank page",
+    "The more decisions you settle upfront, the more your agent gets right first time.",
+  ];
+  const videoIntro =
+    "See it done in 3 minutes: a quick guide to connecting the MCP and creating your first spec.";
+  const connectIntro = "Connect your MCP & create a spec:";
+  const connectStep =
+    "To connect the MCP, open Settings then Integrations in Memex and copy the MCP connection prompt. Paste that into your coding agent and it wires up the MCP for you.";
+  const thenSpec = "Then create your first spec. Paste this in:";
+  const prompt1 =
+    "I want to create a new spec in Memex for [your idea or MD doc name]. Look at my codebase, and let's work through the major decisions and why we're building it.";
+  const rollingIntro = "Once you have a few specs, these are worth trying:";
+  const rollingPrompts = [
+    "What have we decided before that's similar to this?",
+    "Which decisions conflict with this spec?",
+    "Which existing specs make this one stronger?",
+    "What's outstanding before we build?",
+  ];
+  const needHand = "Need a hand? Reply here, or find us in #help on Discord.";
+
+  const text = renderEmailText({
+    intro: [
+      greeting,
+      p1,
+      bridge,
+      ...bridgeLines.map((l) => `- ${l}`),
+      `${videoIntro} Watch it here: ${WINBACK_VIDEO_URL}`,
+      connectIntro,
+      connectStep,
+      `${thenSpec} "${prompt1}"`,
+      rollingIntro,
+      ...rollingPrompts.map((p) => `"${p}"`),
+      needHand,
+    ],
+    url: input.connectUrl,
+    closing: ACTIVATION_SIGNOFF_TEXT,
+  });
+
+  const html = renderEmailHtml({
+    preheader: "Connect the MCP and your agent works from your real codebase, not markdown.",
+    // No headline — v2 leads with the greeting (spec-488 renderer supports this).
+    heading: "",
+    bodyParagraphs: [
+      escapeHtml(greeting),
+      escapeHtml(p1),
+      escapeHtml(bridge),
+      renderBulletList(bridgeLines),
+      escapeHtml(videoIntro),
+      renderVideoThumbnail({
+        videoUrl: WINBACK_VIDEO_URL,
+        thumb1xUrl: EMAIL_HOWTO_CONNECT_MCP.thumb1xUrl,
+        thumb2xUrl: EMAIL_HOWTO_CONNECT_MCP.thumb2xUrl,
+        alt: "Watch: how to connect the MCP and create a spec",
+      }),
+      renderVideoFallbackLine(WINBACK_VIDEO_URL),
+      `<strong>${escapeHtml(connectIntro)}</strong>`,
+      escapeHtml(connectStep),
+      `${escapeHtml(thenSpec)}<br><em>&ldquo;${escapeHtml(prompt1)}&rdquo;</em>`,
+    ],
+    ctaLabel: "Connect your agent",
+    ctaUrl: input.connectUrl,
+    showPasteLink: false,
+    afterCtaParagraphs: [
+      escapeHtml(rollingIntro),
+      rollingPrompts.map((p) => `&ldquo;${escapeHtml(p)}&rdquo;`).join("<br>"),
+      escapeHtml(needHand).replace(
+        "#help",
+        `<a href="${DISCORD_INVITE_URL}" style="color:${BRAND_ACCENT};text-decoration:none;">#help</a>`,
+      ),
+      ACTIVATION_SIGNOFF_HTML,
+    ],
+    resources: ACTIVATION_RESOURCES,
+    footerNote: ACTIVATION_FOOTER,
+  });
+
+  return {
+    to: input.to,
+    subject: "Ground your specs in your actual codebase",
+    text,
+    html,
+    // spec-480 dec-8 (re-resolved): the win-back REUSES the existing signed_in_dormant
+    // comms key — it IS that cohort's email now. Minting a new "activation.winback" key
+    // would have split the cross-repo comms-conversion contract (the metric is mirrored
+    // byte-for-byte in memex-backstage via comms-conversion.fixture.ts); reusing the key
+    // keeps that contract intact. Dedup (hasComm) + the activation-metrics join count THIS
+    // key. (Win-back vs welcome-video click attribution still separates via the UTM above.)
+    commsType: "activation.signed_in_dormant",
+    // spec-480 dec-6 (ac-11): enable Postmark click tracking so a thumbnail/fallback
+    // click on the raw-mp4 link is recorded (a GCS mp4 can't run JS; the UTM above only
+    // labels the tracked URL). Click tracking only — no open pixel.
+    trackLinks: true,
+  };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
 // spec-453 — "See it verified" + "Connect with people" (Slice A: pure render)
 // ──────────────────────────────────────────────────────────────────────────
 // Two more lifecycle touches in the same activation sequence as spec-427's two
@@ -573,42 +886,60 @@ export function buildVerifiedMilestoneEmail(
   input: VerifiedMilestoneEmailInput,
 ): EmailMessage {
   const greeting = activationGreeting(input.firstName);
-  const prove = "Your agent says it's done. Now you can prove it.";
-  const para1 =
-    'Every decision you resolved turned into tasks with acceptance criteria attached, the specific, testable conditions that define "done" for that piece of work. Your agent doesn\'t just write the code, it runs the checks against those criteria and reports back.';
-  const para2 =
-    'When they go green in CI, you\'re not taking its word for it. You\'re watching the proof. No re-reading a diff hoping it\'s right, no "looks fine to me." Green means what you decided actually got built, and it\'s been verified, not assumed.';
-  const loop =
-    "That's the loop, closed: spec, decision, build, proof. However far you've got, that's the moment it starts paying for itself.";
+  // spec-487 s-4 copy (copy-only rewrite, no video). Owned by spec-453 — coordinated.
+  const p1 =
+    "Congratulations. You just did something a markdown spec can never do: an acceptance criterion, verified in CI. It went green on its own, without you re-reading a diff and hoping the agent caught what mattered. That is proof that what you decided got built.";
+  const p2 = "Two ways to make that compound:";
+  // spec-487 formatting fix — the two moves each on their own line (dropped First/Second).
+  const compoundLines = [
+    "Run another Spec. Every one you finish makes the next faster, because your agents inherit what you have already decided.",
+    "Set up your standards. You already have rules written down in CLAUDE.md, AGENTS.md or your Cursor rules. Point your agent at them and paste this:",
+  ];
+  const prompt =
+    "Read my CLAUDE.md and AGENTS.md, create Memex standards from the rules in them, then rewrite the MD file as a contents page that tells my agents which Memex standard applies to what.";
+  const p5 =
+    "An agent skims an MD file once and forgets it. Memex makes it check the relevant standard on every task it claims, so your rules get followed instead of just written down.";
+  const needHand = "Questions? Reply here, or find us in #help on Discord.";
 
   const text = renderEmailText({
-    intro: [greeting, prove, para1, para2, loop],
+    intro: [greeting, p1, p2, ...compoundLines.map((l, i) => `${i + 1}. ${l}`), `"${prompt}"`, p5, needHand],
     url: input.appUrl,
     closing: ACTIVATION_SIGNOFF_TEXT,
   });
 
   const html = renderEmailHtml({
-    preheader: "Every acceptance criterion, checked in CI, before anyone calls it finished.",
-    heading: "Green means it's actually done",
+    preheader: "A green check a markdown spec could never give you — here's how to compound it.",
+    // No headline — v2 leads with the greeting (spec-488 renderer supports this).
+    heading: "",
     bodyParagraphs: [
       escapeHtml(greeting),
-      `<strong>${escapeHtml(prove)}</strong>`,
-      escapeHtml(para1),
-      escapeHtml(para2),
+      escapeHtml(p1),
+      `<strong>${escapeHtml(p2)}</strong>`,
+      renderNumberList(compoundLines),
+      `<em>&ldquo;${escapeHtml(prompt)}&rdquo;</em>`,
+      escapeHtml(p5),
     ],
     ctaLabel: "Go to Memex AI",
     ctaUrl: input.appUrl,
     showPasteLink: false,
-    afterCtaParagraphs: [escapeHtml(loop), ACTIVATION_SIGNOFF_HTML],
+    afterCtaParagraphs: [
+      escapeHtml(needHand).replace(
+        "#help",
+        `<a href="${DISCORD_INVITE_URL}" style="color:${BRAND_ACCENT};text-decoration:none;">#help</a>`,
+      ),
+      ACTIVATION_SIGNOFF_HTML,
+    ],
+    resources: ACTIVATION_RESOURCES,
     footerNote: ACTIVATION_FOOTER,
   });
 
   return {
     to: input.to,
-    subject: "Green means it's actually done",
+    subject: "Nice. A markdown spec could never give you that green check",
     text,
     html,
     // spec-453 dec-6: stable comms key — the trigger (t-2) dedups on THIS, never the subject.
+    // Unchanged by spec-487 (copy-only rewrite).
     commsType: "activation.verified_milestone",
   };
 }
@@ -623,6 +954,11 @@ export interface ConnectPeopleEmailInput {
 // pressure, point to the community. Pure render; the Day-12 select/dedup/send is
 // t-5, invoked by the shared scheduled endpoint (t-6). The only CTA is the confirmed
 // permanent Discord invite (dec-8). Copy mirrors s-3.
+// spec-487 (t-5) — the Day-12 how-to video, attributable via its own utm_campaign.
+const CONNECT_PEOPLE_VIDEO_URL = `${EMAIL_HOWTO_CONNECT_PEOPLE.videoUrl}?utm_source=lifecycle&utm_medium=email&utm_campaign=connect_people`;
+
+// spec-453 email; spec-487 t-5 adds the how-to video (clickable poster + fallback)
+// immediately before the "Join the Discord" CTA. Copy + subject are UNCHANGED.
 export function buildConnectPeopleEmail(
   input: ConnectPeopleEmailInput,
 ): EmailMessage {
@@ -636,7 +972,7 @@ export function buildConnectPeopleEmail(
     "This is the last of your onboarding emails, so I'll leave you to it. The door's always open whenever you want to pick things up.";
 
   const text = renderEmailText({
-    intro: [greeting, opener, para1, para2, last],
+    intro: [greeting, opener, para1, para2, `Watch it here: ${CONNECT_PEOPLE_VIDEO_URL}`, last],
     url: DISCORD_INVITE_URL,
     closing: ACTIVATION_SIGNOFF_TEXT,
   });
@@ -649,6 +985,14 @@ export function buildConnectPeopleEmail(
       `<strong>${escapeHtml(opener)}</strong>`,
       escapeHtml(para1),
       escapeHtml(para2),
+      // spec-487 t-5 — how-to video (poster + fallback), sits right before the CTA.
+      renderVideoThumbnail({
+        videoUrl: CONNECT_PEOPLE_VIDEO_URL,
+        thumb1xUrl: EMAIL_HOWTO_CONNECT_PEOPLE.thumb1xUrl,
+        thumb2xUrl: EMAIL_HOWTO_CONNECT_PEOPLE.thumb2xUrl,
+        alt: "Watch: how to connect with people",
+      }),
+      renderVideoFallbackLine(CONNECT_PEOPLE_VIDEO_URL),
     ],
     ctaLabel: "Join the Discord",
     ctaUrl: DISCORD_INVITE_URL,
@@ -662,8 +1006,10 @@ export function buildConnectPeopleEmail(
     subject: "You've run the loop. Don't run it alone.",
     text,
     html,
-    // spec-453 dec-6: stable comms key — the Day-12 pass (t-5) dedups on THIS.
+    // spec-453 dec-6: stable comms key — the Day-12 pass dedups on THIS. Unchanged.
     commsType: "activation.connect_people",
+    // spec-487 t-5 — Postmark click tracking for the video link's utm attribution.
+    trackLinks: true,
   };
 }
 

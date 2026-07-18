@@ -13,6 +13,7 @@ vi.mock("../comms-log.js", () => ({ recordEmailComm: vi.fn().mockResolvedValue(n
 import { PostmarkEmailSender, getEmailSender, setEmailSender } from "./sender.js";
 
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-427/acs/ac-${n}`;
+const AC480 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-480/acs/ac-${n}`;
 // Postmark's well-known sandbox token literal — accepts, returns 200, delivers nothing.
 const POSTMARK_TEST_TOKEN = "POSTMARK_API_TEST";
 
@@ -72,6 +73,25 @@ describe("PostmarkEmailSender — broadcast stream + List-Unsubscribe (ac-11)", 
     await sender.send({ to: "u@acme.test", subject: "Hi", text: "body" });
     const headers = (bodyOf(mock).Headers ?? []) as { Name: string }[];
     expect(headers.find((h) => h.Name === "List-Unsubscribe")).toBeUndefined();
+  });
+});
+
+describe("PostmarkEmailSender — click tracking (spec-480 ac-11)", () => {
+  it("sets TrackLinks=HtmlAndText when trackLinks is true (the win-back)", async () => {
+    tagAc(AC480(11));
+    const mock = captureFetch();
+    const sender = new PostmarkEmailSender("real-tok", "from", "broadcast-tok");
+    await sender.send({ to: "u@acme.test", subject: "Hi", text: "body", stream: "broadcast", trackLinks: true });
+    expect(bodyOf(mock).TrackLinks).toBe("HtmlAndText");
+  });
+
+  it("omits TrackLinks — and never TrackOpens/pixel — when trackLinks is not set", async () => {
+    tagAc(AC480(11));
+    const mock = captureFetch();
+    const sender = new PostmarkEmailSender("real-tok", "from", "broadcast-tok");
+    await sender.send({ to: "u@acme.test", subject: "Hi", text: "body", stream: "broadcast" });
+    expect(bodyOf(mock).TrackLinks).toBeUndefined();
+    expect(bodyOf(mock).TrackOpens).toBeUndefined(); // click tracking only, no open pixel
   });
 });
 

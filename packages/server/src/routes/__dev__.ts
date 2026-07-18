@@ -13,6 +13,10 @@ import {
   EMAIL_PREVIEW_SAMPLES,
   EMAIL_TEMPLATE_NAMES,
 } from "../services/email/preview-samples.js";
+import {
+  ONBOARDING_SEQUENCE,
+  PER_COHORT_CAP,
+} from "../services/email/send-conditions.js";
 import { getEmailSender } from "../services/email/sender.js";
 import type { UsageEnv } from "../services/usage-events.js";
 import type { SessionEnv } from "../middleware/session.js";
@@ -35,13 +39,35 @@ function escapeHtml(value: string): string {
     .replace(/>/g, "&gt;");
 }
 
-// GET /api/__dev__/email-preview/templates → JSON list of template names.
-// The React gallery (spec-226 t-6) consumes this to populate its picker, then
-// fetches each template's HTML below. JSON (not the HTML index) because the SPA
-// renders the picker itself; both are fetched via the token-carrying http client.
-devToolsRouter.get("/email-preview/templates", (c) =>
-  c.json({ templates: EMAIL_TEMPLATE_NAMES }),
-);
+// GET /api/__dev__/email-preview/templates → JSON metadata for every template.
+// The React gallery (spec-226 t-6) consumes this to populate its picker; spec-493
+// extends the payload from a flat string[] to one metadata object per template so the
+// gallery can lay out the onboarding emails as a timeline (dec-2). Each entry carries
+// `sequence`: the 5 onboarding emails are `true` (with their send-condition facts); every
+// other template is `false` and the gallery renders it in a flat grouped list. The
+// sequence facts come from send-conditions.ts, whose day/comms values are imported from
+// the send path (dec-1) so the timeline cannot silently disagree with what really sends.
+const ONBOARDING_BY_TEMPLATE = new Map(ONBOARDING_SEQUENCE.map((c) => [c.template, c]));
+
+devToolsRouter.get("/email-preview/templates", (c) => {
+  const templates = EMAIL_TEMPLATE_NAMES.map((name) => {
+    const cond = ONBOARDING_BY_TEMPLATE.get(name);
+    if (!cond) return { name, sequence: false as const };
+    return {
+      name,
+      sequence: true as const,
+      order: cond.order,
+      dayOffset: cond.dayOffset,
+      anchor: cond.anchor,
+      cohort: cond.cohort,
+      trigger: cond.trigger,
+      branch: cond.branch,
+      flagGated: cond.flagGated,
+      commsKey: cond.commsKey,
+    };
+  });
+  return c.json({ templates, perCohortCap: PER_COHORT_CAP });
+});
 
 // GET /api/__dev__/email-preview            → index of available templates
 // GET /api/__dev__/email-preview?template=X → rendered HTML for template X

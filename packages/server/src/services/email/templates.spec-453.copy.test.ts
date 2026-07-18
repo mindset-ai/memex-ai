@@ -7,22 +7,31 @@ import { tagAc } from "@memex-ai-ac/vitest";
 import { buildVerifiedMilestoneEmail, buildConnectPeopleEmail } from "./templates.js";
 
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-453/acs/ac-${n}`;
+// spec-487 t-4 rewrote the "See it verified" copy (s-4, copy-only — no video).
+const AC487 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-487/acs/ac-${n}`;
 
 describe('spec-453 "See it verified" copy', () => {
   const appUrl = "https://int.memex.ai/acme/personal/specs";
   const email = buildVerifiedMilestoneEmail({ to: "x@y.com", firstName: "Ada", appUrl });
 
-  it("renders the signed-off subject, preheader and core copy (text + html) [ac-5][ac-13]", () => {
+  it("renders the v2 (s-4) subject, preheader and core copy (text + html) [ac-5][ac-13][spec-487 ac-10]", () => {
     tagAc(AC(5));
     tagAc(AC(13));
-    expect(email.subject).toBe("Green means it's actually done");
-    // preheader lives in the HTML only
-    expect(email.html).toContain("Every acceptance criterion, checked in CI, before anyone calls it finished.");
+    tagAc(AC487(10));
+    expect(email.subject).toBe("Nice. A markdown spec could never give you that green check");
+    // preheader lives in the HTML only (apostrophe-free substring — it's escaped)
+    expect(email.html).toContain("A green check a markdown spec could never give you");
     for (const body of [email.text ?? "", email.html ?? ""]) {
-      expect(body).toContain("Now you can prove it");
-      expect(body).toContain("verified, not assumed");
-      expect(body).toContain("spec, decision, build, proof");
+      expect(body).toContain("a markdown spec can never do");
+      expect(body).toContain("Run another Spec");
+      expect(body).toContain("Set up your standards");
+      expect(body).toContain("check the relevant standard on every task");
     }
+    // no video (copy-only) and no repeated headline (leads with the greeting)
+    expect(email.html).not.toContain("<img");
+    expect(email.html).not.toContain("<h1");
+    // old copy gone
+    expect(email.html).not.toContain("Now you can prove it");
   });
 
   it("CTA is the generic Specs board (no deep-link), rendered with no imagery [ac-13][ac-5]", () => {
@@ -67,5 +76,25 @@ describe('spec-453 "Connect with people" copy', () => {
       expect(body).not.toContain("www.memex.ai/discord");
     }
     expect(email.commsType).toBe("activation.connect_people");
+  });
+
+  it("inserts the how-to video (poster + fallback) before the Join-the-Discord CTA, copy unchanged [spec-487 ac-6/ac-8/ac-7]", () => {
+    tagAc(AC487(6));
+    tagAc(AC487(8));
+    tagAc(AC487(7));
+    const html = email.html ?? "";
+    // exactly one image — the video poster — and no separate "Watch the 3-min guide" button
+    expect((html.match(/<img/g) ?? []).length).toBe(1);
+    expect(html).toContain("email-howto-connect-people-thumb-480.png");
+    expect(html).not.toContain("Watch the 3-min guide");
+    // the poster sits BEFORE the "Join the Discord" button
+    expect(html.indexOf("<img")).toBeLessThan(html.indexOf(">Join the Discord</a>"));
+    // image-blocked fallback + hosted mp4, never a Drive link (ac-7)
+    expect(html).toContain("Can't see the video above?");
+    expect(html).toContain("storage.googleapis.com/memex-ai-prod-app-static/media/email-howto-connect-people.mp4");
+    expect(html).not.toContain("drive.google.com");
+    // subject + existing copy unchanged (ac-6)
+    expect(email.subject).toBe("You've run the loop. Don't run it alone.");
+    expect(html).toContain("last of your onboarding emails");
   });
 });

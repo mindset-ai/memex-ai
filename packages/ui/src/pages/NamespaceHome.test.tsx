@@ -4,11 +4,20 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
 const listMyNamespacesApi = vi.hoisted(() => vi.fn());
 const getNamespaceHomeApi = vi.hoisted(() => vi.fn());
+const resolveTenantRedirectApi = vi.hoisted(() => vi.fn());
 
 vi.mock('../api/client', () => ({
   listMyNamespacesApi,
   getNamespaceHomeApi,
+  resolveTenantRedirectApi,
 }));
+
+const navigate = vi.hoisted(() => vi.fn());
+vi.mock('react-router-dom', async () => {
+  const actual =
+    await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
+  return { ...actual, useNavigate: () => navigate };
+});
 
 vi.mock('../components/AuthContext', () => ({
   useAuth: () => ({ token: 'fake', session: { user: { id: 'u-1' } } }),
@@ -38,6 +47,9 @@ describe('NamespaceHome', () => {
   beforeEach(() => {
     listMyNamespacesApi.mockReset();
     getNamespaceHomeApi.mockReset();
+    resolveTenantRedirectApi.mockReset();
+    resolveTenantRedirectApi.mockResolvedValue(null); // default: no redirect
+    navigate.mockReset();
   });
   afterEach(() => vi.restoreAllMocks());
 
@@ -96,11 +108,24 @@ describe('NamespaceHome', () => {
     expect(screen.getByRole('button', { name: /Create an Org/ })).toBeInTheDocument();
   });
 
-  it('shows an error when the namespace is not in the picker list', async () => {
+  it('shows not-found when the namespace is missing and has no redirect', async () => {
     listMyNamespacesApi.mockResolvedValue([]);
     renderAt('/missing');
     await waitFor(() =>
-      expect(screen.getByText(/Failed to load namespace/)).toBeInTheDocument(),
+      expect(screen.getByText('Namespace not found')).toBeInTheDocument(),
     );
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('forwards a bare stale namespace home to the renamed slug (spec-481 ac-2)', async () => {
+    // The slug isn't in the caller's list (renamed away), but the redirect
+    // layer resolves it → the bare home forwards instead of dead-ending.
+    listMyNamespacesApi.mockResolvedValue([]);
+    resolveTenantRedirectApi.mockResolvedValue('/new-ns');
+    renderAt('/old-ns');
+    await waitFor(() =>
+      expect(navigate).toHaveBeenCalledWith('/new-ns', { replace: true }),
+    );
+    expect(screen.queryByText('Namespace not found')).toBeNull();
   });
 });

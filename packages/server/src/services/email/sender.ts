@@ -34,6 +34,14 @@ export interface EmailMessage {
   // in the URL is issued by t-4).
   stream?: string;
   listUnsubscribeUrl?: string;
+  // spec-480 dec-6 (ac-11) — enable Postmark click tracking for this message. When true,
+  // Postmark rewrites the HTML+text links through its redirect so a click fires a `Click`
+  // webhook event (recorded in comms_log via the spec-341 webhook), the only way to
+  // attribute a click on a raw-mp4/GCS link (which can't run JS). Absent → no rewriting
+  // (the default for every other email — links stay pristine). NB: this is click tracking
+  // ONLY, not open tracking — no invisible pixel is injected, keeping the email's single
+  // intentional image (the thumbnail) the only image.
+  trackLinks?: boolean;
 }
 
 // The transactional stream every existing email rides. A message with no `stream`
@@ -106,6 +114,8 @@ export class PostmarkEmailSender implements EmailSender {
         ...(message.html ? { HtmlBody: message.html } : {}),
         ...(message.replyTo ? { ReplyTo: message.replyTo } : {}),
         ...(headers ? { Headers: headers } : {}),
+        // spec-480 dec-6 (ac-11): click tracking only (never TrackOpens — no pixel).
+        ...(message.trackLinks ? { TrackLinks: "HtmlAndText" } : {}),
         MessageStream: stream,
       }),
     });

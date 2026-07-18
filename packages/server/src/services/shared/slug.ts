@@ -4,7 +4,7 @@
 // and the rename cooldown are all centralised here so the route layer, the DB
 // CHECK constraint, and the t-1 e2e spec stay in sync.
 
-import { eq, lt } from "drizzle-orm";
+import { eq, lt, sql } from "drizzle-orm";
 import { db } from "../../db/connection.js";
 import { namespaces, namespaceSlugReservations } from "../../db/schema.js";
 
@@ -90,6 +90,18 @@ export async function isSlugAvailable(slug: string): Promise<boolean> {
     where: eq(namespaceSlugReservations.slug, normalized),
   });
   if (reserved && reserved.reservedUntil > now) return false;
+
+  // spec-481 D-2 reuse-guard: a slug that a rename points AWAY from (the
+  // old_path of a live redirect) must stay unavailable even after its 30-day
+  // reservation lapses — otherwise a reborn namespace would shadow the permanent
+  // redirect under direct-first resolution (std-10 cl-91) and silently
+  // mis-route old links. Mirrors spec-479 D-4's isRedirectSource; inlined here
+  // to avoid a shared/ → services/redirects import cycle.
+  const redirected = (await db.execute(
+    sql`SELECT 1 FROM redirects WHERE old_path = ${normalized} LIMIT 1`,
+  )) as unknown as unknown[];
+  if (redirected.length > 0) return false;
+
   return true;
 }
 

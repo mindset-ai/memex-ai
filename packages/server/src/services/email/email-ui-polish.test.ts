@@ -22,7 +22,7 @@ import {
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-451/acs/ac-${n}`;
 
 // Brand colours (mirror templates.ts).
-const CORAL = "#FC4F64";
+const CORAL = "#0482DC";
 const INK = "#0E1128";
 const SKY = "#0C9FE3";
 const MONO_MARKER = "'SF Mono'"; // MONO_STACK signature
@@ -65,20 +65,32 @@ describe("spec-451 — eyebrow removed everywhere (ac-1, ac-6)", () => {
     tagAc(AC(6));
     for (const [, msg] of activation) {
       expect(msg.html!).not.toContain(EYEBROW_MARKER);
-      expect(msg.html!).toMatch(/>Memex AI<\/div>\s*<h1/);
     }
+    // signed-in-dormant (unchanged spec-427 builder) still leads with an <h1>.
+    expect(signedIn.html!).toMatch(/>Memex AI<\/div>\s*<h1/);
+    // spec-488 (welcome) + spec-487 (connected-inactive v2) carry no headline — the
+    // wordmark is followed straight by the first body paragraph (the greeting), not an <h1>.
+    expect(welcome.html!).toMatch(/>Memex AI<\/div>\s*<p[^>]*>Hi Ada,/);
+    expect(connected.html!).toMatch(/>Memex AI<\/div>\s*<p[^>]*>Hi Ada,/);
   });
 });
 
 describe("spec-451 — single-colour dark wordmark (ac-2)", () => {
   it("the .AI wordmark renders in dark ink, not coral, as live text (no img/svg)", () => {
     tagAc(AC(2));
-    for (const [, msg] of [...eyebrowed, ...activation]) {
+    for (const [name, msg] of [...eyebrowed, ...activation]) {
       const html = msg.html!;
+      // the wordmark is live text in dark ink, never coral, never an image
       expect(html).toContain(`color:${INK};">Memex AI</div>`);
       expect(html).not.toContain(`color:${CORAL};">Memex AI</div>`);
-      expect(html).not.toContain("<img");
-      expect(html).not.toContain("<svg");
+      // The welcome v2 (spec-488) and the connected-inactive v2 (spec-487) now carry a
+      // video thumbnail <img>; the wordmark itself is still text. Only the wordmark's
+      // image-freeness is asserted for those two — the "no imagery anywhere" check holds
+      // for the emails that remain image-free.
+      if (name !== "welcome" && name !== "connected") {
+        expect(html).not.toContain("<img");
+        expect(html).not.toContain("<svg");
+      }
     }
   });
 });
@@ -96,12 +108,12 @@ describe("spec-451 — spacing between wordmark and headline (ac-3, ac-8)", () =
 
 describe("spec-451 — step labels restyled, '// Step N' kept (ac-4, ac-7, ac-8)", () => {
   const stepsHtml = renderSteps([{ label: "// Step 1", title: "Connect", body: "Body." }]);
-  it("label is body-font, bold, coral — not blue mono — and keeps the '// ' prefix", () => {
+  it("label is body-font, bold, accent #0482DC — not the old blue mono — and keeps the '// ' prefix", () => {
     tagAc(AC(4));
     tagAc(AC(7));
     // The "// Step 1" text is retained.
     expect(stepsHtml).toContain("// Step 1");
-    // Restyled: coral + bold, no longer blue mono / eyebrow letter-spacing.
+    // Restyled: accent #0482DC + bold, no longer blue mono / eyebrow letter-spacing.
     expect(stepsHtml).toContain(`color:${CORAL}`);
     expect(stepsHtml).toContain("font-weight:700");
     expect(stepsHtml).not.toContain(SKY);

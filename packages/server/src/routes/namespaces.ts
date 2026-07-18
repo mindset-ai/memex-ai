@@ -24,6 +24,7 @@ import {
   MemexCreationError,
 } from "../services/memexes.js";
 import { isSlugAvailable, validateSlugFormat } from "../services/shared/slug.js";
+import { isRedirectSource } from "../services/redirects.js";
 import { ConflictError, ValidationError } from "../types/errors.js";
 
 export const namespacesRouter = new Hono<SessionEnv>();
@@ -41,7 +42,13 @@ namespacesRouter.get("/check", async (c) => {
   }
   const available = await isSlugAvailable(slug);
   if (!available) {
-    return c.json({ available: false, reason: "taken" });
+    // Distinguish a slug freed by a rename (still held by a live, permanent
+    // redirect — spec-481 D-2) from one that's actively taken/reserved, so the
+    // rename UI can explain WHY the freed slug is blocked. Parity with the
+    // memex slug check (spec-479). Extra query only on the unavailable branch;
+    // old_path is the redirects PK, so it's an index hit.
+    const redirected = await isRedirectSource(slug);
+    return c.json({ available: false, reason: redirected ? "redirected" : "taken" });
   }
   return c.json({ available: true });
 });
@@ -57,11 +64,12 @@ namespacesRouter.patch("/:id/slug", async (c) => {
     return c.json({ error: "slug is required" }, 400);
   }
   try {
-    const updated = await renameNamespaceSlug({
-      namespaceId,
-      newSlug: body.slug,
-      userId: user.id,
-    });
+    const updated = await renameNamespaceSlug(
+      { namespaceId, newSlug: body.slug, userId: user.id },
+      // std-32: stamp WHO + HOW so the mutation isn't a channel-less attribution
+      // defect on the activity bus. Mirrors the memex-rename route (spec-479).
+      { channel: "rest_ui", actorUserId: user.id },
+    );
     return c.json({ namespace: updated });
   } catch (err) {
     if (err instanceof ValidationError) {
