@@ -23,8 +23,8 @@ describe('spec-453 "See it verified" copy', () => {
     expect(email.html).toContain("A green check a markdown spec could never give you");
     for (const body of [email.text ?? "", email.html ?? ""]) {
       expect(body).toContain("a markdown spec can never do");
-      expect(body).toContain("run another Spec");
-      expect(body).toContain("set up your standards");
+      expect(body).toContain("Run another Spec");
+      expect(body).toContain("Set up your standards");
       expect(body).toContain("check the relevant standard on every task");
     }
     // no video (copy-only) and no repeated headline (leads with the greeting)
