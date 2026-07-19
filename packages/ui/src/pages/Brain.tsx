@@ -11,10 +11,11 @@
 // seams. Colour = entity type, rose = open drift (dec-2); semantic-similarity
 // edges are deliberately absent (dec-3).
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { fetchKnowledgeGraph, type KnowledgeGraphData } from '../api/insights';
 import { tenantPath } from '../utils/tenantUrl';
+import { timeAgo } from '../utils/timeAgo';
 import { PageHeader } from '../components/PageHeader';
 import { useThemeName } from '../components/ThemeContext';
 import {
@@ -33,6 +34,20 @@ interface FocusState {
   title: string;
   detail: string;
   href: string | null;
+}
+
+// One open drift, enriched for the drift tour (the next/prev walk through every
+// open drift). A drift IS the rose edge from a decision to the standard it
+// contradicts; `href` deep-links to THAT item in the Drift Inbox.
+interface DriftStep {
+  commentId: string;
+  href: string;
+  decisionId: string;
+  decisionHandle: string;
+  decisionTitle: string;
+  standardHandle: string;
+  standardTitle: string;
+  openedAt: string;
 }
 
 /** The e2e observation hook's window shape (the spec-496 t-5 pattern). */
@@ -61,6 +76,9 @@ export function Brain() {
   const [error, setError] = useState<string | null>(null);
   const [focus, setFocus] = useState<FocusState | null>(null);
   const [focusDepth, setFocusDepth] = useState<1 | 2>(1);
+  // The drift tour position — null when not touring. Mutually exclusive with
+  // `focus`: starting a drift step clears node/discipline focus and vice versa.
+  const [driftIndex, setDriftIndex] = useState<number | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<{
     sourceHandle: string;
     targetHandle: string;
@@ -103,6 +121,49 @@ export function Brain() {
     return m;
   }, [graph]);
 
+  // Every open drift, enriched with its endpoints and ordered oldest-first — the
+  // ordered list the drift tour steps through. Drifts whose decision or standard
+  // fell outside the payload are skipped (mirrors the model's edge guard).
+  const openDrifts = useMemo<DriftStep[]>(() => {
+    if (!graph) return [];
+    const decById = new Map(graph.nodes.decisions.map((d) => [d.id, d]));
+    const stdById = new Map(graph.nodes.standards.map((s) => [s.docId, s]));
+    return graph.edges.drift
+      .map((e): DriftStep | null => {
+        const dec = decById.get(e.decisionId);
+        const std = stdById.get(e.standardDocId);
+        if (!dec || !std) return null;
+        return {
+          commentId: e.commentId,
+          href: `/drift?doc=${std.handle}&drift=${e.commentId}`,
+          decisionId: e.decisionId,
+          decisionHandle: dec.handle,
+          decisionTitle: dec.title,
+          standardHandle: std.handle,
+          standardTitle: std.title,
+          openedAt: e.openedAt,
+        };
+      })
+      .filter((d): d is DriftStep => d !== null)
+      .sort((a, b) => a.openedAt.localeCompare(b.openedAt));
+  }, [graph]);
+
+  // Step the drift tour to `idx` (wrapping), pin+glide the camera to the
+  // drifting decision so its rose edge to the contradicted standard is the hero
+  // of the frame, and clear any node/discipline focus (mutually exclusive).
+  const goToDrift = useCallback(
+    (idx: number) => {
+      const n = openDrifts.length;
+      if (n === 0) return;
+      const clamped = ((idx % n) + n) % n;
+      setFocus(null);
+      setSelectedEdge(null);
+      setDriftIndex(clamped);
+      rendererRef.current?.frameFocus(openDrifts[clamped].decisionId, focusDepth);
+    },
+    [openDrifts, focusDepth],
+  );
+
   // Mount the engine on first data; later fetches (filter flips) and theme
   // changes go through setGraph/setPalette so node positions survive.
   useEffect(() => {
@@ -122,6 +183,7 @@ export function Brain() {
       {
         onNodeFocus: (node: SimNode) => {
           const b = node as BrainNode;
+          setDriftIndex(null); // a node click leaves the drift tour
           setFocus({
             id: b.id,
             kind: b.kind,
@@ -151,7 +213,10 @@ export function Brain() {
             evidence: b.evidence,
           });
         },
-        onBackgroundClick: () => setFocus(null),
+        onBackgroundClick: () => {
+          setFocus(null);
+          setDriftIndex(null);
+        },
       },
       { reducedMotion },
     );
@@ -180,19 +245,42 @@ export function Brain() {
     };
   }, []);
 
+  // The graph highlight follows whichever mode is active: a drift step pins the
+  // drifting decision (so its rose edge stands out); otherwise the node /
+  // discipline focus. They're mutually exclusive, so one derived id drives both.
+  const highlightId =
+    driftIndex !== null ? openDrifts[driftIndex]?.decisionId ?? null : focus?.id ?? null;
+  const currentDrift = driftIndex !== null ? openDrifts[driftIndex] ?? null : null;
+
   useEffect(() => {
-    rendererRef.current?.setFocus(focus?.id ?? null, focusDepth);
-    if (!focus) return;
+    rendererRef.current?.setFocus(highlightId, focusDepth);
+  }, [highlightId, focusDepth]);
+
+  // Keyboard while focused or touring: Escape exits; ← / → step the drift tour
+  // (ignored while a form control is focused so the discipline <select> keeps
+  // its native arrow behaviour).
+  useEffect(() => {
+    if (!focus && driftIndex === null) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setFocus(null);
+      if (e.key === 'Escape') {
+        setFocus(null);
+        setDriftIndex(null);
+        return;
+      }
+      if (driftIndex === null) return;
+      const el = e.target as HTMLElement | null;
+      if (el && ['SELECT', 'INPUT', 'TEXTAREA'].includes(el.tagName)) return;
+      if (e.key === 'ArrowRight') goToDrift(driftIndex + 1);
+      else if (e.key === 'ArrowLeft') goToDrift(driftIndex - 1);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [focus, focusDepth]);
+  }, [focus, driftIndex, goToDrift]);
 
   // dec-7: selecting a discipline runs the exact single-click focus path —
   // same FocusState, same renderer projection — plus a camera glide to it.
   const focusDiscipline = (key: string) => {
+    setDriftIndex(null); // selecting a discipline leaves the drift tour
     if (!key) {
       setFocus(null);
       return;
@@ -207,7 +295,9 @@ export function Brain() {
       detail: node.detail,
       href: node.href,
     });
-    rendererRef.current?.centerOn(node.id);
+    // Glide-zoom the camera to frame the discipline + its related nodes (dec-7).
+    // Uses the same neighbourhood depth the highlight will apply.
+    rendererRef.current?.frameFocus(node.id, focusDepth);
   };
 
   const shownDecisions = graph?.nodes.decisions.length ?? 0;
@@ -229,8 +319,60 @@ export function Brain() {
       <PageHeader
         title="Brain"
         actions={
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted" data-testid="brain-decision-count">
+          <div className="flex items-center gap-3">
+            {/* Drift navigator (the headline objective): step through every open
+                drift, each glide-framed so its rose edge to the contradicted
+                standard is unmissable. Idle → an entry pill; touring → ‹ i/N ›. */}
+            {openDrifts.length > 0 &&
+              (driftIndex === null ? (
+                <button
+                  type="button"
+                  onClick={() => goToDrift(0)}
+                  className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md border border-status-danger-border bg-status-danger-bg text-status-danger-text font-medium cursor-pointer hover:brightness-110 whitespace-nowrap"
+                  data-testid="brain-drift-nav"
+                  title="Step through open drift — see how each contradicts a standard"
+                >
+                  <span aria-hidden>⚠</span>
+                  {openDrifts.length} open drift
+                </button>
+              ) : (
+                <div
+                  className="inline-flex items-center rounded-md border border-status-danger-border bg-status-danger-bg text-status-danger-text overflow-hidden"
+                  role="group"
+                  aria-label="Drift navigator"
+                  data-testid="brain-drift-nav"
+                >
+                  <button
+                    type="button"
+                    onClick={() => goToDrift(driftIndex - 1)}
+                    className="px-2 py-1.5 text-sm leading-none cursor-pointer hover:brightness-110"
+                    aria-label="Previous drift"
+                    data-testid="brain-drift-prev"
+                  >
+                    ‹
+                  </button>
+                  <span
+                    className="px-1.5 py-1.5 text-xs font-medium whitespace-nowrap"
+                    data-testid="brain-drift-position"
+                  >
+                    Drift {driftIndex + 1} / {openDrifts.length}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => goToDrift(driftIndex + 1)}
+                    className="px-2 py-1.5 text-sm leading-none cursor-pointer hover:brightness-110"
+                    aria-label="Next drift"
+                    data-testid="brain-drift-next"
+                  >
+                    ›
+                  </button>
+                </div>
+              ))}
+            <span
+              className="text-xs text-muted whitespace-nowrap"
+              title="Resolved decisions shown on the map — unresolved decisions are hidden"
+              data-testid="brain-decision-count"
+            >
               {shownDecisions} of {totalDecisions} decision{totalDecisions === 1 ? '' : 's'}
               {graph?.meta.truncated ? ' (truncated)' : ''}
             </span>
@@ -238,7 +380,7 @@ export function Brain() {
               value={focus?.kind === 'facet' ? focus.handle : ''}
               onChange={(e) => focusDiscipline(e.target.value)}
               aria-label="Focus a discipline"
-              className="text-xs px-2 py-1.5 rounded-sm border border-edge bg-transparent text-secondary focus:outline-hidden focus:border-edge-strong"
+              className="text-xs px-2.5 py-1.5 rounded-md border border-edge bg-transparent text-secondary cursor-pointer hover:border-edge-strong focus:outline-hidden focus:border-edge-strong"
               data-testid="brain-discipline-select"
             >
               <option value="">Focus a discipline…</option>
@@ -350,28 +492,33 @@ export function Brain() {
                 {focus.detail}
               </div>
               <div className="flex items-center justify-between gap-3">
-                <div
-                  className="inline-flex rounded-md border border-edge overflow-hidden"
-                  data-testid="brain-focus-depth-chip"
-                  role="group"
-                  aria-label="Focus depth"
-                >
-                  {([1, 2] as const).map((d) => (
-                    <button
-                      key={d}
-                      type="button"
-                      data-testid={`brain-focus-depth-${d}`}
-                      aria-pressed={focusDepth === d}
-                      className={`px-2 py-0.5 text-xs ${
-                        focusDepth === d
-                          ? 'bg-accent/15 text-heading font-medium'
-                          : 'text-secondary hover:text-heading'
-                      }`}
-                      onClick={() => setFocusDepth(d)}
-                    >
-                      {d}
-                    </button>
-                  ))}
+                <div className="inline-flex items-center gap-1.5">
+                  {/* "Depth" labels the otherwise-cryptic 1│2 toggle: how many hops
+                      out from the focused node stay highlighted (1 = direct, 2 = two). */}
+                  <span className="text-xs text-muted select-none">Depth</span>
+                  <div
+                    className="inline-flex rounded-md border border-edge overflow-hidden"
+                    data-testid="brain-focus-depth-chip"
+                    role="group"
+                    aria-label="Focus depth"
+                  >
+                    {([1, 2] as const).map((d) => (
+                      <button
+                        key={d}
+                        type="button"
+                        data-testid={`brain-focus-depth-${d}`}
+                        aria-pressed={focusDepth === d}
+                        className={`px-2 py-0.5 text-xs ${
+                          focusDepth === d
+                            ? 'bg-accent/15 text-heading font-medium'
+                            : 'text-secondary hover:text-heading'
+                        }`}
+                        onClick={() => setFocusDepth(d)}
+                      >
+                        {d}
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 {focus.href && (
                   <button
@@ -383,6 +530,55 @@ export function Brain() {
                     Open {KIND_LABELS[focus.kind].toLowerCase()} →
                   </button>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* The drift card (shown while touring) — a drift is a RELATIONSHIP, so
+              it reads "decision ✗ contradicts standard", with the click-through to
+              THAT exact drift item (not just the standard's inbox). */}
+          {currentDrift && (
+            <div
+              className="absolute top-3 left-3 z-10 max-w-xs bg-panel border border-status-danger-border rounded-lg shadow-lg p-3"
+              data-testid="brain-drift-card"
+            >
+              <div className="flex items-center justify-between gap-3 mb-2">
+                <span className="uppercase tracking-wide text-[10px] font-medium text-status-danger-text">
+                  Drift {(driftIndex ?? 0) + 1} of {openDrifts.length}
+                </span>
+                <button
+                  type="button"
+                  className="text-xs text-secondary hover:text-heading shrink-0"
+                  onClick={() => setDriftIndex(null)}
+                  aria-label="Exit drift tour"
+                  data-testid="brain-drift-close"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="text-xs space-y-1">
+                <div className="flex items-baseline gap-1.5">
+                  <span className="font-mono text-muted shrink-0">{currentDrift.decisionHandle}</span>
+                  <span className="truncate">{currentDrift.decisionTitle}</span>
+                </div>
+                <div className="text-[11px] font-medium text-status-danger-text">✗ contradicts</div>
+                <div className="flex items-baseline gap-1.5">
+                  <span className="font-mono text-muted shrink-0">{currentDrift.standardHandle}</span>
+                  <span className="truncate">{currentDrift.standardTitle}</span>
+                </div>
+              </div>
+              <div className="flex items-center justify-between gap-3 mt-2">
+                <span className="text-[11px] text-muted whitespace-nowrap">
+                  opened {timeAgo(currentDrift.openedAt)}
+                </span>
+                <button
+                  type="button"
+                  className="text-xs font-medium text-accent hover:underline shrink-0"
+                  onClick={() => navigateRef.current(tenantPath(currentDrift.href))}
+                  data-testid="brain-drift-open"
+                >
+                  Open drift →
+                </button>
               </div>
             </div>
           )}

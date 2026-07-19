@@ -238,11 +238,12 @@ describe('colour encoding (dec-2)', () => {
     expect(byId.get('d-bad')!.color).toBe(PALETTE.drift);
     expect(byId.get('d-bad')!.drifted).toBe(true);
     // The drift edge is the only colour-overridden link, in rose, and wider —
-    // and it carries the Drift-Inbox deep link for its drifted standard (ac-15).
+    // and it carries the Drift-Inbox deep link to THAT drift item: the standard
+    // filter (?doc=std-2) plus the specific comment (&drift=c-1) (ac-15).
     const drift = links.find((l) => l.rel === 'drift')!;
     expect(drift.color).toBe(PALETTE.drift);
     expect(drift.width).toBeGreaterThan(1);
-    expect(drift.href).toBe('/drift?doc=std-2');
+    expect(drift.href).toBe('/drift?doc=std-2&drift=c-1');
     for (const l of links) {
       if (l.rel !== 'drift') {
         expect(l.color).toBeUndefined();
@@ -272,7 +273,7 @@ const rendererInstances = vi.hoisted(
       options: RendererOptions;
       setGraph: ReturnType<typeof vi.fn>;
       setFocus: ReturnType<typeof vi.fn>;
-      centerOn: ReturnType<typeof vi.fn>;
+      frameFocus: ReturnType<typeof vi.fn>;
     }>,
 );
 
@@ -284,7 +285,7 @@ vi.mock('../components/standards-map/renderer', () => ({
     setGraph = vi.fn();
     setSearch = vi.fn();
     setPalette = vi.fn();
-    centerOn = vi.fn();
+    frameFocus = vi.fn();
     nodeScreenPosition = vi.fn().mockReturnValue(null);
     nodeFill = vi.fn().mockReturnValue(null);
     constructor(
@@ -421,7 +422,8 @@ describe('Brain page shell', () => {
     expect(card.textContent).toContain('Discipline');
     expect(card.textContent).toContain('Security');
     await waitFor(() => expect(renderer.setFocus).toHaveBeenCalledWith('f-sec', 1));
-    expect(renderer.centerOn).toHaveBeenCalledWith('f-sec');
+    // The selector glide-zooms to frame the discipline + its neighbourhood (depth 1).
+    expect(renderer.frameFocus).toHaveBeenCalledWith('f-sec', 1);
     expect(select.value).toBe('security');
 
     // Escape clears focus AND returns the selector to its placeholder.
@@ -473,7 +475,7 @@ describe('Brain page shell', () => {
     expect(screen.queryByTestId('brain-focus-open')).toBeNull();
   });
 
-  it('clicking a drift edge lands in the Drift Inbox filtered to the drifted standard', async () => {
+  it('clicking a drift edge lands on THAT drift item in the Drift Inbox', async () => {
     tagAc(AC_DRIFT_INBOX);
     tagAc(AC_SCOPE_DRIFT_RED);
     const renderer = await renderBrain();
@@ -485,14 +487,77 @@ describe('Brain page shell', () => {
       width: 1.6,
       rel: 'drift' as const,
       color: PALETTE.drift,
-      href: '/drift?doc=std-2',
+      href: '/drift?doc=std-2&drift=c-1',
     };
     act(() => renderer.callbacks.onEdgeClick(driftLink));
     await waitFor(() =>
-      expect(screen.getByTestId('location').textContent).toBe('/acme/team/drift?doc=std-2'),
+      expect(screen.getByTestId('location').textContent).toBe(
+        '/acme/team/drift?doc=std-2&drift=c-1',
+      ),
     );
     // No evidence panel opens for a drift edge — the inbox IS the detail view.
     expect(screen.queryByTestId('brain-edge-evidence')).toBeNull();
+  });
+
+  it('drift tour: the navigator frames each open drift and the card deep-links to THAT item', async () => {
+    tagAc(AC_SCOPE_DRIFT_RED);
+    tagAc(AC_SCOPE_CLICK_THROUGH);
+    tagAc(AC_DRIFT_INBOX);
+    const renderer = await renderBrain();
+
+    // The navigator headlines the open-drift count; no card until the tour starts.
+    const nav = screen.getByTestId('brain-drift-nav');
+    expect(nav.textContent).toContain('1 open drift');
+    expect(screen.queryByTestId('brain-drift-card')).toBeNull();
+
+    // Starting the tour frames + pins the drifting DECISION (so its rose edge to
+    // the contradicted standard is the hero) and opens the drift card.
+    fireEvent.click(nav);
+    await waitFor(() => expect(renderer.frameFocus).toHaveBeenCalledWith('d-bad', 1));
+    expect(renderer.setFocus).toHaveBeenCalledWith('d-bad', 1);
+
+    // The card reads as a relationship: decision ✗ contradicts standard.
+    const card = screen.getByTestId('brain-drift-card');
+    expect(card.textContent).toContain('Drift 1 of 1');
+    expect(card.textContent).toContain('dec-2');
+    expect(card.textContent).toContain('A drifting decision');
+    expect(card.textContent).toContain('contradicts');
+    expect(card.textContent).toContain('std-2');
+    expect(card.textContent).toContain('Drifted standard');
+    expect(screen.getByTestId('brain-drift-position').textContent).toContain('Drift 1 / 1');
+
+    // Open drift → lands on THAT exact item: standard filter + specific comment.
+    fireEvent.click(screen.getByTestId('brain-drift-open'));
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe('/acme/team/drift?doc=std-2&drift=c-1'),
+    );
+  });
+
+  it('drift tour: stepper + arrow keys re-frame, ✕ exits, and a discipline select leaves the tour', async () => {
+    tagAc(AC_SCOPE_DRIFT_RED);
+    const renderer = await renderBrain();
+    fireEvent.click(screen.getByTestId('brain-drift-nav'));
+    expect(screen.getByTestId('brain-drift-card')).toBeTruthy();
+
+    // Next button and → key both re-frame (a single drift wraps to itself).
+    renderer.frameFocus.mockClear();
+    fireEvent.click(screen.getByTestId('brain-drift-next'));
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    expect(renderer.frameFocus).toHaveBeenCalledWith('d-bad', 1);
+    expect(renderer.frameFocus).toHaveBeenCalledTimes(2);
+
+    // ✕ exits the tour → card gone, navigator back to its entry pill.
+    fireEvent.click(screen.getByTestId('brain-drift-close'));
+    expect(screen.queryByTestId('brain-drift-card')).toBeNull();
+    expect(screen.getByTestId('brain-drift-nav').textContent).toContain('1 open drift');
+
+    // Selecting a discipline while touring leaves the tour (mutually exclusive).
+    fireEvent.click(screen.getByTestId('brain-drift-nav'));
+    fireEvent.change(screen.getByTestId('brain-discipline-select'), {
+      target: { value: 'security' },
+    });
+    expect(screen.queryByTestId('brain-drift-card')).toBeNull();
+    expect(screen.getByTestId('brain-focus-card')).toBeTruthy();
   });
 
   it('an empty vault explains itself instead of rendering a blank canvas', async () => {

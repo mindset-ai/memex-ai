@@ -68,6 +68,10 @@ export interface RendererOptions {
 
 const MIN_ZOOM = 0.2;
 const MAX_ZOOM = 4;
+// spec-498 dec-7: the ceiling the discipline selector zooms to when it frames a
+// focus neighbourhood — kept well under MAX_ZOOM so a lone node (no neighbours)
+// glides to a comfortable close-up instead of slamming to full zoom.
+const FOCUS_MAX_ZOOM = 2.2;
 /** Pointer movement (px) below which a node pointerup counts as a click. */
 const CLICK_SLOP = 4;
 /** Two clean clicks within this window = double-click = navigate. */
@@ -279,21 +283,45 @@ export class StandardsMapRenderer {
   }
 
   /**
-   * Glide the camera so a node sits at the viewport centre (spec-498 dec-7 —
-   * the discipline selector). Rides the existing eased camera targets, so the
-   * motion is the same glide as wheel zoom; instant under reduced motion.
-   * Never zooms OUT: reading zoom (1×) is the floor destination.
+   * Glide the camera to FRAME a node and its focus neighbourhood — the discipline
+   * selector's "zoom into the focused view" (spec-498 dec-7). Computes the bounding
+   * box of the focus set (the node + everything within `depth` hops, via the same
+   * focusSetOf the highlight uses) and eases the camera to fit it, so selecting a
+   * discipline zooms IN and reveals its related nodes in one motion. Rides the
+   * existing eased camera targets (the same glide as wheel zoom); instant under
+   * reduced motion. Never zooms OUT below reading zoom (1×) — labels stay legible.
    */
-  centerOn(nodeId: string): void {
+  frameFocus(nodeId: string, depth: FocusDepth = 1): void {
     if (!this.app) return;
-    const node = this.nodes.find((n) => n.id === nodeId);
-    if (!node) return;
+    const ids = focusSetOf(nodeId, depth, this.links);
+    const framed = this.nodes.filter((n) => ids.has(n.id));
+    if (framed.length === 0) return;
+
+    const PAD = 90; // world-units margin so labels around the set stay on-screen
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const n of framed) {
+      minX = Math.min(minX, (n.x ?? 0) - n.radius);
+      minY = Math.min(minY, (n.y ?? 0) - n.radius);
+      maxX = Math.max(maxX, (n.x ?? 0) + n.radius);
+      maxY = Math.max(maxY, (n.y ?? 0) + n.radius);
+    }
+    minX -= PAD;
+    minY -= PAD;
+    maxX += PAD;
+    maxY += PAD;
+
     const { width, height } = this.app.screen;
+    // Zoom toward the focus box, but clamp to [reading zoom, FOCUS_MAX_ZOOM] so a
+    // large neighbourhood never zooms out past 1× and a lone node never over-zooms.
+    const fit = Math.min(width / (maxX - minX), height / (maxY - minY));
+    const scale = Math.max(1, Math.min(FOCUS_MAX_ZOOM, fit));
     const cam = this.camera;
-    const scale = Math.max(cam.scaleTarget, 1);
     cam.scaleTarget = scale;
-    cam.xTarget = width / 2 - (node.x ?? 0) * scale;
-    cam.yTarget = height / 2 - (node.y ?? 0) * scale;
+    cam.xTarget = width / 2 - ((minX + maxX) / 2) * scale;
+    cam.yTarget = height / 2 - ((minY + maxY) / 2) * scale;
     this.wake();
   }
 

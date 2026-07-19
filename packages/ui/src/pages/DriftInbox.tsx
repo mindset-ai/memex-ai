@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { fetchDriftInbox, type DriftInboxItem } from '../api/client';
 import { useDocChangeStream } from '../hooks/useDocChangeStream';
@@ -163,6 +163,35 @@ function DriftInboxBody({
   onFocus,
   onDiscuss,
 }: DriftInboxBodyProps) {
+  // Deep-link to a specific drift: `?drift=<commentId>` scrolls the matching row
+  // into view and gives it a transient rose highlight, so a link into the inbox
+  // (e.g. from the Brain knowledge graph's drift edge or card) lands on the EXACT
+  // item, not just the doc-filtered list. Complements the existing `?doc=std-N`.
+  const rowRefs = useRef(new Map<string, HTMLDivElement>());
+  const [highlightedCommentId, setHighlightedCommentId] = useState<string | null>(null);
+  const driftDeepLink = searchParams.get('drift');
+
+  useEffect(() => {
+    if (!driftDeepLink) {
+      setHighlightedCommentId(null);
+      return;
+    }
+    // Only act once the target row is actually in the loaded list (and mounted).
+    if (!items.some((it) => it.commentId === driftDeepLink)) return;
+    const el = rowRefs.current.get(driftDeepLink);
+    if (!el) return;
+    // jsdom has no scrollIntoView — guard so tests never throw. Honour reduced
+    // motion (matchMedia is absent in jsdom, so guard that too).
+    const reduce =
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    el.scrollIntoView?.({ behavior: reduce ? 'auto' : 'smooth', block: 'center' });
+    setHighlightedCommentId(driftDeepLink);
+    // Transient: clear after ~2s so re-navigating to the same item re-triggers.
+    const timer = window.setTimeout(() => setHighlightedCommentId(null), 2000);
+    return () => window.clearTimeout(timer);
+  }, [driftDeepLink, items]);
+
   return (
     <div className="h-full flex flex-col px-6 py-6">
       <div className="flex items-center justify-between mb-6 flex-none">
@@ -226,11 +255,21 @@ function DriftInboxBody({
             return (
               <div
                 key={item.commentId}
+                ref={(el) => {
+                  if (el) rowRefs.current.set(item.commentId, el);
+                  else rowRefs.current.delete(item.commentId);
+                }}
                 onClick={() => onFocus(item)}
-                className="border border-edge-subtle rounded-md bg-panel p-4 cursor-pointer hover:border-edge hover:bg-card-hover transition-colors"
+                className={`border rounded-md bg-panel p-4 cursor-pointer hover:border-edge hover:bg-card-hover transition-colors ${
+                  highlightedCommentId === item.commentId
+                    ? 'border-edge-subtle ring-2 ring-status-danger-border'
+                    : 'border-edge-subtle'
+                }`}
                 data-testid="drift-inbox-row"
+                data-comment-id={item.commentId}
                 data-comment-type={item.commentType}
                 data-row-type={isProposal ? 'proposal' : 'observation'}
+                data-highlighted={highlightedCommentId === item.commentId ? 'true' : undefined}
                 title="Focus the drift agent on this item"
               >
                 {/* min-w-0 on the left cluster lets the TITLE truncate instead

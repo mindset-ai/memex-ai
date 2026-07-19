@@ -520,6 +520,70 @@ describe('DriftInbox — c-N refs + Discuss with Agent (spec-143 i-2)', () => {
   });
 });
 
+// spec-498: `?drift=<commentId>` deep-links the inbox to a SPECIFIC drift item —
+// the Brain knowledge graph's drift edge / drift card links here so the click-through
+// lands on the exact item, not just the doc-filtered list. It scrolls the matching
+// row into view and gives it a transient highlight.
+describe('DriftInbox — deep-link to a specific drift (?drift=<commentId>)', () => {
+  it('scrolls the matching row into view and highlights it; other rows are not highlighted', async () => {
+    const scrollSpy = vi.fn();
+    // jsdom does not implement Element.scrollIntoView — stub it, restore after.
+    const originalScroll = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scrollSpy;
+    try {
+      fetchDriftInboxMock.mockResolvedValue([
+        driftItem({ commentId: 'drift-c-41', commentHandle: 'c-41' }),
+        driftItem({ commentId: 'drift-c-42', commentHandle: 'c-42' }),
+      ]);
+
+      render(
+        <MemoryRouter initialEntries={['/drift?doc=std-100&drift=drift-c-42']}>
+          <DriftInbox />
+        </MemoryRouter>,
+      );
+
+      await screen.findAllByTestId('drift-inbox-row');
+
+      // The targeted row gets the transient highlight…
+      await waitFor(() => {
+        const target = document.querySelector('[data-comment-id="drift-c-42"]');
+        expect(target).toHaveAttribute('data-highlighted', 'true');
+      });
+      // …and it was scrolled into view.
+      expect(scrollSpy).toHaveBeenCalled();
+      // The non-targeted row is left alone.
+      const other = document.querySelector('[data-comment-id="drift-c-41"]');
+      expect(other).not.toHaveAttribute('data-highlighted');
+    } finally {
+      Element.prototype.scrollIntoView = originalScroll;
+    }
+  });
+
+  it('does nothing (no highlight) when the drift id matches no row — never crashes', async () => {
+    const scrollSpy = vi.fn();
+    const originalScroll = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scrollSpy;
+    try {
+      fetchDriftInboxMock.mockResolvedValue([
+        driftItem({ commentId: 'drift-c-41', commentHandle: 'c-41' }),
+      ]);
+
+      render(
+        <MemoryRouter initialEntries={['/drift?drift=does-not-exist']}>
+          <DriftInbox />
+        </MemoryRouter>,
+      );
+
+      await screen.findAllByTestId('drift-inbox-row');
+      // No row is highlighted and no scroll happened.
+      expect(document.querySelector('[data-highlighted="true"]')).toBeNull();
+      expect(scrollSpy).not.toHaveBeenCalled();
+    } finally {
+      Element.prototype.scrollIntoView = originalScroll;
+    }
+  });
+});
+
 // spec-143 t-3: the Drift Inbox mounts in the same two-pane DocumentShell as the
 // Spec page (App.tsx `specs/:id` → <DocumentShell><DocDocument/></DocumentShell>)
 // — the agent ChatPanel beside the drift list — so the click-to-focus drift_item

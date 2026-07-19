@@ -207,15 +207,16 @@ export function buildBrainGraph(data: KnowledgeGraphData, palette: BrainPalette)
 
   // Drift last: the rose thread (dec-2) — wider than everything else so the
   // one red edge on the surface reads at constellation zoom. Clicking it lands
-  // in the Drift Inbox filtered to the drifted standard (the existing
-  // /drift?doc=std-N deep link).
+  // on THAT drift item in the Drift Inbox: filtered to the drifted standard
+  // (?doc=std-N) AND deep-linked to the specific comment (&drift=<commentId>),
+  // so the click-through is to the exact drift, not just the standard's list.
   const standardHandleById = new Map(data.nodes.standards.map((s) => [s.docId, s.handle]));
   for (const e of data.edges.drift) {
     const standardHandle = standardHandleById.get(e.standardDocId);
     push('drift', e.decisionId, e.standardDocId, {
       width: 1.6,
       color: palette.drift,
-      href: standardHandle ? `/drift?doc=${standardHandle}` : undefined,
+      href: standardHandle ? `/drift?doc=${standardHandle}&drift=${e.commentId}` : undefined,
     });
   }
   // data.edges.semantic is intentionally unused (dec-3).
