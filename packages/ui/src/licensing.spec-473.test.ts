@@ -12,8 +12,10 @@ const AC_CORE = 'mindset-prod/memex-building-itself/specs/spec-473/acs/ac-11';
 
 const SRC_DIR = dirname(fileURLToPath(import.meta.url)); // packages/ui/src
 
-// Paths relative to packages/ui/src. The last three reach out to the sibling e2e
-// dir and the @memex/shared package — join() resolves the `..` segments.
+// Paths relative to packages/ui/src. The last two reach out to the @memex/shared
+// package — join() resolves the `..` segments.
+// (spec-498 retired journey-60-spec-470-new-home.spec.ts along with the parked
+// /home import hero, so it's no longer part of this manifest.)
 const TOUCHED = [
   'components/home/BuildPromptHero.tsx',
   'components/home/BuildPromptHero.spec-473.test.tsx',
@@ -21,7 +23,6 @@ const TOUCHED = [
   'components/NewSpecModal.spec-473.test.tsx',
   'pages/HomeCanvas.tsx',
   'pages/DocDocument.tsx',
-  '../e2e/journey-60-spec-470-new-home.spec.ts',
   '../../shared/src/usage-events-registry.ts',
   '../../shared/EVENT-STANDARD.md',
 ];
