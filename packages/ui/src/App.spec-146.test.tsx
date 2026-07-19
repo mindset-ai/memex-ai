@@ -21,7 +21,7 @@ const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-146/acs
 
 // Mutable session fixture — each test sets `hiddenFeatures` before rendering.
 // `alice/personal` is the personal membership, so computeDefaultLanding (kept
-// real) resolves the default landing to /alice/personal/specs.
+// real) resolves the default landing to the canonical /alice/personal/home.
 let mockSession: SessionPayload;
 function makeSession(hiddenFeatures: string[]): SessionPayload {
   return {
@@ -117,16 +117,18 @@ function LocationProbe() {
   return <div data-testid="probe" data-path={loc.pathname} />;
 }
 
-// Render the real route tree at `path`, plus a probe at the universal landing so we
-// can assert where the catch-all redirect lands. spec-461: RootRedirect sends every
-// authenticated user to their default-tenant Specs board (never /home), so the
-// fallthrough target is /alice/personal/specs.
+// Render the real route tree at `path`, plus a probe at the final landing surface so
+// we can assert where the catch-all redirect lands. RootRedirect sends every
+// authenticated user to their default-tenant `/home` — the canonical redirect route —
+// which forwards to the chosen default surface (Trails/Brain). So the fallthrough
+// chain is catch-all → /alice/personal/home → /alice/personal/brain, and the probe
+// (an exact route, out-ranking the `/*` splat) catches that final /brain hop.
 function renderAt(path: string) {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <Routes>
         <Route path="/*" element={<PostLoginRouter />} />
-        <Route path="/alice/personal/specs" element={<LocationProbe />} />
+        <Route path="/alice/personal/brain" element={<LocationProbe />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -151,9 +153,9 @@ describe('spec-146 t-4: /scaffold route gate', () => {
     renderAt('/alice/personal/scaffold');
 
     // The route was never registered, so the path falls through to the catch-all
-    // RootRedirect → universal landing (the Specs board, spec-461 dec-1).
+    // RootRedirect → canonical /home → chosen default surface (Trails/Brain).
     await waitFor(() => {
-      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/specs');
+      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/brain');
     });
     expect(screen.queryByTestId('scaffold-inspect-page')).not.toBeInTheDocument();
   });

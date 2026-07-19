@@ -45,6 +45,10 @@ const StandardList = lazy(() =>
 const Standard = lazy(() => import('./pages/Standard').then((m) => ({ default: m.Standard })));
 // spec-498 — Brain: the whole-vault knowledge graph (facets/standards/specs/decisions).
 const Brain = lazy(() => import('./pages/Brain').then((m) => ({ default: m.Brain })));
+// The surface the tenant `/home` redirect forwards to — the single knob for "the
+// default landing". Today it's the Brain/Trails route; change this one string to
+// re-point every default landing (nothing else references the surface directly).
+const DEFAULT_TENANT_SURFACE = 'brain';
 // spec-300 t-6 — the in-app Skills surface (list + detail).
 const SkillList = lazy(() => import('./pages/SkillList').then((m) => ({ default: m.SkillList })));
 const Skill = lazy(() => import('./pages/Skill').then((m) => ({ default: m.Skill })));
@@ -606,6 +610,15 @@ export function PostLoginRouter() {
             graph (facets/standards/specs/decisions + drift). Was the Specs board;
             the Specs board still lives at the explicit /specs route below. */}
         <Route index element={<Brain />} />
+        {/* The canonical default landing (AuthContext.computeDefaultLanding sends
+            every post-auth flow here). `/home` is a thin redirect, not a surface:
+            it forwards to whichever route is currently chosen as the default. One
+            knob — DEFAULT_TENANT_SURFACE — so the choice lives in a single place and
+            callers only ever need to know "/home", not the surface behind it. */}
+        <Route
+          path="home"
+          element={<Navigate to={`../${DEFAULT_TENANT_SURFACE}`} relative="path" replace />}
+        />
         {/* spec-148 t-1 (ac-6/ac-7/ac-8): gate the `/pulse` route on the
             server-driven hide list, mirroring the `/scaffold` gate below. When
             'pulse' is hidden the route isn't registered, so `/:ns/:mx/pulse`

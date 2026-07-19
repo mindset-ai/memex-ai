@@ -12,7 +12,7 @@ import { resetCachedJourneyState } from './journeys/journeyStateCache';
 // spec-470 dec-9 then re-introduced it for the CONFIRMED spec-less cohort, so the
 // current truth is:
 //   - not-yet-graduated (confirmed spec-less), 'home' visible → /home (spec-470 dec-9)
-//   - graduated, 'home' visible          → the default-tenant Specs board (spec-461)
+//   - graduated, 'home' visible          → the default surface (Trails) via canonical /home
 //   - 'home' hidden per-env              → default-tenant Specs (loop-avoidance, NO journey read)
 // (Home is now reachable only by explicit nav; the welcome-video re-show gate for spec-less
 // users survives — see App.spec-461.test.tsx.) The decision is made in the app router before
@@ -142,8 +142,8 @@ function renderAt(path: string) {
       <Routes>
         <Route path="/*" element={<PostLoginRouter />} />
         {/* Probe the default-landing tenant path so we can assert RootRedirect's
-            graduated → Specs target without dragging in TenantLayout/SpecList. */}
-        <Route path="/alice/personal/specs" element={<LocationProbe />} />
+            graduated → default surface (Trails) without dragging in TenantLayout/SpecList. */}
+        <Route path="/alice/personal/brain" element={<LocationProbe />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -167,27 +167,27 @@ describe('RootRedirect lands users by a read-only onboarding-state check (spec-4
   // The Home Canvas is PARKED — the per-memex Brain replaces the flat /home surface as
   // the default landing. The spec-470 dec-9 auto-Home landing for the CONFIRMED
   // spec-less cohort is therefore retired: a not-graduated user now also falls through
-  // to the default-tenant Specs board (never stranded), same as the graduated cohort.
+  // to the default surface (Trails) via /home (never stranded), same as the graduated cohort.
   // Restore the spec-470 ac-13 assertion (auto-lands on /home) when the Home Canvas
   // comes back.
-  it('home VISIBLE + NOT graduated: now falls through to the default Specs board (Home Canvas parked)', async () => {
+  it('home VISIBLE + NOT graduated: now falls through to the default surface (Trails) via /home (Home Canvas parked)', async () => {
     mockSession = makeSession({ hiddenFeatures: [] });
     journeyFetch = () => Promise.resolve(journeyState(false));
     renderAt('/');
     await waitFor(() => {
-      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/specs');
+      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/brain');
     });
     expect(screen.queryByTestId('home-canvas-page')).not.toBeInTheDocument();
   });
 
-  it('home VISIBLE + graduated: goes straight to the default-tenant Specs board, not Home', async () => {
+  it('home VISIBLE + graduated: goes straight to the default surface (Trails) via /home, not the parked Home Canvas', async () => {
     tagAc(`${ACS}/ac-14`);
     tagAc(`${ACS}/ac-16`);
     mockSession = makeSession({ hiddenFeatures: [] });
     journeyFetch = () => Promise.resolve(journeyState(true));
     renderAt('/');
     await waitFor(() => {
-      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/specs');
+      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/brain');
     });
     expect(screen.queryByTestId('home-canvas-page')).not.toBeInTheDocument();
   });
@@ -202,25 +202,25 @@ describe('RootRedirect lands users by a read-only onboarding-state check (spec-4
     expect(screen.queryByTestId('probe')).not.toBeInTheDocument();
   });
 
-  it('home HIDDEN: lands on the default-tenant Specs board WITHOUT reading journey-state (loop-avoidance)', async () => {
+  it('home HIDDEN: lands on the default surface (Trails) via /home WITHOUT reading journey-state (loop-avoidance)', async () => {
     tagAc(`${ACS}/ac-17`);
     mockSession = makeSession({ hiddenFeatures: ['home'] });
     renderAt('/');
     await waitFor(() => {
-      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/specs');
+      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/brain');
     });
     expect(screen.queryByTestId('home-canvas-page')).not.toBeInTheDocument();
     // No Home-vs-Specs choice to make when home is hidden → the journey-state read is skipped.
     expect(fetchJourneyStateApi).not.toHaveBeenCalled();
   });
 
-  it('/login routes through the SAME RootRedirect decision: a returning graduated user lands on Specs', async () => {
+  it('/login routes through the SAME RootRedirect decision: a returning graduated user lands on the default surface', async () => {
     tagAc(`${ACS}/ac-18`);
     mockSession = makeSession({ hiddenFeatures: [] });
     journeyFetch = () => Promise.resolve(journeyState(true));
     renderAt('/login');
     await waitFor(() => {
-      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/specs');
+      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/brain');
     });
   });
 

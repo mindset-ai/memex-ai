@@ -179,12 +179,12 @@ describe('computeDefaultLanding (t-23)', () => {
       orgMembership('acme', 'Acme', 'main'),
       personalMembership('alice', 'personal'),
     ]);
-    expect(computeDefaultLanding(s)).toBe('/alice/personal/specs');
+    expect(computeDefaultLanding(s)).toBe('/alice/personal/home');
   });
 
   it('falls back to the first membership when no personal exists', () => {
     const s = sessionFor('a@b.com', 'A', [orgMembership('acme', 'Acme', 'main')]);
-    expect(computeDefaultLanding(s)).toBe('/acme/main/specs');
+    expect(computeDefaultLanding(s)).toBe('/acme/main/home');
   });
 
   it('uses memexSlug "main" fallback when slug is missing on a team membership', () => {
@@ -198,6 +198,6 @@ describe('computeDefaultLanding (t-23)', () => {
       role: 'member',
     };
     const s = sessionFor('a@b.com', 'A', [m]);
-    expect(computeDefaultLanding(s)).toBe('/acme/main/specs');
+    expect(computeDefaultLanding(s)).toBe('/acme/main/home');
   });
 });

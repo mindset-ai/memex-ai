@@ -118,7 +118,12 @@ export function computeDefaultLanding(session: SessionPayload): string | null {
   // expectations on the fallback shape — it's the documented server default).
   const ns = personal.slug;
   const mx = personal.memexSlug ?? (personal.kind === 'personal' ? 'personal' : 'main');
-  return `/${ns}/${mx}/specs`;
+  // The canonical default landing is the memex's `/home` — a thin redirect route
+  // (App.tsx) that forwards to whichever surface is currently chosen as the
+  // default (today: Trails). Everything that lands a user routes THROUGH /home,
+  // so the default surface is a one-line knob there, not a string duplicated
+  // across every auth/redirect caller (was `/specs`).
+  return `/${ns}/${mx}/home`;
 }
 
 function restoreFromStorage(): { token: string; session: SessionPayload | null } | null {
