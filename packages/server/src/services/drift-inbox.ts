@@ -57,6 +57,26 @@ export interface DriftInboxRow {
    */
   proposedContent: string | null;
   createdAt: Date;
+  /**
+   * The source DECISION a `drift` finding contradicts (spec-498 dec-4): a drift
+   * comment carries `drift_decision_id` — the resolved decision whose intent the
+   * repo has diverged from. Surfaced so the inbox can read the finding as a
+   * relationship ("dec-N contradicts std-M") instead of a raw comment body.
+   * `null` when the drift isn't linked to a decision (legacy rows) or for a
+   * `plan_revision` proposal.
+   */
+  decision: {
+    handle: string;
+    title: string;
+    /**
+     * The owning SPEC's handle (`spec-N`), so the client can build the canonical
+     * decision URL `/specs/:specHandle/decisions/:decHandle` (there is no decision
+     * route without a spec). `null` when the decision isn't owned by a spec (an
+     * edge case — decisions normally live on specs) → the UI degrades to a
+     * non-linked handle.
+     */
+    specHandle: string | null;
+  } | null;
   section: {
     id: string;
     sectionType: string;
@@ -130,6 +150,9 @@ interface RawRow {
   author_name: string;
   content: string;
   created_at: Date;
+  decision_seq: number | null;
+  decision_title: string | null;
+  decision_spec_handle: string | null;
   section_id: string | null;
   section_type: string | null;
   section_title: string | null;
@@ -207,6 +230,9 @@ export async function listDriftInbox(
       c.author_name     AS author_name,
       c.content         AS content,
       c.created_at      AS created_at,
+      dec.seq           AS decision_seq,
+      dec.title         AS decision_title,
+      dec_spec.handle   AS decision_spec_handle,
       s.id              AS section_id,
       s.section_type    AS section_type,
       s.title           AS section_title,
@@ -218,6 +244,10 @@ export async function listDriftInbox(
       d.status          AS doc_status
     FROM doc_comments c
     LEFT JOIN doc_sections s ON s.id = c.section_id
+    LEFT JOIN decisions dec ON dec.id = c.drift_decision_id
+    -- The decision's owning SPEC (for the canonical /specs/:h/decisions/:h URL).
+    -- Gated to doc_type='spec' so a decision on a non-spec doc degrades to no-link.
+    LEFT JOIN documents dec_spec ON dec_spec.id = dec.doc_id AND dec_spec.doc_type = 'spec'
     INNER JOIN documents d ON d.id = COALESCE(
       s.doc_id,
       (SELECT doc_id FROM decisions WHERE id = c.decision_id),
@@ -252,6 +282,15 @@ export async function listDriftInbox(
     // Raw SQL via db.execute returns timestamptz as ISO string; DriftInboxRow.createdAt
     // is typed as Date for callers, so coerce here.
     createdAt: r.created_at instanceof Date ? r.created_at : new Date(r.created_at),
+    // dec-N handle derived from the per-doc seq (same convention as commentHandle).
+    decision:
+      r.decision_seq != null
+        ? {
+            handle: `dec-${r.decision_seq}`,
+            title: r.decision_title ?? "",
+            specHandle: r.decision_spec_handle ?? null,
+          }
+        : null,
     section: r.section_id
       ? {
           id: r.section_id,

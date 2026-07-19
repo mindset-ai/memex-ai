@@ -29,6 +29,22 @@ export interface DriftInboxItem {
    */
   proposedContent: string | null;
   createdAt: string; // ISO timestamp from the JSON wire
+  /**
+   * The source DECISION a `drift` finding contradicts (spec-498 dec-4) — its
+   * `dec-N` handle + title, so the inbox reads the finding as a relationship
+   * ("dec-N contradicts std-M"). `null` for a proposal, or a drift with no
+   * linked decision (legacy rows).
+   */
+  decision: {
+    handle: string;
+    title: string;
+    /**
+     * The owning spec's handle (`spec-N`) — lets the row link `dec-N` to its
+     * canonical URL `/specs/:specHandle/decisions/:decHandle`. `null` when the
+     * decision has no owning spec (edge case) → rendered as a non-linked handle.
+     */
+    specHandle: string | null;
+  } | null;
   section: {
     id: string;
     sectionType: string;
