@@ -50,7 +50,7 @@ test(
 
     // ac-1: the video src is the v6 asset on the public CDN.
     const videoSrc = await page.getByTestId("welcome-video-player").getAttribute("src");
-    expect(videoSrc).toContain("welcome-to-memex-v6.mp4");
+    expect(videoSrc).toContain("welcome-to-memex-v6-1080p.mp4");
 
     // ac-2: the call line is hidden during playback.
     const callCta = page.getByTestId("welcome-video-call-cta");
