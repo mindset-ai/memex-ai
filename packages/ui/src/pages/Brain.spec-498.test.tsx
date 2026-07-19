@@ -405,10 +405,9 @@ describe('Brain page shell', () => {
     tagAc(AC_SCOPE_FILTER_REUSE);
     const renderer = await renderBrain();
     // The decisions filter is pinned to the API's resolved default — no
-    // filter control exists; the shown-of-total chip keeps it honest.
+    // filter control exists.
     expect(fetchKnowledgeGraph).toHaveBeenCalledWith();
     expect(screen.queryByTestId('brain-decision-filter')).toBeNull();
-    expect(screen.getByTestId('brain-decision-count').textContent).toContain('2 of 7 decisions');
 
     // The one dropdown lists every discipline by display name.
     const select = screen.getByTestId('brain-discipline-select') as HTMLSelectElement;

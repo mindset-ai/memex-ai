@@ -300,7 +300,6 @@ export function Brain() {
     rendererRef.current?.frameFocus(node.id, focusDepth);
   };
 
-  const shownDecisions = graph?.nodes.decisions.length ?? 0;
   const totalDecisions = graph?.meta.counts.decisions ?? 0;
   // An empty vault must explain itself, not render a silent blank canvas: no
   // facets, no standards, and no decisions passing the filter = nothing to map.
@@ -368,14 +367,6 @@ export function Brain() {
                   </button>
                 </div>
               ))}
-            <span
-              className="text-xs text-muted whitespace-nowrap"
-              title="Resolved decisions shown on the map — unresolved decisions are hidden"
-              data-testid="brain-decision-count"
-            >
-              {shownDecisions} of {totalDecisions} decision{totalDecisions === 1 ? '' : 's'}
-              {graph?.meta.truncated ? ' (truncated)' : ''}
-            </span>
             <select
               value={focus?.kind === 'facet' ? focus.handle : ''}
               onChange={(e) => focusDiscipline(e.target.value)}
