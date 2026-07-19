@@ -45,9 +45,12 @@ interface DriftStep {
   decisionId: string;
   decisionHandle: string;
   decisionTitle: string;
+  /** Canonical decision page (/specs/:spec/decisions/:dec); null if no owning spec. */
+  decisionHref: string | null;
   standardDocId: string;
   standardHandle: string;
   standardTitle: string;
+  standardHref: string;
   openedAt: string;
 }
 
@@ -133,20 +136,30 @@ export function Brain() {
     if (!graph) return [];
     const decById = new Map(graph.nodes.decisions.map((d) => [d.id, d]));
     const stdById = new Map(graph.nodes.standards.map((s) => [s.docId, s]));
+    // A decision deep-links through its owning spec (the specDecision join),
+    // matching the node hrefs the mapper builds.
+    const specHandleByDocId = new Map(graph.nodes.specs.map((s) => [s.docId, s.handle]));
+    const specDocIdByDecision = new Map(
+      graph.edges.specDecision.map((sd) => [sd.decisionId, sd.specDocId]),
+    );
     return graph.edges.drift
       .map((e): DriftStep | null => {
         const dec = decById.get(e.decisionId);
         const std = stdById.get(e.standardDocId);
         if (!dec || !std) return null;
+        const specDocId = specDocIdByDecision.get(e.decisionId);
+        const specHandle = specDocId ? specHandleByDocId.get(specDocId) : undefined;
         return {
           commentId: e.commentId,
           href: `/drift?doc=${std.handle}&drift=${e.commentId}`,
           decisionId: e.decisionId,
           decisionHandle: dec.handle,
           decisionTitle: dec.title,
+          decisionHref: specHandle ? `/specs/${specHandle}/decisions/${dec.handle}` : null,
           standardDocId: std.docId,
           standardHandle: std.handle,
           standardTitle: std.title,
+          standardHref: `/standards/${std.handle}`,
           openedAt: e.openedAt,
         };
       })
@@ -567,12 +580,30 @@ export function Brain() {
               </div>
               <div className="text-xs space-y-1">
                 <div className="flex items-baseline gap-1.5">
-                  <span className="font-mono text-muted shrink-0">{currentDrift.decisionHandle}</span>
+                  {currentDrift.decisionHref ? (
+                    <button
+                      type="button"
+                      className="font-mono text-muted shrink-0 hover:text-heading hover:underline cursor-pointer"
+                      onClick={() => navigateRef.current(tenantPath(currentDrift.decisionHref!))}
+                      data-testid="brain-drift-decision-link"
+                    >
+                      {currentDrift.decisionHandle}
+                    </button>
+                  ) : (
+                    <span className="font-mono text-muted shrink-0">{currentDrift.decisionHandle}</span>
+                  )}
                   <span className="truncate">{currentDrift.decisionTitle}</span>
                 </div>
                 <div className="text-[11px] font-medium text-status-danger-text">✗ contradicts</div>
                 <div className="flex items-baseline gap-1.5">
-                  <span className="font-mono text-muted shrink-0">{currentDrift.standardHandle}</span>
+                  <button
+                    type="button"
+                    className="font-mono text-muted shrink-0 hover:text-heading hover:underline cursor-pointer"
+                    onClick={() => navigateRef.current(tenantPath(currentDrift.standardHref))}
+                    data-testid="brain-drift-standard-link"
+                  >
+                    {currentDrift.standardHandle}
+                  </button>
                   <span className="truncate">{currentDrift.standardTitle}</span>
                 </div>
               </div>

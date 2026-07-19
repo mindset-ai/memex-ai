@@ -512,6 +512,26 @@ describe('Brain page shell', () => {
     );
   });
 
+  it('drift card: the dec / std handles hyperlink to those items', async () => {
+    tagAc(AC_SCOPE_CLICK_THROUGH);
+    await renderBrain();
+    fireEvent.click(screen.getByTestId('brain-drift-nav')); // enter the tour
+
+    // The decision handle deep-links through its owning spec (std-10 grammar).
+    fireEvent.click(screen.getByTestId('brain-drift-decision-link'));
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe(
+        '/acme/team/specs/spec-9/decisions/dec-2',
+      ),
+    );
+
+    // The standard handle links to the Standard page.
+    fireEvent.click(screen.getByTestId('brain-drift-standard-link'));
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe('/acme/team/standards/std-2'),
+    );
+  });
+
   it('drift tour: the navigator frames each open drift and the card deep-links to THAT item', async () => {
     tagAc(AC_SCOPE_DRIFT_RED);
     tagAc(AC_SCOPE_CLICK_THROUGH);
