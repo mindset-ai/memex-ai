@@ -164,16 +164,20 @@ describe('RootRedirect lands users by a read-only onboarding-state check (spec-4
     sessionStorage.removeItem('welcomeVideoDismissed');
   });
 
-  // spec-470 dec-9 re-introduced the auto-Home landing for the CONFIRMED spec-less
-  // cohort (superseding spec-461 dec-1 for them): a not-graduated user now auto-lands
-  // on /home — the build-prompt hero. Retagged to spec-470 ac-13, which owns this truth.
-  it('home VISIBLE + NOT graduated: auto-lands on /home (the build-prompt hero, spec-470)', async () => {
-    tagAc('mindset-prod/memex-building-itself/specs/spec-470/acs/ac-13');
+  // The Home Canvas is PARKED — the per-memex Brain replaces the flat /home surface as
+  // the default landing. The spec-470 dec-9 auto-Home landing for the CONFIRMED
+  // spec-less cohort is therefore retired: a not-graduated user now also falls through
+  // to the default-tenant Specs board (never stranded), same as the graduated cohort.
+  // Restore the spec-470 ac-13 assertion (auto-lands on /home) when the Home Canvas
+  // comes back.
+  it('home VISIBLE + NOT graduated: now falls through to the default Specs board (Home Canvas parked)', async () => {
     mockSession = makeSession({ hiddenFeatures: [] });
     journeyFetch = () => Promise.resolve(journeyState(false));
     renderAt('/');
-    expect(await screen.findByTestId('home-canvas-page')).toBeInTheDocument();
-    expect(screen.queryByTestId('probe')).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/specs');
+    });
+    expect(screen.queryByTestId('home-canvas-page')).not.toBeInTheDocument();
   });
 
   it('home VISIBLE + graduated: goes straight to the default-tenant Specs board, not Home', async () => {

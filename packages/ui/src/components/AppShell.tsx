@@ -5,7 +5,8 @@ import { useAuth } from './AuthContext';
 import { Logo } from './Logo';
 import { useTheme } from './ThemeContext';
 import { useDriftInboxCount } from '../hooks/useDriftInboxCount';
-import { useJourneyGraduated } from '../hooks/useJourneyGraduated';
+// Parked with the Home Canvas (the "come back" dot lived on the /home nav item):
+// import { useJourneyGraduated } from '../hooks/useJourneyGraduated';
 import { useMyIssuesCount } from '../hooks/useMyIssuesCount';
 import { useQaReportsUnreadCount } from '../hooks/useQaReports';
 import { useHiddenFeatures } from '../hooks/useIsFeatureHidden';
@@ -55,27 +56,51 @@ interface NavLinkDef {
   flat?: boolean;
 }
 
+// spec-498: Brain — the whole-vault knowledge graph (facets, standards, specs,
+// decisions + drift). It's the memex's default landing (the tenant index route) and
+// leads the sidebar as a standalone item ABOVE the Principles group (the slot the
+// parked Home Canvas used to hold), so it owns the bare `/` altPath for the highlight.
+const BRAIN_NAV_LINK: NavLinkDef = {
+  to: '/brain',
+  label: 'Brain',
+  altPaths: ['/'],
+  icon: (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+      <circle cx="12" cy="5" r="2" />
+      <circle cx="5" cy="12" r="2" />
+      <circle cx="19" cy="12" r="2" />
+      <circle cx="12" cy="19" r="2" />
+      <path strokeLinecap="round" d="M10.6 6.4L6.4 10.6M13.4 6.4l4.2 4.2M6.4 13.4l4.2 4.2M17.6 13.4l-4.2 4.2" />
+    </svg>
+  ),
+};
+
+// Home Canvas nav item PARKED — the per-memex Brain replaces the flat /home
+// destination for now. Restore this const (and its render site + the journey
+// "come back" dot below) to bring the Home tab back.
 // spec-303 — the Home Canvas: the top nav item and a user-level (flat) destination,
 // identical across all of a user's Memexes (dec-2). `flat` keeps it at /home.
 // `feature: 'home'` plugs it into the server-driven hide list (HIDDEN_FEATURES)
 // so the whole surface can be hidden per-env (e.g. prod) while it's live on int —
 // the same mechanism as Pulse/Scaffold. The route is gated in App.tsx to match.
-const HOME_NAV_LINK: NavLinkDef = {
-  to: '/home',
-  label: 'Home',
-  flat: true,
-  feature: 'home',
-  icon: (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l9-9 9 9M5 10v10a1 1 0 001 1h3v-5a1 1 0 011-1h2a1 1 0 011 1v5h3a1 1 0 001-1V10" />
-    </svg>
-  ),
-};
+// const HOME_NAV_LINK: NavLinkDef = {
+//   to: '/home',
+//   label: 'Home',
+//   flat: true,
+//   feature: 'home',
+//   icon: (
+//     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+//       <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l9-9 9 9M5 10v10a1 1 0 001 1h3v-5a1 1 0 011-1h2a1 1 0 011 1v5h3a1 1 0 001-1V10" />
+//     </svg>
+//   ),
+// };
 
-// spec-260 t-11: the sidebar is two labelled groups. PRINCIPLES holds the
-// working surfaces (Specs leads, then the dashboards and the standards/scaffold
-// references); IN-BOXES holds the three attention surfaces that carry unread /
-// open-count badges (Drift, Issues, QA Reports).
+// spec-260 t-11 (revised spec-498): the sidebar is now Brain (standalone lead) then
+// three labelled groups. PRINCIPLES holds the reference/working artifacts (Specs,
+// Standards, Skills); IN-BOXES holds the attention surfaces that carry unread /
+// open-count badges (Drift, Issues, QA Reports); OPERATIONS holds the instrumentation
+// + configuration surfaces (Pulse, Insights, Scaffold) — the tools you reach for
+// occasionally to watch and tune the workspace, not the daily flow.
 const PRINCIPLES_NAV_LINKS: ReadonlyArray<NavLinkDef> = [
   {
     to: '/specs',
@@ -83,20 +108,10 @@ const PRINCIPLES_NAV_LINKS: ReadonlyArray<NavLinkDef> = [
     // Legacy `/briefs`, `/missions`, and `/strategies` URLs route to the same
     // SpecList — kept here so the active-nav highlight still lights up when
     // the user lands via a bookmarked old URL (the 301 lives server-side).
-    altPaths: ['/', '/briefs', '/missions', '/strategies'],
+    altPaths: ['/briefs', '/missions', '/strategies'],
     icon: (
       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M3.055 11A9 9 0 1113 21.945M15 21l3-3m0 0l-3-3m3 3H9" />
-      </svg>
-    ),
-  },
-  {
-    to: '/pulse',
-    label: 'Pulse',
-    feature: 'pulse',
-    icon: (
-      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3 12h4l2 6 4-12 2 6h6" />
       </svg>
     ),
   },
@@ -109,22 +124,6 @@ const PRINCIPLES_NAV_LINKS: ReadonlyArray<NavLinkDef> = [
       </svg>
     ),
   },
-  // spec-498: Brain — the whole-vault knowledge graph (facets, standards,
-  // specs, decisions + drift). Sits right after Standards: it is the map of
-  // the same reference material.
-  {
-    to: '/brain',
-    label: 'Brain',
-    icon: (
-      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-        <circle cx="12" cy="5" r="2" />
-        <circle cx="5" cy="12" r="2" />
-        <circle cx="19" cy="12" r="2" />
-        <circle cx="12" cy="19" r="2" />
-        <path strokeLinecap="round" d="M10.6 6.4L6.4 10.6M13.4 6.4l4.2 4.2M6.4 13.4l4.2 4.2M17.6 13.4l-4.2 4.2" />
-      </svg>
-    ),
-  },
   // spec-300 t-6: Skills — reusable SKILL.md docs the agent can pick up. Sits
   // beside Standards as a Principles surface (both are living reference docs).
   {
@@ -133,29 +132,6 @@ const PRINCIPLES_NAV_LINKS: ReadonlyArray<NavLinkDef> = [
     icon: (
       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-      </svg>
-    ),
-  },
-  // spec-179 (ac-14): Insights — per-memex spec analytics charts. Hidden via
-  // the same server-driven hiddenFeatures mechanism as Pulse.
-  {
-    to: '/insights',
-    label: 'Insights',
-    feature: 'insights',
-    icon: (
-      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M4 20V10m6 10V4m6 16v-7" />
-        <path strokeLinecap="round" d="M3 20h18" />
-      </svg>
-    ),
-  },
-  {
-    to: '/scaffold',
-    label: 'Scaffold',
-    feature: 'scaffold',
-    icon: (
-      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16M8 3v18M16 3v18" />
       </svg>
     ),
   },
@@ -205,6 +181,46 @@ const INBOX_NAV_LINKS: ReadonlyArray<NavLinkDef> = [
       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6M9 8h1m4.5-5.5H7a2 2 0 00-2 2v15a2 2 0 002 2h10a2 2 0 002-2V8z" />
         <path strokeLinecap="round" strokeLinejoin="round" d="M14 2.5V8h5.5" />
+      </svg>
+    ),
+  },
+];
+
+// spec-498: the OPERATIONS group — the instrumentation + configuration surfaces you
+// reach for occasionally to watch and tune the workspace (Pulse = activity, Insights
+// = analytics, Scaffold = agent/project config), distinct from the daily reference
+// artifacts (Principles) and the attention queues (In-boxes). Each keeps its own
+// server-driven hiddenFeatures gate.
+const OPERATIONS_NAV_LINKS: ReadonlyArray<NavLinkDef> = [
+  {
+    to: '/pulse',
+    label: 'Pulse',
+    feature: 'pulse',
+    icon: (
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3 12h4l2 6 4-12 2 6h6" />
+      </svg>
+    ),
+  },
+  // spec-179 (ac-14): Insights — per-memex spec analytics charts.
+  {
+    to: '/insights',
+    label: 'Insights',
+    feature: 'insights',
+    icon: (
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4 20V10m6 10V4m6 16v-7" />
+        <path strokeLinecap="round" d="M3 20h18" />
+      </svg>
+    ),
+  },
+  {
+    to: '/scaffold',
+    label: 'Scaffold',
+    feature: 'scaffold',
+    icon: (
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16M8 3v18M16 3v18" />
       </svg>
     ),
   },
@@ -832,11 +848,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   // where the sidebar is hidden.
   const driftCount = useDriftInboxCount(!onDocPage);
 
+  // Parked with the Home Canvas nav item (its only render site).
   // spec-372 dec-8 — the "come back to onboarding" nudge: a pulsing dot on the Home nav
   // item, shown only while the onboarding journey is NOT graduated AND the user is off /home
   // (null = not yet known → no dot, avoiding a flash). Hidden once graduated or on /home.
-  const journeyGraduated = useJourneyGraduated(!!user);
-  const showComeBackDot = journeyGraduated === false && location.pathname !== '/home';
+  // const journeyGraduated = useJourneyGraduated(!!user);
+  // const showComeBackDot = journeyGraduated === false && location.pathname !== '/home';
   // spec-158: my open issues (Specs assigned to me) for the Issues nav badge.
   // spec-305: the issues-list endpoint is tenant-scoped (/api/:ns/:mx/issues-list),
   // so only fetch on a tenant page — otherwise the badge 404s on flat user-level
@@ -958,17 +975,23 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
 
         <nav className="flex-1 min-h-0 overflow-y-auto px-3 space-y-0.5">
-          {/* spec-303 — Home Canvas: the first, top-level, user-level destination.
-              Gated on the server-driven hide list (feature: 'home') so it can be
-              hidden per-env (e.g. prod) while live on int — same mechanism as Pulse. */}
+          {/* spec-498: Brain leads the sidebar as a standalone item above the
+              Principles group — the memex's default landing (its knowledge graph). */}
+          <NavItem {...BRAIN_NAV_LINK} pathname={location.pathname} />
+
+          {/* Home Canvas nav item PARKED — the per-memex Brain (the standalone lead
+              item above) replaces the flat /home destination for now. Restore this
+              block to bring the Home Canvas tab back.
           {!isLinkHidden(HOME_NAV_LINK.feature) && (
             <NavItem {...HOME_NAV_LINK} pathname={location.pathname} showDot={showComeBackDot} />
-          )}
+          )} */}
 
-          {/* spec-260 t-11: two labelled groups — PRINCIPLES (the working
-              surfaces) and IN-BOXES (the badge-carrying attention surfaces). */}
+          {/* spec-260 t-11 (revised spec-498): three labelled groups under the Brain
+              lead — NATIVES (the reference/working artifacts), IN-BOXES (the
+              badge-carrying attention surfaces), then OPERATIONS (the instrumentation +
+              configuration surfaces). */}
           <div className="pt-4 pb-1 px-3 text-xs font-medium uppercase tracking-wider text-muted">
-            Principles
+            Natives
           </div>
           {PRINCIPLES_NAV_LINKS.filter((link) => !isLinkHidden(link.feature)).map((link) => (
             <NavItem key={link.to} {...link} pathname={location.pathname} />
@@ -996,6 +1019,20 @@ export function AppShell({ children }: { children: ReactNode }) {
               }
             />
           ))}
+
+          {/* spec-498: OPERATIONS — the occasionally-reached instrumentation + config
+              surfaces (Pulse, Insights, Scaffold). Hidden entirely when every member
+              is gated off, so the heading never floats above an empty group. */}
+          {OPERATIONS_NAV_LINKS.some((link) => !isLinkHidden(link.feature)) && (
+            <>
+              <div className="pt-4 pb-1 px-3 text-xs font-medium uppercase tracking-wider text-muted">
+                Operations
+              </div>
+              {OPERATIONS_NAV_LINKS.filter((link) => !isLinkHidden(link.feature)).map((link) => (
+                <NavItem key={link.to} {...link} pathname={location.pathname} />
+              ))}
+            </>
+          )}
         </nav>
 
         {(user || access.isVisitedReadOnly) && (

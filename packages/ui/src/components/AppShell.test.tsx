@@ -78,7 +78,7 @@ beforeEach(() => {
 });
 
 describe('AppShell sidebar navigation', () => {
-  it('renders the primary nav links (Specs, Issues, Pulse) and Standards under Principles', () => {
+  it('renders the primary nav links (Specs, Issues, Pulse) and Standards under Natives', () => {
     // The Decisions tab is intentionally hidden in AppShell.tsx until the
     // Decisions page is implemented (see the commented-out nav entry there).
     // Re-enable the Decisions assertion alongside that nav entry when it ships.
@@ -88,31 +88,36 @@ describe('AppShell sidebar navigation', () => {
     expect(within(nav).getByRole('link', { name: 'Specs' })).toBeInTheDocument();
     expect(within(nav).getByRole('link', { name: 'Issues' })).toBeInTheDocument();
     expect(within(nav).getByRole('link', { name: 'Pulse' })).toBeInTheDocument();
-    expect(within(nav).getByText('Principles')).toBeInTheDocument();
+    // spec-498: the group formerly labelled "Principles" is now "Natives".
+    expect(within(nav).getByText('Natives')).toBeInTheDocument();
     expect(within(nav).getByRole('link', { name: 'Standards' })).toBeInTheDocument();
   });
 
-  // spec-260 t-11 (supersedes spec-158 t-4's Specs → Issues → Pulse order): the
-  // sidebar is two labelled groups — PRINCIPLES (Specs, Pulse, Standards,
-  // Insights, Scaffold) then IN-BOXES (Drift, Issues, QA Reports — the
-  // badge-carrying attention surfaces). Specs still leads the nav.
-  it('groups the nav into Principles then In-boxes, in order', () => {
+  // spec-498 (revises spec-260 t-11): under the Brain lead, the sidebar is three
+  // labelled groups — NATIVES (Specs, Standards, Skills) then IN-BOXES (Drift,
+  // Issues, QA Reports — the badge-carrying attention surfaces) then OPERATIONS
+  // (Pulse, Insights, Scaffold — the instrumentation + config surfaces).
+  it('groups the nav into Natives, In-boxes, then Operations, in order', () => {
     tagAc('mindset-prod/memex-building-itself/specs/spec-158/acs/ac-1');
     renderShell(['/specs']);
 
     const nav = screen.getByTestId('primary-nav');
-    expect(within(nav).getByText('Principles')).toBeInTheDocument();
+    expect(within(nav).getByText('Natives')).toBeInTheDocument();
     expect(within(nav).getByText('In-boxes')).toBeInTheDocument();
+    expect(within(nav).getByText('Operations')).toBeInTheDocument();
 
+    // spec-498: Brain leads the sidebar as a standalone item ABOVE the Natives
+    // group, so it is NOT part of these labelled groups (asserted separately).
     const GROUPED = [
       'Specs',
-      'Pulse',
       'Standards',
-      'Insights',
-      'Scaffold',
+      'Skills',
       'Drift',
       'Issues',
       'QA Reports',
+      'Pulse',
+      'Insights',
+      'Scaffold',
     ];
     const labels = within(nav)
       .getAllByRole('link')
@@ -125,30 +130,32 @@ describe('AppShell sidebar navigation', () => {
     expect(labels).toEqual(GROUPED);
   });
 
-  // spec-303 ac-1 / impl ac-9 — the Home Canvas is the FIRST nav item and a flat,
-  // user-level link (/home), not tenant-prefixed.
-  it('shows Home as the first nav item, linking to the flat /home', () => {
-    tagAc('mindset-prod/memex-building-itself/specs/spec-303/acs/ac-1');
-    tagAc('mindset-prod/memex-building-itself/specs/spec-303/acs/ac-9');
+  // spec-498 — the Brain is the FIRST nav item and a standalone lead ABOVE the
+  // "Natives" group header (the slot the parked Home Canvas used to hold). It's the
+  // memex's default landing. The flat Home Canvas nav item is PARKED (see the
+  // commented-out HOME_NAV_LINK in AppShell.tsx) — restore its tests alongside it.
+  it('shows Brain as a standalone lead item above the Natives header, Home parked', () => {
     renderShell(['/specs']);
 
     const nav = screen.getByTestId('primary-nav');
-    const home = within(nav).getByRole('link', { name: 'Home' });
-    expect(home).toHaveAttribute('href', '/home');
-    // Home is the first working surface — above Specs (the previous top item).
-    const links = within(nav).getAllByRole('link');
+    const brain = within(nav).getByRole('link', { name: 'Brain' });
+    expect(brain).toHaveAttribute('href', '/brain');
+    // The parked Home Canvas nav item is gone.
+    expect(within(nav).queryByRole('link', { name: 'Home' })).not.toBeInTheDocument();
+    // Brain renders ABOVE the "Natives" group header (DOM order), and above Specs.
+    const natives = within(nav).getByText('Natives');
     const specs = within(nav).getByRole('link', { name: 'Specs' });
-    expect(links.indexOf(home)).toBeGreaterThanOrEqual(0);
-    expect(links.indexOf(home)).toBeLessThan(links.indexOf(specs));
+    expect(brain.compareDocumentPosition(natives) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const links = within(nav).getAllByRole('link');
+    expect(links.indexOf(brain)).toBeLessThan(links.indexOf(specs));
   });
 
-  it('marks Home active on /home', () => {
-    tagAc('mindset-prod/memex-building-itself/specs/spec-303/acs/ac-1');
-    renderShell(['/home']);
+  it('marks Brain active on /brain', () => {
+    renderShell(['/brain']);
 
     const nav = screen.getByTestId('primary-nav');
-    const home = within(nav).getByRole('link', { name: 'Home' });
-    expect(home.className).toContain('font-medium');
+    const brain = within(nav).getByRole('link', { name: 'Brain' });
+    expect(brain.className).toContain('font-medium');
   });
 
   it('marks Issues active on /issues', () => {
@@ -169,12 +176,16 @@ describe('AppShell sidebar navigation', () => {
     expect(standards.className).not.toContain('font-medium');
   });
 
-  it('marks Specs active on the bare-domain "/" route', () => {
+  // spec-498: the bare "/" (the memex index) now renders the Brain, so Brain — not
+  // Specs — owns the '/' altPath and lights up on the bare-domain route.
+  it('marks Brain active on the bare-domain "/" route', () => {
     renderShell(['/']);
 
     const nav = screen.getByTestId('primary-nav');
+    const brain = within(nav).getByRole('link', { name: 'Brain' });
+    expect(brain.className).toContain('font-medium');
     const specs = within(nav).getByRole('link', { name: 'Specs' });
-    expect(specs.className).toContain('font-medium');
+    expect(specs.className).not.toContain('font-medium');
   });
 
   it('marks Specs active on the legacy /briefs alt-path', () => {
@@ -291,11 +302,14 @@ describe('AppShell feature-hide (spec-146 t-3)', () => {
     expect(within(visibleNav).getByRole('link', { name: 'Scaffold' })).toBeInTheDocument();
   });
 
+  // PARKED with the Home Canvas nav item: the flat /home surface no longer renders a
+  // nav link at all (HOME_NAV_LINK is commented out in AppShell.tsx), so its
+  // feature-hide behaviour is dormant. Un-skip alongside restoring HOME_NAV_LINK.
   // The Home Canvas (spec-303) is gated by the same mechanism: 'home' in the
   // session hiddenFeatures drops the top nav link, so the whole surface can be
   // hidden per-env (prod) while it stays live on int. The route is gated to
   // match in App.tsx (redirect when hidden).
-  it("hides the Home nav link when 'home' is in the session hiddenFeatures", () => {
+  it.skip("hides the Home nav link when 'home' is in the session hiddenFeatures", () => {
     // Hidden: 'home' listed → no Home link for anyone on this env.
     mockSession.value = sessionWith(['home']);
     const hidden = renderShell(['/specs']);

@@ -86,7 +86,10 @@ beforeEach(() => {
   fetchJourneyStateApi.mockReset();
 });
 
-describe('spec-372 t-11: come-back-to-onboarding dot (dec-8)', () => {
+// PARKED with the Home Canvas: the come-back dot rendered on the Home nav item, which
+// is now commented out in AppShell.tsx (along with the useJourneyGraduated hook that
+// drove it). Un-skip this block when the Home Canvas nav item is restored.
+describe.skip('spec-372 t-11: come-back-to-onboarding dot (dec-8)', () => {
   it('ac-28: shows the dot when not graduated and off /home', async () => {
     tagAc(AC(28));
     fetchJourneyStateApi.mockResolvedValue(journeyState(false)); // not graduated

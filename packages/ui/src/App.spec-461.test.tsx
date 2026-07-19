@@ -271,13 +271,17 @@ describe('spec-461 t-1: RootRedirect never auto-lands on /home (dec-1)', () => {
     });
   });
 
-  it('ac-2 / ac-3: Home stays reachable by explicit navigation (visiting /home renders HomeCanvas)', async () => {
-    tagAc(AC(2));
-    tagAc(AC(3));
+  // PARKED with the Home Canvas: /home no longer renders the tracker — it always
+  // RootRedirects to the default board now (the per-memex Brain replaces it as the
+  // landing surface). Restore the "renders HomeCanvas" assertion when it comes back.
+  it('/home now redirects to the default board (Home Canvas parked)', async () => {
     mockSession = makeSession({ hiddenFeatures: [] }); // home visible
+    journeyFetch = () => Promise.resolve(journeyState(true)); // has-spec → straight to board
     renderAt('/home');
-    expect(await screen.findByTestId('home-canvas-page')).toBeInTheDocument();
-    expect(screen.queryByTestId('probe')).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/specs');
+    });
+    expect(screen.queryByTestId('home-canvas-page')).not.toBeInTheDocument();
   });
 
   it('ac-3: the /onboarding name gate still fires before any landing (unnamed user)', async () => {
