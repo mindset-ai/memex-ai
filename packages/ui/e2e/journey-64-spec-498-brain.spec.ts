@@ -4,7 +4,7 @@
 // owning a balloted decision (seed-facet-scenario), two standards joined by a
 // clause-mention edge (the real clause write path, spec-179 dec-3), and an OPEN
 // drift comment linked to the decision (seed-comment driftDecisionId, dec-4) —
-// then drives /brain for real:
+// then drives /trails for real:
 //   • type colours (dec-2): facet / standard / spec / decision each wear their
 //     std-27 hue, and the drifted standard + drifting decision are ROSE,
 //   • the discipline selector (dec-7): selecting a discipline focuses it
@@ -116,7 +116,7 @@ test("type colours, rose drift, discipline selector, and focus-card deep link", 
   });
 
   // ── the Brain surface (ac-1): nav entry + the map renders ────────────────
-  await page.goto(tenantPath(tenant.namespaceSlug, tenant.memexSlug, "/brain"));
+  await page.goto(tenantPath(tenant.namespaceSlug, tenant.memexSlug, "/trails"));
   await expect(page.getByTestId("brain-map-canvas")).toBeVisible();
   await expect(page.getByTestId("primary-nav").getByText("Trails")).toBeVisible();
   await expect(page.getByTestId("brain-legend")).toBeVisible();

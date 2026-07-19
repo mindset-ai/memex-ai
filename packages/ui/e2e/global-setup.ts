@@ -26,8 +26,7 @@ export default async function globalSetup(): Promise<void> {
   await ensureUser(DEV_EMAIL);
   await setUserName(DEV_EMAIL, DEV_NAME);
   // spec-305: needsOnboarding now keys off identity_confirmed_at (not !name), so stamp
-  // the dev user identity-confirmed too — otherwise every journey redirects to /home.
-  // (journey-34 deliberately un-confirms to walk the onboarding journey, then restores.)
+  // the dev user identity-confirmed too — otherwise every journey is redirected to /onboarding.
   await setIdentityConfirmed(DEV_EMAIL, true);
   // spec-206: pre-stamp the dev user greeted so Specky's first-run auto-greeting
   // doesn't fire on the first journey to load the board (the per-test fixture

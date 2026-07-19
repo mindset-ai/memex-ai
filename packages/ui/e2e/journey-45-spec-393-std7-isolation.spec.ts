@@ -100,7 +100,7 @@ test("std-7: a logged-in non-member cannot reach another tenant's private spec �
   });
 
   // TenantLayout redirects the logged-in non-member A away from B's tenant to A's
-  // OWN landing (computeDefaultLanding → A's personal /specs, or /home). Assert
+  // OWN landing (computeDefaultLanding → A's personal /home → Trails). Assert
   // the URL leaves B's namespace AND is NOT /login (that would be the anonymous
   // path — proof A really is logged in for this check).
   await expect

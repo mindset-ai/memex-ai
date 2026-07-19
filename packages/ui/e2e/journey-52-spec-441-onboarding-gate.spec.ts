@@ -3,15 +3,16 @@
 // A fresh email/password user arrives with no display name. spec-441 restores the
 // routing wall that sends them to /onboarding (name capture) before they can reach
 // any authenticated surface. This journey walks the full arc: signup → email
-// verification → intercepted at /onboarding → fills name → into the app (Specs board),
-// with the Home Canvas reachable by explicit navigation.
+// verification → intercepted at /onboarding → fills name → into the app.
 //
 // Covers:
 //   ac-1 — nameless authenticated user is redirected to /onboarding, not into the app.
 //   ac-2 — after submitting a name on /onboarding, the gate clears and the user reaches
-//           the app. spec-461 retired the auto-/home landing, so they land on /specs.
-//   ac-6 — the Home Canvas (reached by explicit nav post-461) shows two visible onboarding
-//           steps; the identity step is absent per spec-433.
+//           the app. spec-498: the universal landing is Trails (via the /home redirect).
+//
+// (ac-6 covered the Home Canvas onboarding tracker's steps; that surface is retired on
+//  this branch — Trails is the default landing — so the ac-6 assertion is dropped. The
+//  identity-step-removed-by-spec-433 clamp stays covered by the HomeCanvas/App units.)
 //
 // Runs as a fresh per-test email — NOT dev@memex.ai — so the new session JWT proves
 // the browser is authenticated as the signup user (spec-172 issue-1 fix applies here
@@ -29,7 +30,6 @@ import {
 const ACS = [
   "mindset-prod/memex-building-itself/specs/spec-441/acs/ac-1",
   "mindset-prod/memex-building-itself/specs/spec-441/acs/ac-2",
-  "mindset-prod/memex-building-itself/specs/spec-441/acs/ac-6",
 ];
 
 test.afterEach(async ({}, testInfo) => {
@@ -43,11 +43,8 @@ test.afterEach(async ({}, testInfo) => {
 });
 
 test(
-  "email/password signup → intercepted at /onboarding (ac-1) → fills name → lands on /home with Home Canvas (ac-2, ac-6)",
+  "email/password signup → intercepted at /onboarding (ac-1) → fills name → lands in the app on Trails (ac-2)",
   async ({ page, resources }) => {
-    // memex.ai domain so this user can drive the operator journey-preview below (ac-6):
-    // hero-first (spec-470/473) makes the live spec-less /home the import hero, so the
-    // onboarding-tracker assertion renders its step via ?preview instead.
     const email = resources.email("gate-newuser", "memex.ai");
     const { verificationToken } = await signupWithToken({
       email,
@@ -66,10 +63,10 @@ test(
     await expect(page.getByText(email)).toBeVisible();
 
     // Continue — the user has no display name, so spec-441's RootRedirect gate
-    // intercepts and redirects to /onboarding before /home renders.
+    // intercepts and redirects to /onboarding before the app landing renders.
     await page.getByRole("button", { name: /Continue to your Memex/ }).click();
 
-    // ac-1: nameless authenticated user is sent to /onboarding, not /home.
+    // ac-1: nameless authenticated user is sent to /onboarding, not into the app.
     await expect(page).toHaveURL(/\/onboarding/, { timeout: 15_000 });
     await expect(page.getByText("What's your name?")).toBeVisible({
       timeout: 10_000,
@@ -84,23 +81,11 @@ test(
     await dismissWelcomeVideo(page);
 
     // ac-2: after submitting the name (and dismissing the welcome video), the name gate
-    // is satisfied and the user reaches the real app. spec-470/473 dec-9 auto-lands a
-    // CONFIRMED spec-less user on their /home import hero (superseding spec-461's board
-    // landing for this cohort), so a fresh spec-less user now lands on /home.
-    await expect(page).toHaveURL(/\/home(\?|#|$)/, { timeout: 15_000 });
-
-    // ac-6: the Home Canvas onboarding tracker still renders its steps — but hero-first
-    // makes the live spec-less /home the import hero, so we render the tracker's create-spec
-    // step via the operator preview. getting-started-title + create-spec step visible;
-    // identity step absent (spec-433).
-    await page.goto(bareUrl("/home?preview=create-spec"));
-    await expect(page).toHaveURL(/\/home(\?|#|$)/, { timeout: 15_000 });
-    await expect(page.getByTestId("getting-started-title")).toBeVisible({
-      timeout: 15_000,
-    });
-    await expect(page.getByTestId("journey-step-create-spec")).toBeVisible({
-      timeout: 10_000,
-    });
-    await expect(page.getByTestId("journey-step-identity")).not.toBeVisible();
+    // is satisfied and the user reaches the real app. spec-498: the universal landing is
+    // the personal-memex Trails (the /home canonical redirect forwards to /:ns/:mx/trails).
+    await expect(page).toHaveURL(/\/trails(\?|#|$)/, { timeout: 15_000 });
+    // The app shell is rendered (not the /onboarding gate) — the name gate has cleared.
+    await expect(page.getByTestId("primary-nav")).toBeVisible({ timeout: 15_000 });
+    await expect(page).not.toHaveURL(/\/onboarding/);
   },
 );

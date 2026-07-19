@@ -7,10 +7,10 @@
 // WITH a display name (e2e/global-setup.ts). We prove two things:
 //
 //   1. the dev user resolves with a personal memex (globalSetup provisioned it),
-//   2. navigating to the bare origin on this (named) dev user lands on the Specs
-//      board — NOT the Onboarding profile screen — i.e. no journey lands in
-//      Onboarding unintentionally on a cold DB. (spec-461: the Specs board is the
-//      universal landing; the old auto-/home landing was retired.)
+//   2. navigating to the bare origin on this (named) dev user reaches the real app
+//      surface — NOT the Onboarding profile screen — i.e. no journey lands in
+//      Onboarding unintentionally on a cold DB. (spec-498: Trails is the universal
+//      landing, reached via the /home canonical redirect.)
 //
 // The onboarding flow keeps its OWN explicit journey (t-7 lifecycle spine) that
 // clears the name and walks the screen — this spec is the complementary "named
@@ -31,7 +31,7 @@ test.afterEach(async ({}, testInfo) => {
   );
 });
 
-test("globalSetup leaves dev@memex.ai named so a cold-DB journey lands on the Specs board, not Onboarding", async ({
+test("globalSetup leaves dev@memex.ai named so a cold-DB journey reaches the app (Trails), not Onboarding", async ({
   page,
 }) => {
   // globalSetup provisioned the personal memex; it must resolve.
@@ -40,8 +40,7 @@ test("globalSetup leaves dev@memex.ai named so a cold-DB journey lands on the Sp
 
   // This spec verifies the NAMING/onboarding gate (a named dev reaches the real app, not
   // Onboarding), so isolate that by clearing any spec an earlier journey leaked onto the
-  // shared dev user. spec-470/473 dec-9: a brand-new named dev (no spec) now lands on their
-  // /home import hero (the automatic board landing was superseded for the spec-less cohort).
+  // shared dev user. spec-498: every cohort now lands on their personal-memex Trails.
   // (This test uses the raw `test`, not the fixture, to avoid masking globalSetup's naming;
   // clearing specs doesn't touch the name.)
   await clearUserSpecs(DEV_EMAIL);
@@ -53,13 +52,14 @@ test("globalSetup leaves dev@memex.ai named so a cold-DB journey lands on the Sp
     sessionStorage.setItem('welcomeVideoDismissed', '1');
   });
 
-  // Bare origin → spec-470/473 dec-9: a named CONFIRMED spec-less user lands on their /home
-  // import hero. The point of ac-10 holds unchanged: a cold-DB journey for the named dev user
-  // is NOT dropped into a blocking onboarding screen — it reaches the real app surface (the
-  // import hero) directly.
+  // Bare origin → spec-498: a named user lands on their personal-memex Trails (the /home
+  // canonical redirect forwards to /:ns/:mx/trails). The point of ac-10 holds unchanged: a
+  // cold-DB journey for the named dev user is NOT dropped into a blocking onboarding screen —
+  // it reaches the real app surface directly.
   // waitUntil: "commit" — RootRedirect may client-redirect mid-load.
   await page.goto("/", { waitUntil: "commit" });
-  await expect(page).toHaveURL(/\/home(\?|#|$)/, { timeout: 15_000 });
+  await expect(page).toHaveURL(/\/trails(\?|#|$)/, { timeout: 15_000 });
   await expect(page).not.toHaveURL(/\/onboarding/);
-  await expect(page.getByTestId("build-prompt-hero")).toBeVisible({ timeout: 15_000 });
+  // The app shell rendered (proof it reached the real app, not the Onboarding screen).
+  await expect(page.getByTestId("primary-nav")).toBeVisible({ timeout: 15_000 });
 });
