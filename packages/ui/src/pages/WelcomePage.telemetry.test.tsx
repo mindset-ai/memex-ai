@@ -136,7 +136,7 @@ describe('WelcomePage — onboarding.video_* telemetry', () => {
 });
 
 // spec-460 dec-1/dec-7: the "book a call" line is hidden during playback, revealed
-// once the viewer is ≥85% through (or the video ends), links to the neutral booking
+// once the viewer is ≥75% through (or the video ends), links to the neutral booking
 // alias in a new tab, and never gates the path to /specs.
 describe('WelcomePage — spec-460 book-a-call reveal', () => {
   beforeEach(() => {
@@ -160,7 +160,7 @@ describe('WelcomePage — spec-460 book-a-call reveal', () => {
     expect(track.mock.calls.filter((c) => c[0] === 'onboarding.video_call_cta_shown')).toHaveLength(0);
 
     const video = screen.getByTestId('welcome-video-player') as HTMLVideoElement;
-    stubPlayback(video, 90, 100); // 90% > 85% threshold
+    stubPlayback(video, 90, 100); // 90% > 75% threshold
     fireEvent.timeUpdate(video);
 
     expect(cta).toHaveAttribute('aria-hidden', 'false');
@@ -172,7 +172,7 @@ describe('WelcomePage — spec-460 book-a-call reveal', () => {
     expect(screen.getByTestId('welcome-video-cta')).toBeInTheDocument();
   });
 
-  it('reveals at ≥85% via playback/seek, and via ended, and stays shown once revealed (fires once) (ac-9)', () => {
+  it('reveals at ≥75% via playback/seek, and via ended, and stays shown once revealed (fires once) (ac-9)', () => {
     tagAc(AC(9));
     renderPage();
     const cta = screen.getByTestId('welcome-video-call-cta');
@@ -184,7 +184,7 @@ describe('WelcomePage — spec-460 book-a-call reveal', () => {
     expect(cta).toHaveAttribute('aria-hidden', 'true');
 
     // Cross threshold: revealed.
-    stubPlayback(video, 86, 100);
+    stubPlayback(video, 76, 100);
     fireEvent.timeUpdate(video);
     expect(cta).toHaveAttribute('aria-hidden', 'false');
 

@@ -4,7 +4,7 @@
 // exercised against the running app:
 //   - the /welcome video src is the v6 asset (ac-1)
 //   - the "book a call" line is hidden during playback and revealed once the
-//     viewer crosses ~85%, linking to the booking alias in a new tab (ac-2)
+//     viewer crosses ~75%, linking to the booking alias in a new tab (ac-2)
 //   - the Getting Started sidebar card shows its rows and dismissal persists
 //     across a reload; dismissing every row unmounts the card (ac-3, ac-4)
 //   - the avatar dropdown carries the Download desktop app + Book a call
@@ -56,7 +56,7 @@ test(
     const callCta = page.getByTestId("welcome-video-call-cta");
     await expect(callCta).toHaveAttribute("aria-hidden", "true");
 
-    // Drive the <video> past the 85% reveal threshold and fire timeupdate. jsdom
+    // Drive the <video> past the 75% reveal threshold and fire timeupdate. jsdom
     // can't decode the media, so we set the numbers directly and dispatch the event
     // the component listens on (matches how the unit test stubs playback).
     await page.getByTestId("welcome-video-player").evaluate((el) => {

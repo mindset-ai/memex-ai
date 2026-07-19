@@ -27,10 +27,12 @@ const VIDEO_ID = 'welcome-to-memex-v6';
 // dec-6). ?src attributes the booking to this surface.
 const BOOK_A_CALL_URL = 'https://www.memex.ai/book-a-call?src=welcome-video';
 
-// spec-460 dec-7: reveal the call CTA once the viewer is ≥85% through the video.
-// The v4 cut is ~3 min, so a strict "on ended" reveal would reach far fewer
-// viewers; 85% catches near-finishers while staying roughly synced to the outro.
-const CALL_CTA_REVEAL_FRACTION = 0.85;
+// spec-460 dec-7: reveal the call CTA once the viewer is ≥75% through the video.
+// A strict "on ended" reveal would reach far fewer viewers; the fraction catches
+// near-finishers while staying roughly synced to the wind-down. Originally 85%
+// against the ~3-min v4 cut; lowered for the 4:43 v6 cut so the reveal lands at
+// ~3:33 instead of ~4:01 (issue-1 — fewer viewers survive to 85% of a longer video).
+const CALL_CTA_REVEAL_FRACTION = 0.75;
 
 // Build the numeric playback props shared by every onboarding.video_* event.
 // duration is NaN until metadata loads, so percent_watched is guarded against
