@@ -53,7 +53,7 @@ test("a user in two orgs switches between them via the MemexSwitcher (path nav)"
 
   // Start on org A's Specs board.
   await page.goto(tenantPath(slugA, orgA.memexSlug, "/specs"), { waitUntil: "commit" });
-  await expect(page.getByRole("heading", { name: "Trails" })).toBeVisible({
+  await expect(page.getByRole("heading", { name: "Specs" })).toBeVisible({
     timeout: 15_000,
   });
 
