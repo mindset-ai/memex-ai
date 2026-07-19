@@ -305,14 +305,9 @@ function StandardSection({
           </span>
           {title}
         </h2>
-        {drifted && (
-          <span
-            data-testid="section-drift-badge"
-            className="text-xs font-medium px-2 py-0.5 rounded-full bg-status-danger-bg text-status-danger-text border border-status-danger-border"
-          >
-            {driftCount} drift
-          </span>
-        )}
+        {/* The per-section drift signal is the red dot alone — the "N drift"
+            count + its Drift-Inbox deep link live once, on the page-header badge,
+            so a section isn't a second, non-actionable copy of the same number. */}
       </div>
       {hasClauses ? (
         <StandardClauseList clauses={clauses!} parentDocId={section.docId} />
