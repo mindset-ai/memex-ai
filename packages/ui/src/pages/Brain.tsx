@@ -45,6 +45,7 @@ interface DriftStep {
   decisionId: string;
   decisionHandle: string;
   decisionTitle: string;
+  standardDocId: string;
   standardHandle: string;
   standardTitle: string;
   openedAt: string;
@@ -92,6 +93,10 @@ export function Brain() {
   const brainNodesRef = useRef<BrainNode[]>([]);
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
+  // The renderer's edge-click callback is built once, so route the drift-edge →
+  // card action through a ref that each render refreshes with the latest
+  // openDrifts/goToDrift (the same latest-ref pattern as navigateRef).
+  const openDriftEdgeRef = useRef<(decisionId: string, standardDocId: string) => void>(() => {});
 
   const palette = useMemo(() => brainPalette(theme), [theme]);
 
@@ -139,6 +144,7 @@ export function Brain() {
           decisionId: e.decisionId,
           decisionHandle: dec.handle,
           decisionTitle: dec.title,
+          standardDocId: std.docId,
           standardHandle: std.handle,
           standardTitle: std.title,
           openedAt: e.openedAt,
@@ -163,6 +169,15 @@ export function Brain() {
     },
     [openDrifts, focusDepth],
   );
+
+  // Clicking a drift edge opens the drift card at that drift (never navigates —
+  // only the card's "Open drift →" leaves the map). Matched by its endpoints.
+  openDriftEdgeRef.current = (decisionId: string, standardDocId: string) => {
+    const idx = openDrifts.findIndex(
+      (d) => d.decisionId === decisionId && d.standardDocId === standardDocId,
+    );
+    if (idx >= 0) goToDrift(idx);
+  };
 
   // Mount the engine on first data; later fetches (filter flips) and theme
   // changes go through setGraph/setPalette so node positions survive.
@@ -199,14 +214,15 @@ export function Brain() {
         },
         onEdgeClick: (link: SimLink) => {
           const b = link as BrainLink;
-          // A drift edge IS the inbox item — clicking it lands there (ac-15).
-          if (b.rel === 'drift' && b.href) {
-            navigateRef.current(tenantPath(b.href));
+          const s = typeof b.source === 'string' ? b.source : b.source.id;
+          const t = typeof b.target === 'string' ? b.target : b.target.id;
+          // A drift edge opens the drift card at that drift — it does NOT
+          // navigate; only the card's "Open drift →" leaves the map (ac-15).
+          if (b.rel === 'drift') {
+            openDriftEdgeRef.current(s, t);
             return;
           }
           if (!b.evidence || b.evidence.length === 0) return;
-          const s = typeof b.source === 'string' ? b.source : b.source.id;
-          const t = typeof b.target === 'string' ? b.target : b.target.id;
           setSelectedEdge({
             sourceHandle: handleById.get(s) ?? s,
             targetHandle: handleById.get(t) ?? t,
@@ -218,7 +234,9 @@ export function Brain() {
           setDriftIndex(null);
         },
       },
-      { reducedMotion },
+      // Drift is the map's one live signal — the flow-flagged rose drift edges
+      // animate continuously; every other edge is a thin static line (spec-498).
+      { reducedMotion, continuousFlow: true },
     );
     rendererRef.current = renderer;
     void renderer.init(hostRef.current, sim).then(() => {

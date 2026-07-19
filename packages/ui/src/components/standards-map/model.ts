@@ -66,6 +66,14 @@ export interface SimLink {
    * (alpha still rises); absent, the palette mention/semantic strokes apply.
    */
   color?: number;
+  /**
+   * Continuous-flow override (spec-498): when true AND the renderer runs in
+   * `continuousFlow` mode, this edge animates its dash-flow ALWAYS, regardless of
+   * focus/hover — and is the ONLY kind of edge that flows. The Brain marks its
+   * rose drift edges with this so drift is the map's one live signal; every other
+   * edge stays a thin static line. Ignored by the default (StandardsMap) renderer.
+   */
+  flow?: boolean;
   count?: number;
   evidence?: EvidenceItem[];
   similarity?: number;

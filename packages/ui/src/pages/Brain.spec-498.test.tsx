@@ -237,17 +237,21 @@ describe('colour encoding (dec-2)', () => {
     expect(byId.get('s-drift')!.drifted).toBe(true);
     expect(byId.get('d-bad')!.color).toBe(PALETTE.drift);
     expect(byId.get('d-bad')!.drifted).toBe(true);
-    // The drift edge is the only colour-overridden link, in rose, and wider —
-    // and it carries the Drift-Inbox deep link to THAT drift item: the standard
-    // filter (?doc=std-2) plus the specific comment (&drift=c-1) (ac-15).
+    // The drift edge is the only colour-overridden link, in rose, wider, and the
+    // ONLY flowing (animated) edge — plus it carries the Drift-Inbox deep link to
+    // THAT drift item: the standard filter (?doc=std-2) + the comment (&drift=c-1).
     const drift = links.find((l) => l.rel === 'drift')!;
     expect(drift.color).toBe(PALETTE.drift);
+    expect(drift.flow).toBe(true);
     expect(drift.width).toBeGreaterThan(1);
     expect(drift.href).toBe('/drift?doc=std-2&drift=c-1');
     for (const l of links) {
       if (l.rel !== 'drift') {
         expect(l.color).toBeUndefined();
         expect(l.href).toBeUndefined();
+        // Every structural edge is a thin, static hairline (no flow).
+        expect(l.flow).toBeUndefined();
+        expect(l.width).toBeLessThan(drift.width);
       }
     }
   });
@@ -474,7 +478,7 @@ describe('Brain page shell', () => {
     expect(screen.queryByTestId('brain-focus-open')).toBeNull();
   });
 
-  it('clicking a drift edge lands on THAT drift item in the Drift Inbox', async () => {
+  it('clicking a drift edge opens the drift card (it does NOT navigate)', async () => {
     tagAc(AC_DRIFT_INBOX);
     tagAc(AC_SCOPE_DRIFT_RED);
     const renderer = await renderBrain();
@@ -486,16 +490,26 @@ describe('Brain page shell', () => {
       width: 1.6,
       rel: 'drift' as const,
       color: PALETTE.drift,
+      flow: true,
       href: '/drift?doc=std-2&drift=c-1',
     };
     act(() => renderer.callbacks.onEdgeClick(driftLink));
-    await waitFor(() =>
-      expect(screen.getByTestId('location').textContent).toBe(
-        '/acme/team/drift?doc=std-2&drift=c-1',
-      ),
-    );
-    // No evidence panel opens for a drift edge — the inbox IS the detail view.
+
+    // The drift card opens at that drift and frames its decision — no navigation.
+    const card = await screen.findByTestId('brain-drift-card');
+    expect(card.textContent).toContain('dec-2');
+    expect(card.textContent).toContain('contradicts');
+    expect(card.textContent).toContain('std-2');
+    expect(renderer.frameFocus).toHaveBeenCalledWith('d-bad', 1);
+    expect(screen.getByTestId('location').textContent).toBe('/acme/team/brain');
+    // No evidence panel opens for a drift edge — the drift card IS its detail.
     expect(screen.queryByTestId('brain-edge-evidence')).toBeNull();
+
+    // Only the card's "Open drift →" leaves the map, to THAT exact item.
+    fireEvent.click(screen.getByTestId('brain-drift-open'));
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe('/acme/team/drift?doc=std-2&drift=c-1'),
+    );
   });
 
   it('drift tour: the navigator frames each open drift and the card deep-links to THAT item', async () => {

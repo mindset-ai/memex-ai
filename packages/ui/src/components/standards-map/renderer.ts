@@ -64,6 +64,13 @@ export interface RendererCallbacks {
 export interface RendererOptions {
   /** prefers-reduced-motion — settle/idle/flow off, transitions instant. */
   reducedMotion: boolean;
+  /**
+   * spec-498: flip the flow model. When true, the ONLY edges that animate are
+   * those flagged `flow` (the Brain's drift edges), and they flow CONTINUOUSLY
+   * regardless of focus/hover; the default directional-flow-within-emphasis
+   * (StandardsMap) is suppressed. When false/absent, the default applies.
+   */
+  continuousFlow?: boolean;
 }
 
 const MIN_ZOOM = 0.2;
@@ -616,7 +623,9 @@ export class StandardsMapRenderer {
       link.color !== undefined
         ? link.color
         : mixColor(this.palette.mention, this.palette.nodeHover, emphasis);
-    const flowing = this.flowing.has(link.id) && emphasis > 0.05;
+    // A flagged (drift) edge flows whenever it's in the flowing set — even calm,
+    // with no emphasis; a default map edge only flows once its emphasis lifts.
+    const flowing = this.flowing.has(link.id) && (link.flow === true || emphasis > 0.05);
 
     if (flowing && !this.options.reducedMotion) {
       // Animated dash-flow, phase drifting citing→cited.
@@ -626,7 +635,10 @@ export class StandardsMapRenderer {
         if (end <= start) continue;
         g.moveTo(x1 + ux * start, y1 + uy * start).lineTo(x1 + ux * end, y1 + uy * end);
       }
-      g.stroke({ width: link.width + 0.4, color, alpha: 0.45 + 0.55 * emphasis });
+      // A continuously-flowing (drift) edge stays clearly visible when calm; a
+      // default map's directional flow only appears lit inside an emphasis.
+      const flowAlpha = link.flow ? Math.min(1, 0.75 + 0.25 * emphasis) : 0.45 + 0.55 * emphasis;
+      g.stroke({ width: link.width + 0.4, color, alpha: flowAlpha });
     } else {
       g.moveTo(x1, y1).lineTo(x2, y2);
       g.stroke({ width: link.width, color, alpha: 0.45 + 0.35 * emphasis });
@@ -860,14 +872,18 @@ export class StandardsMapRenderer {
       anim.emphasisTarget = accentEmphasis && lit ? 1 : 0;
     }
 
-    // Direction shows only inside a hover/focus emphasis, on lit edges.
-    this.flowing = accentEmphasis
-      ? new Set(
-          [...flowEdgeIds(emphasis, this.links)].filter(
-            (id) => (this.edgeAnim.get(id)?.emphasisTarget ?? 0) > 0,
-          ),
-        )
-      : new Set();
+    // spec-498 continuous-flow mode (Brain): the flagged edges (drift) are the
+    // only animated lines and they flow ALWAYS — independent of emphasis. The
+    // default map shows direction only inside a hover/focus emphasis, on lit edges.
+    this.flowing = this.options.continuousFlow
+      ? new Set(this.links.filter((l) => l.flow).map((l) => l.id))
+      : accentEmphasis
+        ? new Set(
+            [...flowEdgeIds(emphasis, this.links)].filter(
+              (id) => (this.edgeAnim.get(id)?.emphasisTarget ?? 0) > 0,
+            ),
+          )
+        : new Set();
 
     this.paintNodes();
     this.wake();

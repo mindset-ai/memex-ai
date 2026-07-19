@@ -53,6 +53,10 @@ export interface BrainPalette {
 
 const hex = (s: string): number => parseInt(s.slice(1), 16);
 
+// spec-498: the hairline width every structural (non-drift) edge draws at — a
+// uniform thin static line, so only the wider, flowing rose drift edge draws the eye.
+const THIN_EDGE = 0.6;
+
 export function brainPalette(theme: 'dark' | 'light'): BrainPalette {
   const p = CHART_PALETTES[theme];
   return {
@@ -168,7 +172,7 @@ export function buildBrainGraph(data: KnowledgeGraphData, palette: BrainPalette)
     rel: BrainRel,
     source: string,
     target: string,
-    extra: Partial<Pick<BrainLink, 'width' | 'color' | 'count' | 'evidence' | 'href'>> = {},
+    extra: Partial<Pick<BrainLink, 'width' | 'color' | 'flow' | 'count' | 'evidence' | 'href'>> = {},
   ) => {
     if (!present.has(source) || !present.has(target)) return;
     links.push({
@@ -176,7 +180,10 @@ export function buildBrainGraph(data: KnowledgeGraphData, palette: BrainPalette)
       source,
       target,
       kind: 'mention',
-      width: extra.width ?? 0.7,
+      // spec-498: every non-drift edge is a thin, static line — drift is the map's
+      // one live signal, so structural edges recede to a uniform hairline and the
+      // rose flowing drift edge carries all the width + motion.
+      width: extra.width ?? THIN_EDGE,
       rel,
       ...extra,
     });
@@ -185,10 +192,10 @@ export function buildBrainGraph(data: KnowledgeGraphData, palette: BrainPalette)
   for (const e of data.edges.specDecision) push('spec-decision', e.specDocId, e.decisionId);
   for (const e of data.edges.decisionFacet) push('decision-facet', e.decisionId, e.facetId);
 
-  const maxFacetClauses = Math.max(...data.edges.standardFacet.map((e) => e.clauseCount), 1);
+  // Non-drift edges are uniform hairlines now (spec-498), so clause/mention
+  // counts no longer scale width — they ride along only as click-through evidence.
   for (const e of data.edges.standardFacet) {
     push('standard-facet', e.standardDocId, e.facetId, {
-      width: 0.6 + (e.clauseCount / maxFacetClauses) * 1.2,
       count: e.clauseCount,
       evidence: e.evidence.map(
         (ev): EvidenceItem => ({ clauseSeq: clauseSeqOf(ev.clauseHandle), snippet: ev.snippet }),
@@ -196,10 +203,8 @@ export function buildBrainGraph(data: KnowledgeGraphData, palette: BrainPalette)
     });
   }
 
-  const maxMentions = Math.max(...data.edges.mentions.map((e) => e.count), 1);
   for (const e of data.edges.mentions) {
     push('mention', e.sourceDocId, e.targetDocId, {
-      width: 0.6 + (e.count / maxMentions) * 1.8,
       count: e.count,
       evidence: e.evidence,
     });
@@ -216,6 +221,8 @@ export function buildBrainGraph(data: KnowledgeGraphData, palette: BrainPalette)
     push('drift', e.decisionId, e.standardDocId, {
       width: 1.6,
       color: palette.drift,
+      // The one animated line on the map (spec-498): continuous rose dash-flow.
+      flow: true,
       href: standardHandle ? `/drift?doc=${standardHandle}&drift=${e.commentId}` : undefined,
     });
   }
