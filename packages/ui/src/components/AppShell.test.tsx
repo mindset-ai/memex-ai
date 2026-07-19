@@ -86,7 +86,7 @@ describe('AppShell sidebar navigation', () => {
 
     const nav = screen.getByTestId('primary-nav');
     expect(within(nav).getByRole('link', { name: 'Specs' })).toBeInTheDocument();
-    expect(within(nav).getByRole('link', { name: 'Issues' })).toBeInTheDocument();
+    expect(within(nav).getByRole('link', { name: 'Build Issues' })).toBeInTheDocument();
     expect(within(nav).getByRole('link', { name: 'Pulse' })).toBeInTheDocument();
     // spec-498: the group formerly labelled "Principles" is now "Natives".
     expect(within(nav).getByText('Natives')).toBeInTheDocument();
@@ -113,7 +113,7 @@ describe('AppShell sidebar navigation', () => {
       'Standards',
       'Skills',
       'Drift',
-      'Issues',
+      'Build Issues',
       'QA Reports',
       'Pulse',
       'Insights',
@@ -162,7 +162,7 @@ describe('AppShell sidebar navigation', () => {
     renderShell(['/issues']);
 
     const nav = screen.getByTestId('primary-nav');
-    const issues = within(nav).getByRole('link', { name: 'Issues' });
+    const issues = within(nav).getByRole('link', { name: 'Build Issues' });
     expect(issues.className).toContain('font-medium');
   });
 
