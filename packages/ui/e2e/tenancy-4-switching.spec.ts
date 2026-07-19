@@ -3,8 +3,9 @@
 //
 // Dev is a member of two orgs. The MemexSwitcher lists both under their
 // namespaces ("Your orgs"); clicking a Memex navigates by PATH via React Router
-// on the same origin [per std-2] and lands on that tenant's /specs board. There
-// is no subdomain hop — navigation is a client-side route change.
+// on the same origin [per std-2] and lands on that tenant's default surface
+// (Trails, via the canonical /home redirect). There is no subdomain hop —
+// navigation is a client-side route change.
 
 import {
   test,
@@ -52,7 +53,7 @@ test("a user in two orgs switches between them via the MemexSwitcher (path nav)"
 
   // Start on org A's Specs board.
   await page.goto(tenantPath(slugA, orgA.memexSlug, "/specs"), { waitUntil: "commit" });
-  await expect(page.getByRole("heading", { name: "Specs" })).toBeVisible({
+  await expect(page.getByRole("heading", { name: "Trails" })).toBeVisible({
     timeout: 15_000,
   });
 
@@ -65,13 +66,13 @@ test("a user in two orgs switches between them via the MemexSwitcher (path nav)"
   await expect(menu.getByText("Alpha Memex")).toBeVisible();
   await expect(menu.getByText("Beta Memex")).toBeVisible();
 
-  // Click into org B's Memex — React Router same-origin navigation to /specs.
+  // Click into org B's Memex — React Router same-origin nav to /home → Trails.
   await menu.getByText("Beta Memex").click();
   await page.waitForURL(
-    (url) => url.pathname === `/${slugB}/${orgB.memexSlug}/specs`,
+    (url) => url.pathname === `/${slugB}/${orgB.memexSlug}/trails`,
     { timeout: 15_000 },
   );
-  await expect(page.getByRole("heading", { name: "Specs" })).toBeVisible({
+  await expect(page.getByRole("heading", { name: "Trails" })).toBeVisible({
     timeout: 15_000,
   });
 
@@ -79,10 +80,10 @@ test("a user in two orgs switches between them via the MemexSwitcher (path nav)"
   await page.getByTitle("Switch Memex").first().click();
   await page.getByTestId("memex-switcher-menu").getByText("Alpha Memex").click();
   await page.waitForURL(
-    (url) => url.pathname === `/${slugA}/${orgA.memexSlug}/specs`,
+    (url) => url.pathname === `/${slugA}/${orgA.memexSlug}/trails`,
     { timeout: 15_000 },
   );
-  await expect(page.getByRole("heading", { name: "Specs" })).toBeVisible({
+  await expect(page.getByRole("heading", { name: "Trails" })).toBeVisible({
     timeout: 15_000,
   });
 });
