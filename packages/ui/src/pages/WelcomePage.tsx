@@ -15,22 +15,24 @@ import { dismissWelcomeVideoApi } from '../api/auth';
 import { useTelemetry } from '../hooks/useTelemetry';
 
 const VIDEO_URL =
-  'https://storage.googleapis.com/memex-ai-prod-app-static/media/welcome-to-memex-v5.mp4';
+  'https://storage.googleapis.com/memex-ai-prod-app-static/media/welcome-to-memex-v6-1080p.mp4';
 
 // Stable, low-cardinality identifier for this video — the filename stem of
 // VIDEO_URL. Kept as its own const so a src bump is a one-line, deliberate change
 // (props carry ids/counts only — std-35 cl-5).
-const VIDEO_ID = 'welcome-to-memex-v5';
+const VIDEO_ID = 'welcome-to-memex-v6-1080p';
 
 // spec-460: the "book a call" CTA revealed near the end of the video points at the
 // neutral booking alias on the marketing site (never the raw HubSpot URL — std-31,
 // dec-6). ?src attributes the booking to this surface.
 const BOOK_A_CALL_URL = 'https://www.memex.ai/book-a-call?src=welcome-video';
 
-// spec-460 dec-7: reveal the call CTA once the viewer is ≥85% through the video.
-// The v4 cut is ~3 min, so a strict "on ended" reveal would reach far fewer
-// viewers; 85% catches near-finishers while staying roughly synced to the outro.
-const CALL_CTA_REVEAL_FRACTION = 0.85;
+// spec-460 dec-7: reveal the call CTA once the viewer is ≥75% through the video.
+// A strict "on ended" reveal would reach far fewer viewers; the fraction catches
+// near-finishers while staying roughly synced to the wind-down. Originally 85%
+// against the ~3-min v4 cut; lowered for the 4:43 v6 cut so the reveal lands at
+// ~3:33 instead of ~4:01 (issue-1 — fewer viewers survive to 85% of a longer video).
+const CALL_CTA_REVEAL_FRACTION = 0.75;
 
 // Build the numeric playback props shared by every onboarding.video_* event.
 // duration is NaN until metadata loads, so percent_watched is guarded against
@@ -190,7 +192,11 @@ export function WelcomePage() {
         </svg>
       </button>
 
-      <div className="w-full max-w-[560px] flex flex-col gap-6">
+      {/* spec-460 issue-1: the column is video-first — 960px wide for the player
+          (the v6 cut is UI screen capture; legibility wants size), while the
+          button/link cluster below stays capped at 560px so the CTA doesn't
+          stretch to banner width. */}
+      <div className="w-full max-w-[960px] flex flex-col gap-6">
         <div className="text-center">
           <h1 className="text-4xl font-bold tracking-tight text-gray-900">Let's dive in.</h1>
           <p className="mt-2 text-base text-gray-600">
@@ -209,10 +215,16 @@ export function WelcomePage() {
           onPlaying={onVideoPlay}
           onTimeUpdate={onVideoTimeUpdate}
           onEnded={onVideoEnded}
-          className="w-full rounded-lg"
-          style={{ aspectRatio: '16/9' }}
+          className="w-full mx-auto rounded-lg"
+          // The v6 asset is 1128×720 (~1.567:1, not 16:9) — the box matches the
+          // video exactly so nothing letterboxes. The max-width term caps the
+          // rendered height at ~65vh (width = height × 1.5667) so heading +
+          // video + CTA stay on-screen together on shorter laptop viewports.
+          style={{ aspectRatio: '1128 / 720', maxWidth: 'min(100%, calc(65vh * 1.5667))' }}
         />
 
+        {/* Controls keep the original 560px measure under the wider video. */}
+        <div className="w-full max-w-[560px] mx-auto flex flex-col gap-6">
         {!isRewatch ? (
           <>
             {/* spec-462: one primary button, three states. Same testid + reserved
@@ -289,6 +301,7 @@ export function WelcomePage() {
             Book a 30-minute call with us
           </a>
         </p>
+        </div>
       </div>
     </div>
   );

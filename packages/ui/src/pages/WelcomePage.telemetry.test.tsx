@@ -63,7 +63,7 @@ describe('WelcomePage — onboarding.video_* telemetry', () => {
     const started = track.mock.calls.filter((c) => c[0] === 'onboarding.video_started');
     expect(started).toHaveLength(1);
     expect(started[0][1]).toEqual({
-      video_id: 'welcome-to-memex-v5',
+      video_id: 'welcome-to-memex-v6-1080p',
       position_seconds: 3,
       duration_seconds: 120,
       percent_watched: 3, // 3/120 = 2.5 → rounded
@@ -80,7 +80,7 @@ describe('WelcomePage — onboarding.video_* telemetry', () => {
 
     const completed = track.mock.calls.filter((c) => c[0] === 'onboarding.video_completed');
     expect(completed).toHaveLength(1);
-    expect(completed[0][1]).toMatchObject({ video_id: 'welcome-to-memex-v5', percent_watched: 100 });
+    expect(completed[0][1]).toMatchObject({ video_id: 'welcome-to-memex-v6-1080p', percent_watched: 100 });
   });
 
   // spec-462: before completion the primary button is "▶ Play now" / "Playing…",
@@ -97,7 +97,7 @@ describe('WelcomePage — onboarding.video_* telemetry', () => {
 
     const skipped = track.mock.calls.filter((c) => c[0] === 'onboarding.video_skipped');
     expect(skipped).toHaveLength(1);
-    expect(skipped[0][1]).toMatchObject({ video_id: 'welcome-to-memex-v5', position_seconds: 10 });
+    expect(skipped[0][1]).toMatchObject({ video_id: 'welcome-to-memex-v6-1080p', position_seconds: 10 });
     await waitFor(() => expect(dismissWelcomeVideoApi).toHaveBeenCalled());
   });
 
@@ -136,7 +136,7 @@ describe('WelcomePage — onboarding.video_* telemetry', () => {
 });
 
 // spec-460 dec-1/dec-7: the "book a call" line is hidden during playback, revealed
-// once the viewer is ≥85% through (or the video ends), links to the neutral booking
+// once the viewer is ≥75% through (or the video ends), links to the neutral booking
 // alias in a new tab, and never gates the path to /specs.
 describe('WelcomePage — spec-460 book-a-call reveal', () => {
   beforeEach(() => {
@@ -160,7 +160,7 @@ describe('WelcomePage — spec-460 book-a-call reveal', () => {
     expect(track.mock.calls.filter((c) => c[0] === 'onboarding.video_call_cta_shown')).toHaveLength(0);
 
     const video = screen.getByTestId('welcome-video-player') as HTMLVideoElement;
-    stubPlayback(video, 90, 100); // 90% > 85% threshold
+    stubPlayback(video, 90, 100); // 90% > 75% threshold
     fireEvent.timeUpdate(video);
 
     expect(cta).toHaveAttribute('aria-hidden', 'false');
@@ -172,7 +172,7 @@ describe('WelcomePage — spec-460 book-a-call reveal', () => {
     expect(screen.getByTestId('welcome-video-cta')).toBeInTheDocument();
   });
 
-  it('reveals at ≥85% via playback/seek, and via ended, and stays shown once revealed (fires once) (ac-9)', () => {
+  it('reveals at ≥75% via playback/seek, and via ended, and stays shown once revealed (fires once) (ac-9)', () => {
     tagAc(AC(9));
     renderPage();
     const cta = screen.getByTestId('welcome-video-call-cta');
@@ -184,7 +184,7 @@ describe('WelcomePage — spec-460 book-a-call reveal', () => {
     expect(cta).toHaveAttribute('aria-hidden', 'true');
 
     // Cross threshold: revealed.
-    stubPlayback(video, 86, 100);
+    stubPlayback(video, 76, 100);
     fireEvent.timeUpdate(video);
     expect(cta).toHaveAttribute('aria-hidden', 'false');
 
@@ -227,7 +227,7 @@ describe('WelcomePage — spec-460 book-a-call reveal', () => {
     renderPage();
     const src = screen.getByTestId('welcome-video-player').getAttribute('src');
     expect(src).toBe(
-      'https://storage.googleapis.com/memex-ai-prod-app-static/media/welcome-to-memex-v5.mp4',
+      'https://storage.googleapis.com/memex-ai-prod-app-static/media/welcome-to-memex-v6-1080p.mp4',
     );
   });
 

@@ -2,9 +2,9 @@
 //
 // Extends the spec-444 welcome arc (journey-53) with the spec-460 additions,
 // exercised against the running app:
-//   - the /welcome video src is the v5 asset (ac-1)
+//   - the /welcome video src is the v6 asset (ac-1)
 //   - the "book a call" line is hidden during playback and revealed once the
-//     viewer crosses ~85%, linking to the booking alias in a new tab (ac-2)
+//     viewer crosses ~75%, linking to the booking alias in a new tab (ac-2)
 //   - the Getting Started sidebar card shows its rows and dismissal persists
 //     across a reload; dismissing every row unmounts the card (ac-3, ac-4)
 //   - the avatar dropdown carries the Download desktop app + Book a call
@@ -42,21 +42,21 @@ test.afterEach(async ({}, testInfo) => {
 });
 
 test(
-  "/welcome plays the v5 video (ac-1) and reveals the book-a-call line near the end (ac-2)",
+  "/welcome plays the v6 video (ac-1) and reveals the book-a-call line near the end (ac-2)",
   async ({ page }) => {
     await setVideoWelcomed(DEV_EMAIL, false);
     await page.goto(bareUrl("/"), { waitUntil: "commit" });
     await expect(page).toHaveURL(/\/welcome/, { timeout: 15_000 });
 
-    // ac-1: the video src is the v5 asset on the public CDN.
+    // ac-1: the video src is the v6 asset on the public CDN.
     const videoSrc = await page.getByTestId("welcome-video-player").getAttribute("src");
-    expect(videoSrc).toContain("welcome-to-memex-v5.mp4");
+    expect(videoSrc).toContain("welcome-to-memex-v6-1080p.mp4");
 
     // ac-2: the call line is hidden during playback.
     const callCta = page.getByTestId("welcome-video-call-cta");
     await expect(callCta).toHaveAttribute("aria-hidden", "true");
 
-    // Drive the <video> past the 85% reveal threshold and fire timeupdate. jsdom
+    // Drive the <video> past the 75% reveal threshold and fire timeupdate. jsdom
     // can't decode the media, so we set the numbers directly and dispatch the event
     // the component listens on (matches how the unit test stubs playback).
     await page.getByTestId("welcome-video-player").evaluate((el) => {
