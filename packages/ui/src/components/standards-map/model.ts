@@ -229,15 +229,26 @@ export function buildSimGraph(
   return { nodes, links };
 }
 
+/** Width of the zoom band over which a label fades from invisible to full. */
+export const LABEL_FADE_BAND = 0.4;
+
 /**
  * Label opacity for a world zoom level — the Obsidian fade-in: labels are
  * fully present at the initial fit (capped at 1×) and only fade away as you
  * zoom OUT toward the constellation view. The renderer counter-scales the
  * labels so they hold a constant screen size instead of ballooning with
  * zoom. Hovering reveals a node's neighborhood labels at any zoom.
+ *
+ * `fullAt` is the world scale at which the label reaches full opacity — 0.9 by
+ * default (the sparse baseline). On a dense map the renderer raises it per node
+ * from local layout density (spec-498), so a crowded cluster keeps its labels
+ * hidden until you zoom in far enough for them to separate — instead of flashing
+ * the whole label layer on at once as an unreadable soup. At `fullAt = 0.9` this
+ * is the original `(scale - 0.5) / 0.4` curve, so sparse graphs are unchanged.
  */
-export function labelAlphaForZoom(scale: number): number {
-  return Math.max(0, Math.min(1, (scale - 0.5) / 0.4));
+export function labelAlphaForZoom(scale: number, fullAt = 0.9): number {
+  const start = fullAt - LABEL_FADE_BAND;
+  return Math.max(0, Math.min(1, (scale - start) / LABEL_FADE_BAND));
 }
 
 /**

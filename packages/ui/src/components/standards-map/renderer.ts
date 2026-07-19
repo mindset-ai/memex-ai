@@ -79,6 +79,18 @@ const MAX_ZOOM = 4;
 // focus neighbourhood — kept well under MAX_ZOOM so a lone node (no neighbours)
 // glides to a comfortable close-up instead of slamming to full zoom.
 const FOCUS_MAX_ZOOM = 2.2;
+
+// Local-density label reveal (spec-498). A label holds off until its own
+// neighbourhood has spread to ~LABEL_READABLE_SEP world-units of mean gap to its
+// nearest few nodes — the point where the wrapped label blocks stop overlapping.
+// Roomy nodes (and every node on the sparse StandardsMap) clamp to the 0.9
+// baseline, so their reveal is exactly as before; only crowded clusters push
+// their labels later, up to LABEL_REVEAL_CAP (reachable, < MAX_ZOOM).
+const LABEL_READABLE_SEP = 150;
+const LABEL_REVEAL_BASE = 0.9;
+const LABEL_REVEAL_CAP = 3;
+const LABEL_REVEAL_NEIGHBOURS = 3;
+
 /** Pointer movement (px) below which a node pointerup counts as a click. */
 const CLICK_SLOP = 4;
 /** Two clean clicks within this window = double-click = navigate. */
@@ -138,6 +150,8 @@ export class StandardsMapRenderer {
   /** docIds matching the toolbar search; null = no search active. */
   private searchHits: Set<string> | null = null;
   private flowing = new Set<string>();
+  /** Per-node world scale at which its label reaches full opacity (density-aware). */
+  private labelReveal = new Map<string, number>();
   private flowPhase = 0;
   private camera = { scale: 1, scaleTarget: 1, x: 0, y: 0, xTarget: 0, yTarget: 0 };
   private simActive = false;
@@ -269,9 +283,51 @@ export class StandardsMapRenderer {
         this.simActive = true;
       }
     }
+    this.recomputeLabelReveal();
     this.applyHighlight();
     this.draw();
     this.wake();
+  }
+
+  /**
+   * Per-node label-reveal zoom: the world scale at which a node's label reaches
+   * full opacity, derived from local layout density — the mean gap to its
+   * nearest few neighbours. Crowded nodes get a higher threshold (labels stay
+   * hidden until you zoom into the cluster), while roomy nodes — and the whole
+   * sparse StandardsMap — clamp to the LABEL_REVEAL_BASE 0.9 baseline, so their
+   * behaviour is unchanged. Computed once per layout settle (O(n²), off the
+   * render path); the permanent idle drift never shifts spacing enough to matter.
+   */
+  private recomputeLabelReveal(): void {
+    this.labelReveal.clear();
+    const ns = this.nodes;
+    const k = Math.min(LABEL_REVEAL_NEIGHBOURS, ns.length - 1);
+    if (k < 1) {
+      for (const n of ns) this.labelReveal.set(n.id, LABEL_REVEAL_BASE);
+      return;
+    }
+    for (const a of ns) {
+      const ax = a.x ?? 0;
+      const ay = a.y ?? 0;
+      // Keep the k smallest squared distances (k is tiny → insertion-sort wins).
+      const near: number[] = [];
+      for (const b of ns) {
+        if (b === a) continue;
+        const dx = (b.x ?? 0) - ax;
+        const dy = (b.y ?? 0) - ay;
+        const d2 = dx * dx + dy * dy;
+        if (near.length < k) {
+          near.push(d2);
+          near.sort((p, q) => p - q);
+        } else if (d2 < near[k - 1]) {
+          near[k - 1] = d2;
+          near.sort((p, q) => p - q);
+        }
+      }
+      const meanGap = near.reduce((s, d2) => s + Math.sqrt(d2), 0) / near.length;
+      const fullAt = meanGap > 0 ? LABEL_READABLE_SEP / meanGap : LABEL_REVEAL_CAP;
+      this.labelReveal.set(a.id, Math.max(LABEL_REVEAL_BASE, Math.min(LABEL_REVEAL_CAP, fullAt)));
+    }
   }
 
   /** Search results from the toolbar — hits stay lit (accent), rest dims. */
@@ -891,7 +947,6 @@ export class StandardsMapRenderer {
 
   private updateLabels(): void {
     const scale = this.camera.scale;
-    const zoomAlpha = labelAlphaForZoom(scale);
     // Counter-scale the labels so they hold a constant *screen* size while
     // the graph zooms underneath them (Obsidian behaviour) — without this
     // they balloon as you zoom in. Floored so far-out labels don't explode
@@ -901,8 +956,12 @@ export class StandardsMapRenderer {
     for (const node of this.nodes) {
       const view = this.nodeViews.get(node.id);
       if (!view) continue;
-      // Emphasised labels are always legible, zoom level regardless.
-      view.labelGroup.alpha = emphasis?.has(node.id) ? 1 : zoomAlpha;
+      // Emphasised labels are always legible, zoom level regardless. Otherwise
+      // the reveal is density-aware: a node in a crush waits for a higher zoom
+      // (labelReveal), roomy nodes keep the 0.9 baseline (spec-498).
+      view.labelGroup.alpha = emphasis?.has(node.id)
+        ? 1
+        : labelAlphaForZoom(scale, this.labelReveal.get(node.id) ?? LABEL_REVEAL_BASE);
       view.labelGroup.scale.set(counter);
     }
   }
