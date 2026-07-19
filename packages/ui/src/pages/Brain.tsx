@@ -15,7 +15,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { fetchKnowledgeGraph, type KnowledgeGraphData } from '../api/insights';
 import { tenantPath } from '../utils/tenantUrl';
-import { timeAgo } from '../utils/timeAgo';
 import { PageHeader } from '../components/PageHeader';
 import { useThemeName } from '../components/ThemeContext';
 import {
@@ -36,22 +35,18 @@ interface FocusState {
   href: string | null;
 }
 
-// One open drift, enriched for the drift tour (the next/prev walk through every
-// open drift). A drift IS the rose edge from a decision to the standard it
-// contradicts; `href` deep-links to THAT item in the Drift Inbox.
+// One drifted standard, enriched for the drift tour (the next/prev walk through
+// every open drift). Drift lives at the STANDARD level — a drift satellite node
+// hangs off its standard by the animated rose edge; `href` opens that standard's
+// drift list in the Inbox.
 interface DriftStep {
-  commentId: string;
-  href: string;
-  decisionId: string;
-  decisionHandle: string;
-  decisionTitle: string;
-  /** Canonical decision page (/specs/:spec/decisions/:dec); null if no owning spec. */
-  decisionHref: string | null;
+  driftNodeId: string;
   standardDocId: string;
   standardHandle: string;
   standardTitle: string;
   standardHref: string;
-  openedAt: string;
+  openDriftCount: number;
+  href: string;
 }
 
 /** The e2e observation hook's window shape (the spec-496 t-5 pattern). */
@@ -69,9 +64,35 @@ const KIND_LABELS: Record<BrainNode['kind'], string> = {
   standard: 'Standard',
   spec: 'Spec',
   decision: 'Decision',
+  drift: 'Drift',
 };
 
 const cssHex = (n: number): string => `#${n.toString(16).padStart(6, '0')}`;
+
+// The minimise / restore toggle shared by the overlay cards — collapses a card
+// to its header row so it stops covering the graph.
+function MinButton({
+  min,
+  onToggle,
+  testid,
+}: {
+  min: boolean;
+  onToggle: () => void;
+  testid: string;
+}) {
+  return (
+    <button
+      type="button"
+      className="text-xs text-secondary hover:text-heading shrink-0 leading-none w-4 text-center"
+      onClick={onToggle}
+      aria-label={min ? 'Expand' : 'Minimise'}
+      title={min ? 'Expand' : 'Minimise'}
+      data-testid={testid}
+    >
+      {min ? '▢' : '–'}
+    </button>
+  );
+}
 
 export function Brain() {
   const navigate = useNavigate();
@@ -88,6 +109,10 @@ export function Brain() {
     targetHandle: string;
     evidence: EvidenceItem[];
   } | null>(null);
+  // Minimise state for the two overlay cards — the top card (focus / drift) and
+  // the bottom card (edge evidence). A fresh card opens expanded (reset below).
+  const [topMin, setTopMin] = useState(false);
+  const [bottomMin, setBottomMin] = useState(false);
 
   const hostRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<StandardsMapRenderer | null>(null);
@@ -99,7 +124,7 @@ export function Brain() {
   // The renderer's edge-click callback is built once, so route the drift-edge →
   // card action through a ref that each render refreshes with the latest
   // openDrifts/goToDrift (the same latest-ref pattern as navigateRef).
-  const openDriftEdgeRef = useRef<(decisionId: string, standardDocId: string) => void>(() => {});
+  const openDriftEdgeRef = useRef<(standardDocId: string) => void>(() => {});
 
   const palette = useMemo(() => brainPalette(theme), [theme]);
 
@@ -129,47 +154,31 @@ export function Brain() {
     return m;
   }, [graph]);
 
-  // Every open drift, enriched with its endpoints and ordered oldest-first — the
-  // ordered list the drift tour steps through. Drifts whose decision or standard
-  // fell outside the payload are skipped (mirrors the model's edge guard).
+  // Every drifted standard, ordered by handle — the list the drift tour steps
+  // through. Drift is standard-level: one entry per standard with open drift.
   const openDrifts = useMemo<DriftStep[]>(() => {
     if (!graph) return [];
-    const decById = new Map(graph.nodes.decisions.map((d) => [d.id, d]));
-    const stdById = new Map(graph.nodes.standards.map((s) => [s.docId, s]));
-    // A decision deep-links through its owning spec (the specDecision join),
-    // matching the node hrefs the mapper builds.
-    const specHandleByDocId = new Map(graph.nodes.specs.map((s) => [s.docId, s.handle]));
-    const specDocIdByDecision = new Map(
-      graph.edges.specDecision.map((sd) => [sd.decisionId, sd.specDocId]),
-    );
-    return graph.edges.drift
-      .map((e): DriftStep | null => {
-        const dec = decById.get(e.decisionId);
-        const std = stdById.get(e.standardDocId);
-        if (!dec || !std) return null;
-        const specDocId = specDocIdByDecision.get(e.decisionId);
-        const specHandle = specDocId ? specHandleByDocId.get(specDocId) : undefined;
-        return {
-          commentId: e.commentId,
-          href: `/drift?doc=${std.handle}&drift=${e.commentId}`,
-          decisionId: e.decisionId,
-          decisionHandle: dec.handle,
-          decisionTitle: dec.title,
-          decisionHref: specHandle ? `/specs/${specHandle}/decisions/${dec.handle}` : null,
-          standardDocId: std.docId,
-          standardHandle: std.handle,
-          standardTitle: std.title,
-          standardHref: `/standards/${std.handle}`,
-          openedAt: e.openedAt,
-        };
-      })
-      .filter((d): d is DriftStep => d !== null)
-      .sort((a, b) => a.openedAt.localeCompare(b.openedAt));
+    return graph.nodes.standards
+      .filter((s) => s.openDriftCount > 0)
+      .map(
+        (s): DriftStep => ({
+          driftNodeId: `drift:${s.docId}`,
+          standardDocId: s.docId,
+          standardHandle: s.handle,
+          standardTitle: s.title,
+          standardHref: `/standards/${s.handle}`,
+          openDriftCount: s.openDriftCount,
+          href: `/drift?doc=${s.handle}`,
+        }),
+      )
+      .sort((a, b) =>
+        a.standardHandle.localeCompare(b.standardHandle, undefined, { numeric: true }),
+      );
   }, [graph]);
 
-  // Step the drift tour to `idx` (wrapping), pin+glide the camera to the
-  // drifting decision so its rose edge to the contradicted standard is the hero
-  // of the frame, and clear any node/discipline focus (mutually exclusive).
+  // Step the drift tour to `idx` (wrapping), pin+glide the camera to the drifted
+  // standard so its rose drift satellite is the hero of the frame, and clear any
+  // node/discipline focus (mutually exclusive).
   const goToDrift = useCallback(
     (idx: number) => {
       const n = openDrifts.length;
@@ -178,17 +187,15 @@ export function Brain() {
       setFocus(null);
       setSelectedEdge(null);
       setDriftIndex(clamped);
-      rendererRef.current?.frameFocus(openDrifts[clamped].decisionId, focusDepth);
+      rendererRef.current?.frameFocus(openDrifts[clamped].standardDocId, focusDepth);
     },
     [openDrifts, focusDepth],
   );
 
-  // Clicking a drift edge opens the drift card at that drift (never navigates —
-  // only the card's "Open drift →" leaves the map). Matched by its endpoints.
-  openDriftEdgeRef.current = (decisionId: string, standardDocId: string) => {
-    const idx = openDrifts.findIndex(
-      (d) => d.decisionId === decisionId && d.standardDocId === standardDocId,
-    );
+  // Clicking a drift edge or its satellite opens the tour at that standard's
+  // drift (never navigates — only the card's "Open drift →" leaves the map).
+  openDriftEdgeRef.current = (standardDocId: string) => {
+    const idx = openDrifts.findIndex((d) => d.standardDocId === standardDocId);
     if (idx >= 0) goToDrift(idx);
   };
 
@@ -211,6 +218,12 @@ export function Brain() {
       {
         onNodeFocus: (node: SimNode) => {
           const b = node as BrainNode;
+          // A drift satellite opens the drift tour at its standard, not a plain
+          // focus card (its id is `drift:<standardDocId>`).
+          if (b.kind === 'drift') {
+            openDriftEdgeRef.current(b.id.replace(/^drift:/, ''));
+            return;
+          }
           setDriftIndex(null); // a node click leaves the drift tour
           setFocus({
             id: b.id,
@@ -229,10 +242,11 @@ export function Brain() {
           const b = link as BrainLink;
           const s = typeof b.source === 'string' ? b.source : b.source.id;
           const t = typeof b.target === 'string' ? b.target : b.target.id;
-          // A drift edge opens the drift card at that drift — it does NOT
+          // A drift edge opens the drift card at that standard — it does NOT
           // navigate; only the card's "Open drift →" leaves the map (ac-15).
+          // The edge target is always the standard (drift satellite → standard).
           if (b.rel === 'drift') {
-            openDriftEdgeRef.current(s, t);
+            openDriftEdgeRef.current(t);
             return;
           }
           if (!b.evidence || b.evidence.length === 0) return;
@@ -277,15 +291,23 @@ export function Brain() {
   }, []);
 
   // The graph highlight follows whichever mode is active: a drift step pins the
-  // drifting decision (so its rose edge stands out); otherwise the node /
-  // discipline focus. They're mutually exclusive, so one derived id drives both.
+  // drifted standard (so its rose satellite + edge stand out); otherwise the node
+  // / discipline focus. They're mutually exclusive, so one derived id drives both.
   const highlightId =
-    driftIndex !== null ? openDrifts[driftIndex]?.decisionId ?? null : focus?.id ?? null;
+    driftIndex !== null ? openDrifts[driftIndex]?.standardDocId ?? null : focus?.id ?? null;
   const currentDrift = driftIndex !== null ? openDrifts[driftIndex] ?? null : null;
 
   useEffect(() => {
     rendererRef.current?.setFocus(highlightId, focusDepth);
   }, [highlightId, focusDepth]);
+
+  // A fresh card (new focus target, new drift step, new edge) opens expanded.
+  useEffect(() => {
+    setTopMin(false);
+  }, [focus?.id, driftIndex]);
+  useEffect(() => {
+    setBottomMin(false);
+  }, [selectedEdge]);
 
   // Keyboard while focused or touring: Escape exits; ← / → step the drift tour
   // (ignored while a form control is focused so the discipline <select> keeps
@@ -500,16 +522,25 @@ export function Brain() {
                   )}
                   {focus.title}
                 </span>
-                <button
-                  type="button"
-                  className="text-xs text-secondary hover:text-heading shrink-0"
-                  onClick={() => setFocus(null)}
-                  aria-label="Exit focus"
-                  data-testid="brain-focus-close"
-                >
-                  ✕
-                </button>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <MinButton
+                    min={topMin}
+                    onToggle={() => setTopMin((m) => !m)}
+                    testid="brain-focus-min"
+                  />
+                  <button
+                    type="button"
+                    className="text-xs text-secondary hover:text-heading shrink-0"
+                    onClick={() => setFocus(null)}
+                    aria-label="Exit focus"
+                    data-testid="brain-focus-close"
+                  >
+                    ✕
+                  </button>
+                </div>
               </div>
+              {!topMin && (
+              <>
               <div className="text-xs text-secondary mb-2" data-testid="brain-focus-detail">
                 {focus.detail}
               </div>
@@ -553,73 +584,90 @@ export function Brain() {
                   </button>
                 )}
               </div>
+              </>
+              )}
             </div>
           )}
 
-          {/* The drift card (shown while touring) — a drift is a RELATIONSHIP, so
-              it reads "decision ✗ contradicts standard", with the click-through to
-              THAT exact drift item (not just the standard's inbox). */}
+          {/* The drift card (shown while touring). Drift is standard-level — the
+              card names the drifted standard + its open-drift count, with the
+              click-through to that standard's drift list in the Inbox. */}
           {currentDrift && (
             <div
               className="absolute top-3 left-3 z-10 max-w-xs bg-panel border border-status-danger-border rounded-lg shadow-lg p-3"
               data-testid="brain-drift-card"
             >
               <div className="flex items-center justify-between gap-3 mb-2">
-                <span className="uppercase tracking-wide text-[10px] font-medium text-status-danger-text">
-                  Drift {(driftIndex ?? 0) + 1} of {openDrifts.length}
-                </span>
-                <button
-                  type="button"
-                  className="text-xs text-secondary hover:text-heading shrink-0"
-                  onClick={() => setDriftIndex(null)}
-                  aria-label="Exit drift tour"
-                  data-testid="brain-drift-close"
-                >
-                  ✕
-                </button>
+                <div className="inline-flex items-center gap-2 min-w-0">
+                  <span className="uppercase tracking-wide text-[10px] font-medium text-status-danger-text whitespace-nowrap">
+                    Drift {(driftIndex ?? 0) + 1} of {openDrifts.length}
+                  </span>
+                  <span className="inline-flex items-center" data-testid="brain-drift-position-controls">
+                    <button
+                      type="button"
+                      className="px-1 text-sm leading-none text-secondary hover:text-heading"
+                      onClick={() => goToDrift((driftIndex ?? 0) - 1)}
+                      aria-label="Previous drift"
+                      data-testid="brain-drift-prev-card"
+                    >
+                      ‹
+                    </button>
+                    <button
+                      type="button"
+                      className="px-1 text-sm leading-none text-secondary hover:text-heading"
+                      onClick={() => goToDrift((driftIndex ?? 0) + 1)}
+                      aria-label="Next drift"
+                      data-testid="brain-drift-next-card"
+                    >
+                      ›
+                    </button>
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <MinButton
+                    min={topMin}
+                    onToggle={() => setTopMin((m) => !m)}
+                    testid="brain-drift-min"
+                  />
+                  <button
+                    type="button"
+                    className="text-xs text-secondary hover:text-heading shrink-0"
+                    onClick={() => setDriftIndex(null)}
+                    aria-label="Exit drift tour"
+                    data-testid="brain-drift-close"
+                  >
+                    ✕
+                  </button>
+                </div>
               </div>
-              <div className="text-xs space-y-1">
-                <div className="flex items-baseline gap-1.5">
-                  {currentDrift.decisionHref ? (
+              {!topMin && (
+                <>
+                  <div className="flex items-baseline gap-1.5 text-xs">
                     <button
                       type="button"
                       className="font-mono text-muted shrink-0 hover:text-heading hover:underline cursor-pointer"
-                      onClick={() => navigateRef.current(tenantPath(currentDrift.decisionHref!))}
-                      data-testid="brain-drift-decision-link"
+                      onClick={() => navigateRef.current(tenantPath(currentDrift.standardHref))}
+                      data-testid="brain-drift-standard-link"
                     >
-                      {currentDrift.decisionHandle}
+                      {currentDrift.standardHandle}
                     </button>
-                  ) : (
-                    <span className="font-mono text-muted shrink-0">{currentDrift.decisionHandle}</span>
-                  )}
-                  <span className="truncate">{currentDrift.decisionTitle}</span>
-                </div>
-                <div className="text-[11px] font-medium text-status-danger-text">✗ contradicts</div>
-                <div className="flex items-baseline gap-1.5">
-                  <button
-                    type="button"
-                    className="font-mono text-muted shrink-0 hover:text-heading hover:underline cursor-pointer"
-                    onClick={() => navigateRef.current(tenantPath(currentDrift.standardHref))}
-                    data-testid="brain-drift-standard-link"
-                  >
-                    {currentDrift.standardHandle}
-                  </button>
-                  <span className="truncate">{currentDrift.standardTitle}</span>
-                </div>
-              </div>
-              <div className="flex items-center justify-between gap-3 mt-2">
-                <span className="text-[11px] text-muted whitespace-nowrap">
-                  opened {timeAgo(currentDrift.openedAt)}
-                </span>
-                <button
-                  type="button"
-                  className="text-xs font-medium text-accent hover:underline shrink-0"
-                  onClick={() => navigateRef.current(tenantPath(currentDrift.href))}
-                  data-testid="brain-drift-open"
-                >
-                  Open drift →
-                </button>
-              </div>
+                    <span className="truncate">{currentDrift.standardTitle}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 mt-2">
+                    <span className="text-[11px] font-medium text-status-danger-text whitespace-nowrap">
+                      {currentDrift.openDriftCount} open drift
+                    </span>
+                    <button
+                      type="button"
+                      className="text-xs font-medium text-accent hover:underline shrink-0"
+                      onClick={() => navigateRef.current(tenantPath(currentDrift.href))}
+                      data-testid="brain-drift-open"
+                    >
+                      Open drift →
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
@@ -628,29 +676,38 @@ export function Brain() {
               className="absolute bottom-3 left-3 z-10 max-w-md bg-panel border border-edge rounded-lg shadow-lg p-3"
               data-testid="brain-edge-evidence"
             >
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-xs font-medium">
+              <div className="flex items-center justify-between gap-3 mb-1.5">
+                <span className="text-xs font-medium truncate">
                   {selectedEdge.sourceHandle} → {selectedEdge.targetHandle}
                 </span>
-                <button
-                  type="button"
-                  className="text-xs text-secondary hover:text-heading"
-                  onClick={() => setSelectedEdge(null)}
-                  aria-label="Close evidence"
-                >
-                  ✕
-                </button>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <MinButton
+                    min={bottomMin}
+                    onToggle={() => setBottomMin((m) => !m)}
+                    testid="brain-edge-min"
+                  />
+                  <button
+                    type="button"
+                    className="text-xs text-secondary hover:text-heading"
+                    onClick={() => setSelectedEdge(null)}
+                    aria-label="Close evidence"
+                  >
+                    ✕
+                  </button>
+                </div>
               </div>
-              <ul className="text-xs text-secondary space-y-1 max-h-40 overflow-y-auto">
-                {selectedEdge.evidence.map((ev, i) => (
-                  <li key={i}>
-                    {ev.clauseSeq !== null && (
-                      <span className="font-mono text-muted mr-1">cl-{ev.clauseSeq}</span>
-                    )}
-                    {ev.snippet}
-                  </li>
-                ))}
-              </ul>
+              {!bottomMin && (
+                <ul className="text-xs text-secondary space-y-1 max-h-40 overflow-y-auto">
+                  {selectedEdge.evidence.map((ev, i) => (
+                    <li key={i}>
+                      {ev.clauseSeq !== null && (
+                        <span className="font-mono text-muted mr-1">cl-{ev.clauseSeq}</span>
+                      )}
+                      {ev.snippet}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
         </div>

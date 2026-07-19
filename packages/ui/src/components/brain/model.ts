@@ -16,7 +16,11 @@ import type { KnowledgeGraphData } from '../../api/insights';
 import { CHART_PALETTES } from '../insights/theme';
 import { nodeRadius, type EvidenceItem, type SimLink, type SimNode } from '../standards-map/model';
 
-export type BrainNodeKind = 'facet' | 'standard' | 'spec' | 'decision';
+// spec-498: `drift` is a standalone node — one per drifted standard — so open
+// drift is visible even when it isn't tied to a decision (the common case: drift
+// lives at the standard level). It hangs off its standard by the one animated
+// rose edge, and carries the count + the Drift-Inbox deep link.
+export type BrainNodeKind = 'facet' | 'standard' | 'spec' | 'decision' | 'drift';
 
 /** The Brain relationship families — carried for tests + evidence routing. */
 export type BrainRel = 'spec-decision' | 'decision-facet' | 'standard-facet' | 'mention' | 'drift';
@@ -131,6 +135,23 @@ export function buildBrainGraph(data: KnowledgeGraphData, palette: BrainPalette)
         : `standard — ${s.clauseCount} clause${s.clauseCount === 1 ? '' : 's'}`,
       drifted,
     });
+    // One drift satellite per drifted standard (edge pushed below).
+    if (drifted) {
+      nodes.push({
+        id: `drift:${s.docId}`,
+        kind: 'drift',
+        handle: '',
+        title: `${s.openDriftCount} open drift`,
+        label: 'drift',
+        clauseCount: 0,
+        degree: 0,
+        radius: 0,
+        color: palette.drift,
+        href: `/drift?doc=${s.handle}`,
+        detail: `${s.openDriftCount} open drift on ${s.handle} — ${s.title}`,
+        drifted: true,
+      });
+    }
   }
   for (const s of data.nodes.specs) {
     nodes.push({
@@ -225,6 +246,18 @@ export function buildBrainGraph(data: KnowledgeGraphData, palette: BrainPalette)
       flow: true,
       href: standardHandle ? `/drift?doc=${standardHandle}&drift=${e.commentId}` : undefined,
     });
+  }
+  // Standard-level drift: the animated rose line from each drift satellite to its
+  // standard, so open drift is visible even with no decision link (the real case).
+  for (const s of data.nodes.standards) {
+    if (s.openDriftCount > 0) {
+      push('drift', `drift:${s.docId}`, s.docId, {
+        width: 1.6,
+        color: palette.drift,
+        flow: true,
+        href: `/drift?doc=${s.handle}`,
+      });
+    }
   }
   // data.edges.semantic is intentionally unused (dec-3).
 

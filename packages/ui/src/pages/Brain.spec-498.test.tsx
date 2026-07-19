@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, cleanup, render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { tagAc } from '@memex-ai-ac/vitest';
 import { brainPalette, buildBrainGraph, type BrainNode } from '../components/brain/model';
@@ -134,7 +134,14 @@ describe('buildBrainGraph (dec-1)', () => {
     tagAc(AC_SCOPE_CLICK_THROUGH);
     const { nodes } = buildBrainGraph(KG, PALETTE);
     const byId = new Map(nodes.map((n) => [n.id, n]));
-    expect(nodes).toHaveLength(7); // 2 facets + 2 standards + 1 spec + 2 decisions
+    // 2 facets + 2 standards + 1 spec + 2 decisions + 1 drift satellite (s-drift
+    // has open drift → its own `drift:` node).
+    expect(nodes).toHaveLength(8);
+    const driftNode = byId.get('drift:s-drift')!;
+    expect(driftNode.kind).toBe('drift');
+    expect(driftNode.color).toBe(PALETTE.drift);
+    expect(driftNode.href).toBe('/drift?doc=std-2');
+    expect(byId.get('drift:s-clean')).toBeUndefined(); // a calm standard gets none
 
     const facet = byId.get('f-sec')!;
     expect(facet.kind).toBe('facet');
@@ -163,8 +170,10 @@ describe('buildBrainGraph (dec-1)', () => {
     tagAc(AC_MAPPER);
     const { links, nodes } = buildBrainGraph(KG, PALETTE);
     const rels = links.map((l) => l.rel).sort();
+    // Two drift edges on s-drift: the decision-linked one (d-bad→s-drift) AND the
+    // standard-level satellite (drift:s-drift→s-drift).
     expect(rels).toEqual(
-      ['decision-facet', 'drift', 'mention', 'spec-decision', 'spec-decision', 'standard-facet'].sort(),
+      ['decision-facet', 'drift', 'drift', 'mention', 'spec-decision', 'spec-decision', 'standard-facet'].sort(),
     );
     // standard→facet evidence is adapted to the shared EvidenceItem shape.
     const sf = links.find((l) => l.rel === 'standard-facet')!;
@@ -182,7 +191,11 @@ describe('buildBrainGraph (dec-1)', () => {
       edges: { ...KG.edges, specDecision: [], decisionFacet: [] },
     };
     const sparse = buildBrainGraph(filtered, PALETTE);
-    expect(sparse.links.some((l) => l.rel === 'drift')).toBe(false);
+    // The decision-linked drift edge is skipped (its decision was filtered), but
+    // the standard-level drift satellite survives — s-drift still drifts.
+    const sparseDrift = sparse.links.filter((l) => l.rel === 'drift');
+    expect(sparseDrift).toHaveLength(1);
+    expect(sparseDrift[0].source).toBe('drift:s-drift');
     // …and the drifted standard still reads rose via openDriftCount.
     expect(sparse.nodes.find((n) => n.id === 's-drift')!.color).toBe(PALETTE.drift);
   });
@@ -482,57 +495,65 @@ describe('Brain page shell', () => {
     tagAc(AC_DRIFT_INBOX);
     tagAc(AC_SCOPE_DRIFT_RED);
     const renderer = await renderBrain();
+    // Drift is standard-level: the edge target is the standard (satellite → std).
     const driftLink = {
-      id: 'drift:d-bad->s-drift',
-      source: 'd-bad',
+      id: 'drift:drift:s-drift->s-drift',
+      source: 'drift:s-drift',
       target: 's-drift',
       kind: 'mention' as const,
       width: 1.6,
       rel: 'drift' as const,
       color: PALETTE.drift,
       flow: true,
-      href: '/drift?doc=std-2&drift=c-1',
+      href: '/drift?doc=std-2',
     };
     act(() => renderer.callbacks.onEdgeClick(driftLink));
 
-    // The drift card opens at that drift and frames its decision — no navigation.
+    // The drift card opens at that standard and frames it — no navigation.
     const card = await screen.findByTestId('brain-drift-card');
-    expect(card.textContent).toContain('dec-2');
-    expect(card.textContent).toContain('contradicts');
     expect(card.textContent).toContain('std-2');
-    expect(renderer.frameFocus).toHaveBeenCalledWith('d-bad', 1);
+    expect(card.textContent).toContain('Drifted standard');
+    expect(card.textContent).toContain('1 open drift');
+    expect(renderer.frameFocus).toHaveBeenCalledWith('s-drift', 1);
     expect(screen.getByTestId('location').textContent).toBe('/acme/team/brain');
     // No evidence panel opens for a drift edge — the drift card IS its detail.
     expect(screen.queryByTestId('brain-edge-evidence')).toBeNull();
 
-    // Only the card's "Open drift →" leaves the map, to THAT exact item.
+    // Only the card's "Open drift →" leaves the map, to that standard's drift list.
     fireEvent.click(screen.getByTestId('brain-drift-open'));
     await waitFor(() =>
-      expect(screen.getByTestId('location').textContent).toBe('/acme/team/drift?doc=std-2&drift=c-1'),
+      expect(screen.getByTestId('location').textContent).toBe('/acme/team/drift?doc=std-2'),
     );
   });
 
-  it('drift card: the dec / std handles hyperlink to those items', async () => {
+  it('the drift card minimises to its header and restores', async () => {
+    tagAc(AC_SCOPE_DRIFT_RED);
+    await renderBrain();
+    fireEvent.click(screen.getByTestId('brain-drift-nav')); // enter the tour
+    const card = screen.getByTestId('brain-drift-card');
+    // Body visible: the standard link + Open-drift action.
+    expect(within(card).queryByTestId('brain-drift-open')).not.toBeNull();
+    // Minimise → body hidden, header (position + controls) still there.
+    fireEvent.click(screen.getByTestId('brain-drift-min'));
+    expect(within(card).queryByTestId('brain-drift-open')).toBeNull();
+    expect(card.textContent).toContain('Drift 1 of 1');
+    // Restore → body back.
+    fireEvent.click(screen.getByTestId('brain-drift-min'));
+    expect(within(card).queryByTestId('brain-drift-open')).not.toBeNull();
+  });
+
+  it('drift card: the std handle hyperlinks to the standard', async () => {
     tagAc(AC_SCOPE_CLICK_THROUGH);
     await renderBrain();
     fireEvent.click(screen.getByTestId('brain-drift-nav')); // enter the tour
 
-    // The decision handle deep-links through its owning spec (std-10 grammar).
-    fireEvent.click(screen.getByTestId('brain-drift-decision-link'));
-    await waitFor(() =>
-      expect(screen.getByTestId('location').textContent).toBe(
-        '/acme/team/specs/spec-9/decisions/dec-2',
-      ),
-    );
-
-    // The standard handle links to the Standard page.
     fireEvent.click(screen.getByTestId('brain-drift-standard-link'));
     await waitFor(() =>
       expect(screen.getByTestId('location').textContent).toBe('/acme/team/standards/std-2'),
     );
   });
 
-  it('drift tour: the navigator frames each open drift and the card deep-links to THAT item', async () => {
+  it('drift tour: the navigator frames each drifted standard and opens its drift list', async () => {
     tagAc(AC_SCOPE_DRIFT_RED);
     tagAc(AC_SCOPE_CLICK_THROUGH);
     tagAc(AC_DRIFT_INBOX);
@@ -543,26 +564,23 @@ describe('Brain page shell', () => {
     expect(nav.textContent).toContain('1 open drift');
     expect(screen.queryByTestId('brain-drift-card')).toBeNull();
 
-    // Starting the tour frames + pins the drifting DECISION (so its rose edge to
-    // the contradicted standard is the hero) and opens the drift card.
+    // Starting the tour frames + pins the drifted STANDARD (its rose satellite is
+    // the hero of the frame) and opens the drift card.
     fireEvent.click(nav);
-    await waitFor(() => expect(renderer.frameFocus).toHaveBeenCalledWith('d-bad', 1));
-    expect(renderer.setFocus).toHaveBeenCalledWith('d-bad', 1);
+    await waitFor(() => expect(renderer.frameFocus).toHaveBeenCalledWith('s-drift', 1));
+    expect(renderer.setFocus).toHaveBeenCalledWith('s-drift', 1);
 
-    // The card reads as a relationship: decision ✗ contradicts standard.
+    // The card names the drifted standard + its open-drift count.
     const card = screen.getByTestId('brain-drift-card');
     expect(card.textContent).toContain('Drift 1 of 1');
-    expect(card.textContent).toContain('dec-2');
-    expect(card.textContent).toContain('A drifting decision');
-    expect(card.textContent).toContain('contradicts');
     expect(card.textContent).toContain('std-2');
     expect(card.textContent).toContain('Drifted standard');
-    expect(screen.getByTestId('brain-drift-position').textContent).toContain('Drift 1 / 1');
+    expect(card.textContent).toContain('1 open drift');
 
-    // Open drift → lands on THAT exact item: standard filter + specific comment.
+    // Open drift → the standard's drift list in the Inbox.
     fireEvent.click(screen.getByTestId('brain-drift-open'));
     await waitFor(() =>
-      expect(screen.getByTestId('location').textContent).toBe('/acme/team/drift?doc=std-2&drift=c-1'),
+      expect(screen.getByTestId('location').textContent).toBe('/acme/team/drift?doc=std-2'),
     );
   });
 
@@ -576,7 +594,7 @@ describe('Brain page shell', () => {
     renderer.frameFocus.mockClear();
     fireEvent.click(screen.getByTestId('brain-drift-next'));
     fireEvent.keyDown(window, { key: 'ArrowRight' });
-    expect(renderer.frameFocus).toHaveBeenCalledWith('d-bad', 1);
+    expect(renderer.frameFocus).toHaveBeenCalledWith('s-drift', 1);
     expect(renderer.frameFocus).toHaveBeenCalledTimes(2);
 
     // ✕ exits the tour → card gone, navigator back to its entry pill.
