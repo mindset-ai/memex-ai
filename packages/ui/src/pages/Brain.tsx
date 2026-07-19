@@ -347,7 +347,7 @@ export function Brain() {
   return (
     <div className="h-full flex flex-col px-6 py-6">
       <PageHeader
-        title="Brain"
+        title="Trails"
         actions={
           <div className="flex items-center gap-3">
             {/* Drift navigator (the headline objective): step through every open
@@ -440,7 +440,7 @@ export function Brain() {
                     </>
                   ) : (
                     <>
-                      The Brain draws how everything in a memex connects — specs own decisions,
+                      Trails maps how everything in a memex connects — specs own decisions,
                       decisions touch disciplines, disciplines govern standards, and open drift
                       shows up red. It lights up once this memex has standards, disciplines, or
                       decisions.

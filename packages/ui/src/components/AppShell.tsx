@@ -62,7 +62,7 @@ interface NavLinkDef {
 // parked Home Canvas used to hold), so it owns the bare `/` altPath for the highlight.
 const BRAIN_NAV_LINK: NavLinkDef = {
   to: '/brain',
-  label: 'Brain',
+  label: 'Trails',
   altPaths: ['/'],
   icon: (
     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>

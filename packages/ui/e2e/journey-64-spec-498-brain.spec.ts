@@ -118,7 +118,7 @@ test("type colours, rose drift, discipline selector, and focus-card deep link", 
   // ── the Brain surface (ac-1): nav entry + the map renders ────────────────
   await page.goto(tenantPath(tenant.namespaceSlug, tenant.memexSlug, "/brain"));
   await expect(page.getByTestId("brain-map-canvas")).toBeVisible();
-  await expect(page.getByTestId("primary-nav").getByText("Brain")).toBeVisible();
+  await expect(page.getByTestId("primary-nav").getByText("Trails")).toBeVisible();
   await expect(page.getByTestId("brain-legend")).toBeVisible();
 
   await page.waitForFunction(

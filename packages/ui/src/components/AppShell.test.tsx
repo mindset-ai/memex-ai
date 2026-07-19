@@ -138,7 +138,7 @@ describe('AppShell sidebar navigation', () => {
     renderShell(['/specs']);
 
     const nav = screen.getByTestId('primary-nav');
-    const brain = within(nav).getByRole('link', { name: 'Brain' });
+    const brain = within(nav).getByRole('link', { name: 'Trails' });
     expect(brain).toHaveAttribute('href', '/brain');
     // The parked Home Canvas nav item is gone.
     expect(within(nav).queryByRole('link', { name: 'Home' })).not.toBeInTheDocument();
@@ -154,7 +154,7 @@ describe('AppShell sidebar navigation', () => {
     renderShell(['/brain']);
 
     const nav = screen.getByTestId('primary-nav');
-    const brain = within(nav).getByRole('link', { name: 'Brain' });
+    const brain = within(nav).getByRole('link', { name: 'Trails' });
     expect(brain.className).toContain('font-medium');
   });
 
@@ -182,7 +182,7 @@ describe('AppShell sidebar navigation', () => {
     renderShell(['/']);
 
     const nav = screen.getByTestId('primary-nav');
-    const brain = within(nav).getByRole('link', { name: 'Brain' });
+    const brain = within(nav).getByRole('link', { name: 'Trails' });
     expect(brain.className).toContain('font-medium');
     const specs = within(nav).getByRole('link', { name: 'Specs' });
     expect(specs.className).not.toContain('font-medium');
