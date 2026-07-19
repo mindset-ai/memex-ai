@@ -24,7 +24,7 @@
 // All helpers are account-scoped. Cross-account leakage is prevented at the query level —
 // every read joins to documents.account_id = $1, every drift comment carries account_id.
 
-import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import {
   documents,
@@ -541,7 +541,7 @@ export async function flagDrift(
   memexId: string,
   standardSectionId: string,
   observation: string,
-  options: { authorName?: string } = {},
+  options: { authorName?: string; driftDecisionId?: string | null } = {},
   ctx: RequestCtx = {},
 ): Promise<Mutated<DocComment>> {
   const trimmed = (observation ?? "").trim();
@@ -572,7 +572,9 @@ export async function flagDrift(
         standardSectionId,
         options.authorName ?? "Memex agent",
         trimmed,
-        { type: "drift", source: "agent" },
+        // spec-497 dec-3: stamp the triggering decision (when known) so the
+        // knowledge-graph endpoint reads drift→decision from a column.
+        { type: "drift", source: "agent", driftDecisionId: options.driftDecisionId ?? null },
       ),
   );
 }
@@ -767,7 +769,7 @@ export async function getDecisionHandleById(
 const DEBUG_DRIFT_SCAN = process.env.DEBUG_AGENT !== "0";
 
 /** Stable phrase used to detect previously-posted drift comments for the same decision. */
-const DRIFT_COMMENT_RESOLVED_MARKER = "was resolved";
+export const DRIFT_COMMENT_RESOLVED_MARKER = "was resolved";
 
 /**
  * Build the drift comment body for a resolved decision. The phrase
@@ -775,8 +777,101 @@ const DRIFT_COMMENT_RESOLVED_MARKER = "was resolved";
  * (`was resolved`) — both used for idempotency lookup. Title can be edited later, so
  * dedup checks must NOT match on title — only on handle + marker.
  */
-function driftCommentBody(decisionHandle: string, decisionTitle: string): string {
+export function driftCommentBody(decisionHandle: string, decisionTitle: string): string {
   return `Decision ${decisionHandle} ("${decisionTitle}") was resolved; this rule may need review.`;
+}
+
+/**
+ * Recover the triggering decision's handle from a drift comment body (spec-497 t-3,
+ * the backfill parse). Anchored to the SAME `driftCommentBody` shape above — the
+ * `dec-N` handle immediately follows `Decision ` and precedes the `("<title>")… was
+ * resolved` marker. A regression test (drift-decision-marker) asserts a body built by
+ * driftCommentBody always round-trips through this parser, so a copy edit that breaks
+ * the two apart fails CI rather than silently zeroing out historical drift edges.
+ * Returns null for any body that doesn't match (human-authored drift, legacy shapes).
+ */
+export function parseDriftDecisionHandle(content: string | null | undefined): string | null {
+  const text = content ?? "";
+  if (!text.includes(DRIFT_COMMENT_RESOLVED_MARKER)) return null;
+  const m = /Decision (dec-\d+) \(/.exec(text);
+  return m ? m[1] : null;
+}
+
+/**
+ * Richer parse for the t-3 backfill: recover the decision's per-spec seq AND its title
+ * from a drift comment body. `dec-N` handles are per-spec, so seq alone is ambiguous
+ * across a memex; the quoted title is the tiebreak (matching decisions on seq+title).
+ * Anchored to the SAME driftCommentBody shape. Returns null for non-matching bodies.
+ */
+export function parseDriftDecisionRef(
+  content: string | null | undefined,
+): { seq: number; title: string } | null {
+  const text = content ?? "";
+  if (!text.includes(DRIFT_COMMENT_RESOLVED_MARKER)) return null;
+  const m = /Decision dec-(\d+) \("(.*)"\) was resolved/.exec(text);
+  if (!m) return null;
+  return { seq: Number(m[1]), title: m[2] };
+}
+
+/**
+ * One-off backfill (spec-497 t-3): stamp drift_decision_id on historical OPEN drift
+ * comments by parsing their body back to the triggering decision (seq + title, scoped
+ * to the memex). Rows that don't parse, or whose (seq,title) matches zero or more than
+ * one decision, stay NULL — they still count in openDriftCount, they just draw no edge.
+ * Idempotent: only touches rows where drift_decision_id IS NULL.
+ */
+export async function backfillDriftDecisionLinks(
+  memexId: string,
+): Promise<{ scanned: number; linked: number; unresolved: number }> {
+  const rows = await db.query.docComments.findMany({
+    where: and(
+      eq(docComments.memexId, memexId),
+      eq(docComments.commentType, "drift"),
+      isNull(docComments.driftDecisionId),
+    ),
+  });
+
+  let linked = 0;
+  let unresolved = 0;
+  for (const row of rows) {
+    const parsed = parseDriftDecisionRef(row.content);
+    if (!parsed) {
+      unresolved += 1;
+      continue;
+    }
+    const matches = await db
+      .select({ id: decisions.id })
+      .from(decisions)
+      .where(
+        and(
+          eq(decisions.memexId, memexId),
+          eq(decisions.seq, parsed.seq),
+          eq(decisions.title, parsed.title),
+        ),
+      );
+    if (matches.length !== 1) {
+      unresolved += 1;
+      continue;
+    }
+    // Route through mutate() per std-8. silent:true — a one-off historical backfill
+    // must not spam the SSE bus with a comment-updated event per row (the drift
+    // comment's content is unchanged; only the derived link column is filled in).
+    await mutate(
+      {},
+      { memexId, docId: row.docId, entity: "comment", action: "updated" },
+      async () => {
+        await db
+          .update(docComments)
+          .set({ driftDecisionId: matches[0].id })
+          .where(eq(docComments.id, row.id));
+        return { id: row.id };
+      },
+      { silent: true },
+    );
+    linked += 1;
+  }
+
+  return { scanned: rows.length, linked, unresolved };
 }
 
 /**
@@ -815,6 +910,11 @@ export async function scanForDecisionDrift(
   memexId: string,
   decisionHandle: string,
   decisionTitle: string,
+  // spec-497 dec-3: the resolving decision's id, stamped onto every drift comment
+  // this scan posts so the knowledge-graph endpoint can draw the decision→standard
+  // edge from a column. Optional so legacy callers (none today) and tests without a
+  // real decision row still work — a NULL stamp degrades the edge to a badge.
+  decisionId?: string | null,
 ): Promise<{ standardsFlagged: number; sectionsFlagged: number }> {
   const matches = await findStandardsAffectedByDecision(memexId, decisionHandle);
 
@@ -847,7 +947,8 @@ export async function scanForDecisionDrift(
 
       // flagDrift handles validation + emits a doc-events `comment created` event so SSE
       // subscribers refresh. Source is server-stamped to 'agent' inside the helper.
-      await flagDrift(memexId, section.id, body);
+      // spec-497 dec-3: pass the triggering decision so the drift comment carries it.
+      await flagDrift(memexId, section.id, body, { driftDecisionId: decisionId ?? null });
       sectionsFlagged += 1;
       flaggedAnySectionInThisStandard = true;
     }

@@ -93,6 +93,11 @@ vi.mock('./pages/HomeCanvas', () => ({
 vi.mock('./pages/SpecList', () => ({
   SpecList: () => <div data-testid="specs-page">specs</div>,
 }));
+// The canonical default surface behind /home (spec-498 Trails) — stubbed so the
+// default-landing redirect resolves to a light node, not the real pixi graph.
+vi.mock('./pages/Brain', () => ({
+  Brain: () => <div data-testid="brain-page">trails</div>,
+}));
 vi.mock('./pages/SettingsIntegrations', () => ({
   SettingsIntegrations: () => <div data-testid="integrations-page">integrations</div>,
 }));
@@ -156,19 +161,19 @@ afterEach(() => {
   sessionStorage.removeItem('welcomeVideoDismissed');
 });
 
-// spec-461 dec-1 RETIRED spec-312's universal /home landing (ac-1, ac-7, ac-8): no
-// authenticated user is auto-routed to /home any more — everyone lands on their Specs
-// board (Home is reachable only by explicit nav). Those tests are gone; the landing
-// target is owned by App.spec-461.test.tsx. spec-312 ac-14's surviving truth — routing
-// never reads needsOnboarding — still holds: both onboarding states land in the SAME
-// place, now the Specs board.
+// spec-312's universal /home onboarding landing was retired (ac-1, ac-7, ac-8): the
+// old parked Home Canvas is no longer an auto-land target. The default landing target
+// is owned by App.spec-461.test.tsx — now the canonical /home redirect → the chosen
+// default surface (Trails/Brain). spec-312 ac-14's surviving truth — routing never
+// reads needsOnboarding — still holds: both onboarding states land in the SAME place.
 describe('spec-312 t-1: needsOnboarding never changes the landing (dec-1 / ac-14)', () => {
-  it('ac-14: needsOnboarding does not change where / lands (true and false both → the Specs board)', async () => {
+  it('ac-14: needsOnboarding does not change where / lands (true and false both → the default surface)', async () => {
     tagAc(AC(14));
     for (const needsOnboarding of [true, false]) {
       mockSession = makeSession({ needsOnboarding });
       const { unmount } = renderAt('/');
-      expect(await screen.findByTestId('specs-page')).toBeInTheDocument();
+      // / → RootRedirect → /alice/personal/home → Trails (never the parked Home Canvas).
+      expect(await screen.findByTestId('brain-page')).toBeInTheDocument();
       expect(screen.queryByTestId('home-canvas-page')).not.toBeInTheDocument();
       unmount();
     }

@@ -267,10 +267,10 @@ test(
     // spec-444: dismiss welcome video gate that fires for new users after name capture.
     await dismissWelcomeVideo(page);
 
-    // spec-470/473 dec-9: a fresh CONFIRMED spec-less user auto-lands on their /home import
-    // hero (superseding spec-461's board landing for this cohort); the board stays reachable
+    // spec-498: every cohort now lands on their personal-memex Trails (the /home
+    // canonical redirect forwards to /:ns/:mx/trails). The Specs board stays reachable
     // by explicit nav (gotoSpecsBoard below).
-    await expect(page).toHaveURL(/\/home(\?|#|$)/, { timeout: 15_000 });
+    await expect(page).toHaveURL(/\/trails(\?|#|$)/, { timeout: 15_000 });
 
     // Navigate to the personal-memex Specs board as the NEW user (not dev@memex.ai).
     await gotoSpecsBoard(page, email);

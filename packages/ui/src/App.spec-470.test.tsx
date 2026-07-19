@@ -138,7 +138,12 @@ function renderAt(path: string) {
   );
 }
 
-describe('spec-470 t-3: RootRedirect auto-lands spec-less users on /home (dec-9)', () => {
+// PARKED with the Home Canvas: the per-memex Brain replaces the flat /home surface, so
+// the spec-470 dec-9 "auto-land spec-less users on /home" behaviour (and its
+// destination:'home' telemetry) is retired — everyone now falls through to their
+// default Specs board. Un-skip this whole block when the Home Canvas is restored (also
+// restore the confirmedSpecLess → /home branch + telemetry in App.tsx RootRedirect).
+describe.skip('spec-470 t-3: RootRedirect auto-lands spec-less users on /home (dec-9)', () => {
   beforeEach(() => {
     vi.stubEnv('VITE_GOOGLE_CLIENT_ID', 'test-client-id');
     sessionStorage.setItem('welcomeVideoDismissed', '1'); // past the welcome-video gate

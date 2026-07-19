@@ -167,8 +167,9 @@ describe('Standard', () => {
     // b-63: the header badge deep-links into the Drift Inbox filtered to this standard.
     expect(totalBadge.getAttribute('href')).toContain('/drift');
     expect(totalBadge.getAttribute('href')).toContain('doc=std-100');
-    const sectionBadge = screen.getByTestId('section-drift-badge');
-    expect(sectionBadge).toHaveTextContent('2 drift');
+    // The per-section signal is the red dot only — no duplicate "N drift" badge
+    // (the count + its deep link live once, on the page-header badge).
+    expect(screen.queryByTestId('section-drift-badge')).toBeNull();
   });
 
   it('only shows the indicator on sections with open drift, not on calm sections', async () => {

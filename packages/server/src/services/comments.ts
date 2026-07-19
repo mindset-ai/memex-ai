@@ -79,6 +79,15 @@ export interface CommentExtras {
   /** Author's user id, stamped from the session at creation so ownership
    *  ("delete your own comment") can be enforced later. */
   authorUserId?: string | null;
+  /**
+   * spec-497 dec-3: the decision whose resolution TRIGGERED this drift comment.
+   * Only meaningful on drift comments (type='drift'); stamped by flagDrift so the
+   * knowledge-graph endpoint can draw decision→standard drift edges from a column
+   * rather than re-parsing the body. Distinct from referenceDecisionId (a
+   * cross_reference target) and from the target decisionId. Already a resolved
+   * uuid — flagDrift resolves any caller ref before it reaches here.
+   */
+  driftDecisionId?: string | null;
 }
 
 interface NormalizedExtras {
@@ -92,6 +101,7 @@ interface NormalizedExtras {
   audience: CommentAudience;
   actions: CommentAction[] | null;
   authorUserId: string | null;
+  driftDecisionId: string | null;
 }
 
 // spec-100: a comment is anchored (positioned in the section source) iff it
@@ -372,6 +382,7 @@ async function normalizeExtras(memexId: string, extras?: CommentExtras): Promise
     audience,
     actions,
     authorUserId: extras?.authorUserId ?? null,
+    driftDecisionId: extras?.driftDecisionId ?? null,
   };
 }
 

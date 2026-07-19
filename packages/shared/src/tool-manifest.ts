@@ -413,7 +413,7 @@ export const toolManifest: ToolManifestEntry[] = [
     name: 'flag_drift',
     summary:
       "Flag drift on a standard section — post a typed `drift` comment (sourced 'agent') describing the gap between the rule and observed reality. Use when the rule is right but the code drifted; if the rule is wrong, use propose_standard_change.",
-    args: 'flag_drift(ref, observation)',
+    args: 'flag_drift(ref, observation, decisionRef?)',
     group: 'build',
     readOnlyHint: false,
     homePhase: null,

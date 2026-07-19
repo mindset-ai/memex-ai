@@ -486,6 +486,33 @@ export async function resolveStandardSectionRef(
 }
 
 /**
+ * Resolve a canonical DECISION ref (e.g. `<ns>/<mx>/specs/spec-N/decisions/dec-M`)
+ * to its memexId + decision id, rejecting a raw UUID up front (std-10). spec-497
+ * dec-3: used by flag_drift's optional `decisionRef` so an agent can link the drift
+ * it flags to the decision that prompted it. When `expectMemexId` is supplied the
+ * decision MUST belong to that memex — a cross-tenant ref is a 404-shaped
+ * ValidationError, never a silent accept (std-7 spirit).
+ */
+export async function resolveDecisionRefArg(
+  ctx: ToolCtx,
+  ref: string,
+  expectMemexId?: string,
+): Promise<{ memexId: string; decisionId: string }> {
+  const resolved = await resolveRefArg(ctx, ref, "decisionRef");
+  if (resolved.entity.kind !== "decision") {
+    throw new ValidationError(
+      `Expected a decision ref (e.g. \`<ns>/<mx>/specs/spec-N/decisions/dec-M\`); got ${resolved.entity.kind}.`,
+    );
+  }
+  if (expectMemexId !== undefined && resolved.memexId !== expectMemexId) {
+    throw new ValidationError(
+      `decisionRef \`${ref}\` is not in the same Memex as the standard section being flagged.`,
+    );
+  }
+  return { memexId: resolved.memexId, decisionId: resolved.entity.row.id };
+}
+
+/**
  * Resolve the current verification state of one AC (spec-127) so the
  * discontinue/restore write tools can report the badge result inline — the
  * agent sees immediately whether the retire cleared the red. Best-effort: any

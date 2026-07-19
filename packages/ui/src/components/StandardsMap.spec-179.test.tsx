@@ -105,6 +105,18 @@ describe('interaction math (hover neighborhood + label fade)', () => {
     expect(labelAlphaForZoom(0.2)).toBe(0);
   });
 
+  it('a raised fullAt (dense cluster) holds a label back to a higher zoom, unchanged at the 0.9 baseline', () => {
+    // spec-498: the renderer feeds a per-node `fullAt` from local density.
+    // Default arg reproduces the sparse baseline exactly…
+    expect(labelAlphaForZoom(1)).toBe(labelAlphaForZoom(1, 0.9));
+    expect(labelAlphaForZoom(0.7)).toBe(labelAlphaForZoom(0.7, 0.9));
+    // …while a higher fullAt is strictly dimmer at any given zoom below it,
+    // i.e. the crowded label stays hidden longer, and reaches full only later.
+    expect(labelAlphaForZoom(1.4, 2)).toBeLessThan(labelAlphaForZoom(1.4));
+    expect(labelAlphaForZoom(1.5, 2)).toBe(0); // still hidden where the baseline is full
+    expect(labelAlphaForZoom(2, 2)).toBeCloseTo(1);
+  });
+
   it('searchHits matches handle and title case-insensitively; empty query = no search', () => {
     tagAc(AC_MAP);
     expect(searchHits(GRAPH, '')).toBeNull();

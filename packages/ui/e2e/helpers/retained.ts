@@ -141,6 +141,9 @@ export async function seedComment(opts: {
    *  END char offset into the section source; START is optional. */
   anchorEndOffset?: number;
   anchorStartOffset?: number;
+  /** spec-498 (dec-4): link a drift comment to its source decision, so a
+   *  journey can materialize a Brain drift edge via the real write path. */
+  driftDecisionId?: string;
 }): Promise<{ commentId: string; seq: number }> {
   return call("POST", "/seed-comment", opts);
 }
@@ -171,7 +174,9 @@ export async function seedOpenDecision(opts: {
  *  a memex, returning the spec handle + the facet key the pills should show. */
 export async function seedFacetScenario(opts: {
   memexId: string;
-}): Promise<{ specHandle: string; facetKey: string }> {
+  /** spec-498 (dec-7): resolve the balloted decision through the real service. */
+  resolve?: boolean;
+}): Promise<{ specHandle: string; facetKey: string; decisionId: string; decisionSeq: number }> {
   return call("POST", "/seed-facet-scenario", opts);
 }
 
@@ -236,4 +241,15 @@ export async function seedExecutionPlan(opts: {
   taskTitle?: string;
 }): Promise<{ taskId: string; planDocId: string }> {
   return call("POST", "/seed-execution-plan", opts);
+}
+
+/** spec-496: seed clauses onto a standard's section through the real clause
+ *  service — `std-N` mentions in bodies materialize as clause_refs mention
+ *  edges (the standards map's backbone). */
+export async function seedClauses(opts: {
+  memexId: string;
+  sectionId: string;
+  clauses: string[];
+}): Promise<{ clauseIds: string[] }> {
+  return call("POST", "/seed-clauses", opts);
 }

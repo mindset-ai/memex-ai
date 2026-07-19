@@ -130,13 +130,14 @@ describe('TenantLayout (route guard)', () => {
           <Route path="/:namespace/:memex" element={<TestTenantLayout />}>
             <Route path="specs" element={<div data-testid="spec-list">specs here</div>} />
           </Route>
-          <Route path="/alice/personal/specs" element={<LocationProbe />} />
+          {/* computeDefaultLanding now targets the canonical /home redirect. */}
+          <Route path="/alice/personal/home" element={<LocationProbe />} />
         </Routes>
       </MemoryRouter>,
     );
     expect(screen.queryByTestId('spec-list')).not.toBeInTheDocument();
     expect(screen.getByTestId('probe').getAttribute('data-path')).toBe(
-      '/alice/personal/specs',
+      '/alice/personal/home',
     );
   });
 

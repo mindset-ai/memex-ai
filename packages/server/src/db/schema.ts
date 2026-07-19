@@ -411,6 +411,16 @@ export const docComments = pgTable(
       .references(() => decisions.id, { onDelete: "cascade" }),
     taskId: uuid("task_id")
       .references(() => tasks.id, { onDelete: "cascade" }),
+    // spec-497 dec-3 (t-1) — the decision whose resolution TRIGGERED this drift
+    // comment (distinct from decisionId, which is the comment's TARGET when a
+    // comment is attached to a decision). Only ever set on drift comments, whose
+    // target is a section; lets the knowledge-graph endpoint draw
+    // decision→standard drift edges from a column, not from parsing the body.
+    // ON DELETE SET NULL: a deleted decision degrades the edge to a badge, never
+    // deletes the drift comment. NULL for pre-backfill history and for
+    // human-observed drift with no single triggering decision.
+    driftDecisionId: uuid("drift_decision_id")
+      .references(() => decisions.id, { onDelete: "set null" }),
     authorName: text("author_name").notNull(),
     // Attribution: author's user/namespace for external-comment rendering. external is
     // computed at render time as `author_namespace_id != memex.namespace_id` (the doc's
@@ -528,6 +538,12 @@ export const docComments = pgTable(
     index("doc_comments_author_created_at_idx")
       .on(table.authorUserId, table.createdAt)
       .where(sql`${table.authorUserId} IS NOT NULL`),
+    // spec-497 (t-1) — the knowledge-graph drift-edge query path: open drift
+    // comments carrying a triggering-decision link, per memex. Partial so it
+    // costs nothing for the (vast majority) non-drift comments.
+    index("doc_comments_drift_decision_idx")
+      .on(table.memexId, table.driftDecisionId)
+      .where(sql`${table.driftDecisionId} IS NOT NULL AND ${table.resolvedAt} IS NULL`),
   ]
 );
 

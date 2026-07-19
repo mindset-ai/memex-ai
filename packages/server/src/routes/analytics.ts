@@ -20,6 +20,11 @@ import {
   specActivityAudit,
 } from "../services/analytics.js";
 import { standardsGraph, DEFAULT_SEMANTIC_THRESHOLD } from "../services/standards-graph.js";
+import {
+  knowledgeGraph,
+  DEFAULT_DECISION_FILTER,
+  type DecisionFilter,
+} from "../services/knowledge-graph.js";
 import { getDoc } from "../services/documents.js";
 import { ValidationError } from "../types/errors.js";
 
@@ -140,6 +145,39 @@ analytics.get("/standards-graph", async (c) => {
     semanticThreshold = n;
   }
   return c.json(await standardsGraph(memexId, { semanticThreshold }));
+});
+
+// GET /analytics/knowledge-graph — the whole-vault graph (spec-497): facet / standard /
+// spec / decision nodes + typed edges (spec→decision, standard→facet, decision→facet,
+// mentions, semantic, drift). Read-only, SQL-aggregated, memex-scoped (404 on a private
+// memex per std-7). `decisions` (resolved|all|none, default resolved) bounds the
+// unbounded decision axis; `semanticThreshold` (0..1) matches standards-graph.
+const DECISION_FILTERS: readonly DecisionFilter[] = ["resolved", "all", "none"];
+analytics.get("/knowledge-graph", async (c) => {
+  const memexId = await resolveReadableMemexId(c);
+
+  const rawThreshold = c.req.query("semanticThreshold");
+  let semanticThreshold = DEFAULT_SEMANTIC_THRESHOLD;
+  if (rawThreshold !== undefined) {
+    const n = Number(rawThreshold);
+    if (!Number.isFinite(n) || n < 0 || n > 1) {
+      throw new ValidationError("Query param 'semanticThreshold' must be a number in [0, 1]");
+    }
+    semanticThreshold = n;
+  }
+
+  const rawDecisions = c.req.query("decisions");
+  let decisions: DecisionFilter = DEFAULT_DECISION_FILTER;
+  if (rawDecisions !== undefined) {
+    if (!DECISION_FILTERS.includes(rawDecisions as DecisionFilter)) {
+      throw new ValidationError(
+        `Query param 'decisions' must be one of: ${DECISION_FILTERS.join(", ")}`,
+      );
+    }
+    decisions = rawDecisions as DecisionFilter;
+  }
+
+  return c.json(await knowledgeGraph(memexId, { decisions, semanticThreshold }));
 });
 
 // ── Per-spec stats (spec-406) ────────────────────────────────────────────────

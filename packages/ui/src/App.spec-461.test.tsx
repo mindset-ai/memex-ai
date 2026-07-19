@@ -1,29 +1,26 @@
-// spec-461 t-1 (dec-1) — retire the automatic Home landing.
+// spec-461 t-1 (dec-1) — retire the automatic parked-Home-Canvas landing.
 //
-// NARROWED BY spec-470 dec-9 (2026-07-08, approved by spec-461's owner): spec-461's
-// "never auto-land on /home" now holds ONLY for the HAS-SPEC cohort. A CONFIRMED
-// spec-less user (a successful journey read with hasSpec=false) now AUTO-LANDS on
-// /home — the build-prompt hero — so they reach it (covered by App.spec-470.test.tsx).
-// The failed/unknown-read fallback is NOT treated as confirmed spec-less, so it still
-// lands on the Specs board (that safety is preserved — see the failed-read test below).
-// The tests here assert spec-461's surviving guarantee: a HAS-SPEC user is never
-// auto-landed on Home (they get their Specs board), the welcome re-show still fires,
-// and /home stays reachable by explicit navigation.
+// SUPERSEDED PATH, PRESERVED INVARIANT: spec-461's guarantee was "RootRedirect must
+// never strand an authenticated user on the parked /home onboarding tracker (the Home
+// Canvas)". That invariant STILL holds — no test here ever renders home-canvas-page.
+// What changed: the default-landing PATH is now the canonical tenant /home redirect
+// (computeDefaultLanding → /alice/personal/home), a thin pass-through that forwards to
+// the chosen default surface — today spec-498 Trails (/trails). So "never lands on
+// /home" is reframed: RootRedirect routes THROUGH /home to Trails, and the old parked
+// Home Canvas is never the destination. The build-prompt-hero auto-land (spec-470
+// dec-9) was itself retired with the Home Canvas; every cohort now resolves to the
+// default surface. The welcome-video re-show (spec-less + not-dismissed → /welcome)
+// and the /onboarding name gate are unchanged.
 //
-// Original intent: RootRedirect must never navigate to /home on its own; every
-// authenticated, verified, named user past the welcome gate lands on their
-// default-tenant Specs board. The spec-444 welcome-video re-show (spec-less +
-// not-dismissed → /welcome) is preserved, keyed on !hasSpec. Reverses spec-421 dec-5.
-//
-//   ac-1 (scope) — no authenticated user is ever auto-redirected to /home; a spec-less
-//                  user, and one whose journey read fails/loads, lands on Specs.
-//   ac-2 (scope) — Home remains reachable by explicit navigation (visiting /home).
+//   ac-1 (scope) — no authenticated user is ever stranded on the parked Home Canvas;
+//                  a has-spec user, and one whose journey read fails/loads, lands on
+//                  the default surface (Trails) via the canonical /home redirect.
+//   ac-2 (scope) — /home stays a reachable route — now the canonical redirect itself.
 //   ac-3 (scope) — the welcome-video flow + /onboarding name gate are unchanged.
 //   ac-4 (impl)  — RootRedirect's final target is computeDefaultLanding(session) for all;
-//                  the `landOnHome ? '/home'` branch is gone, so it never returns
-//                  <Navigate to="/home">, incl. hasSpec=false or a failed read.
-//   ac-5 (impl)  — spec-less + dismissed lands on Specs; the welcome re-show still fires
-//                  for spec-less + not-dismissed.
+//                  the old `landOnHome ? '/home'` (parked-Canvas) branch is gone.
+//   ac-5 (impl)  — spec-less + dismissed lands on the default surface; the welcome
+//                  re-show still fires for spec-less + not-dismissed.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
@@ -159,16 +156,19 @@ function renderAt(path: string) {
     <MemoryRouter initialEntries={[path]}>
       <Routes>
         <Route path="/*" element={<PostLoginRouter />} />
-        {/* Probe the default-landing tenant path + /welcome so we can assert where
-            RootRedirect sends the user without dragging in the real screens. */}
-        <Route path="/alice/personal/specs" element={<LocationProbe />} />
+        {/* Probe the final default-landing surface + /welcome so we can assert where
+            RootRedirect sends the user without dragging in the real screens. The
+            default landing is now the canonical /alice/personal/home, which forwards
+            to the chosen surface (Trails/Brain); this exact probe out-ranks the `/*`
+            splat, so it catches that final /trails hop. */}
+        <Route path="/alice/personal/trails" element={<LocationProbe />} />
         <Route path="/welcome" element={<LocationProbe />} />
       </Routes>
     </MemoryRouter>,
   );
 }
 
-describe('spec-461 t-1: RootRedirect never auto-lands on /home (dec-1)', () => {
+describe('spec-461 t-1: RootRedirect never strands the user on the parked Home Canvas (dec-1)', () => {
   beforeEach(() => {
     vi.stubEnv('VITE_GOOGLE_CLIENT_ID', 'test-client-id');
     sessionStorage.setItem('welcomeVideoDismissed', '1'); // spec-444: suppress the re-show gate by default
@@ -183,37 +183,37 @@ describe('spec-461 t-1: RootRedirect never auto-lands on /home (dec-1)', () => {
     sessionStorage.removeItem('welcomeVideoDismissed');
   });
 
-  // spec-470 dec-9: spec-less users now auto-land on /home (App.spec-470.test.tsx).
-  // spec-461's surviving guarantee is for the HAS-SPEC cohort — they still land on
-  // their Specs board, never on Home.
-  it('ac-1 / ac-4: a has-spec user (dismissed) lands on the Specs board, NOT /home', async () => {
+  // Every cohort now resolves to the default surface (Trails) via the canonical
+  // /home redirect; the parked Home Canvas is never the destination — that is
+  // spec-461's surviving guarantee (home-canvas-page must not render).
+  it('ac-1 / ac-4: a has-spec user (dismissed) lands on the default surface (Trails), not the parked Home Canvas', async () => {
     tagAc(AC(1));
     tagAc(AC(4));
     mockSession = makeSession({ hiddenFeatures: [] });
     journeyFetch = () => Promise.resolve(journeyState(true));
     renderAt('/');
     await waitFor(() => {
-      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/specs');
+      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/trails');
     });
     expect(screen.queryByTestId('home-canvas-page')).not.toBeInTheDocument();
   });
 
-  it('ac-4: a has-spec user lands on the Specs board', async () => {
+  it('ac-4: a has-spec user lands on the default surface (Trails)', async () => {
     tagAc(AC(4));
     mockSession = makeSession({ hiddenFeatures: [] });
     journeyFetch = () => Promise.resolve(journeyState(true));
     renderAt('/');
     await waitFor(() => {
-      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/specs');
+      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/trails');
     });
     expect(screen.queryByTestId('home-canvas-page')).not.toBeInTheDocument();
   });
 
   // spec-470 dec-9 preserves this spec-461 safety: routing to /home requires a
   // CONFIRMED spec-less read (cached hasSpec=false). A FAILED read has no such cache,
-  // so it still falls back to the Specs board — a transient blip never drops a
-  // possibly-engaged user onto the build-prompt hero.
-  it('ac-1 / ac-4: a FAILED journey read no longer strands the user on /home — lands on Specs', async () => {
+  // so it still falls back to the default surface — a transient blip never drops a
+  // possibly-engaged user onto the parked Home Canvas / build-prompt hero.
+  it('ac-1 / ac-4: a FAILED journey read no longer strands the user on the parked Home Canvas — lands on the default surface', async () => {
     tagAc(AC(1));
     tagAc(AC(4));
     vi.useFakeTimers();
@@ -225,7 +225,7 @@ describe('spec-461 t-1: RootRedirect never auto-lands on /home (dec-1)', () => {
       await act(async () => {
         await vi.runAllTimersAsync();
       });
-      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/specs');
+      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/trails');
       expect(screen.queryByTestId('home-canvas-page')).not.toBeInTheDocument();
     } finally {
       vi.useRealTimers();
@@ -244,14 +244,14 @@ describe('spec-461 t-1: RootRedirect never auto-lands on /home (dec-1)', () => {
     });
   });
 
-  it('ac-5: a has-spec user (not-dismissed) is NOT sent to /welcome — lands on Specs', async () => {
+  it('ac-5: a has-spec user (not-dismissed) is NOT sent to /welcome — lands on the default surface', async () => {
     tagAc(AC(5));
     sessionStorage.removeItem('welcomeVideoDismissed');
     mockSession = makeSession({ hiddenFeatures: [] });
     journeyFetch = () => Promise.resolve(journeyState(true));
     renderAt('/');
     await waitFor(() => {
-      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/specs');
+      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/trails');
     });
   });
 
@@ -271,13 +271,18 @@ describe('spec-461 t-1: RootRedirect never auto-lands on /home (dec-1)', () => {
     });
   });
 
-  it('ac-2 / ac-3: Home stays reachable by explicit navigation (visiting /home renders HomeCanvas)', async () => {
-    tagAc(AC(2));
-    tagAc(AC(3));
+  // PARKED with the Home Canvas: /home no longer renders the tracker — it always
+  // RootRedirects through the canonical landing to the default surface now (the
+  // per-memex Brain/Trails replaces it). Restore the "renders HomeCanvas" assertion
+  // when it comes back.
+  it('/home redirects through the canonical landing to the default surface (Home Canvas parked)', async () => {
     mockSession = makeSession({ hiddenFeatures: [] }); // home visible
+    journeyFetch = () => Promise.resolve(journeyState(true)); // has-spec → straight to the default surface
     renderAt('/home');
-    expect(await screen.findByTestId('home-canvas-page')).toBeInTheDocument();
-    expect(screen.queryByTestId('probe')).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/trails');
+    });
+    expect(screen.queryByTestId('home-canvas-page')).not.toBeInTheDocument();
   });
 
   it('ac-3: the /onboarding name gate still fires before any landing (unnamed user)', async () => {

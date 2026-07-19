@@ -92,10 +92,10 @@ test(
     await page.getByRole("button", { name: /^Continue$/ }).click();
     // spec-444: dismiss welcome video gate that fires for new users after name capture.
     await dismissWelcomeVideo(page);
-    // spec-470/473 dec-9: a fresh CONFIRMED spec-less user auto-lands on their /home import
-    // hero. Just a checkpoint before the What's New assertions below (which navigate to the
-    // Specs board explicitly); the arm content is landing-agnostic.
-    await expect(page).toHaveURL(/\/home(\?|#|$)/, { timeout: 15_000 });
+    // spec-498: a fresh user lands on their personal-memex Trails (via the /home
+    // canonical redirect). Just a checkpoint before the What's New assertions below
+    // (which navigate to the Specs board explicitly); the arm content is landing-agnostic.
+    await expect(page).toHaveURL(/\/trails(\?|#|$)/, { timeout: 15_000 });
 
     // WhatsNewProvider only mounts inside TenantLayout (/:namespace/:memex/* routes).
     // Navigate to the Specs board to trigger /api/whats-new.

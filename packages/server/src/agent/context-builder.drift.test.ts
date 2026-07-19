@@ -41,6 +41,7 @@ function row(overrides: Partial<DriftInboxRow> = {}): DriftInboxRow {
     content: "Repo no longer does X.",
     proposedContent: null,
     createdAt: new Date("2026-01-01T00:00:00Z"),
+    decision: null,
     section: { id: "s-1", sectionType: "do", title: null, content: "Always X." },
     doc: {
       id: "d-1",
