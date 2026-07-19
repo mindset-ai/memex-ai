@@ -139,7 +139,7 @@ describe('AppShell sidebar navigation', () => {
 
     const nav = screen.getByTestId('primary-nav');
     const brain = within(nav).getByRole('link', { name: 'Trails' });
-    expect(brain).toHaveAttribute('href', '/brain');
+    expect(brain).toHaveAttribute('href', '/trails');
     // The parked Home Canvas nav item is gone.
     expect(within(nav).queryByRole('link', { name: 'Home' })).not.toBeInTheDocument();
     // Brain renders ABOVE the "Natives" group header (DOM order), and above Specs.
@@ -150,8 +150,8 @@ describe('AppShell sidebar navigation', () => {
     expect(links.indexOf(brain)).toBeLessThan(links.indexOf(specs));
   });
 
-  it('marks Brain active on /brain', () => {
-    renderShell(['/brain']);
+  it('marks Brain active on /trails', () => {
+    renderShell(['/trails']);
 
     const nav = screen.getByTestId('primary-nav');
     const brain = within(nav).getByRole('link', { name: 'Trails' });

@@ -136,15 +136,15 @@ function LocationProbe() {
 // Render the real route tree at `path`, plus a probe at the universal landing so we
 // can assert where the catch-all redirect lands. spec-461: RootRedirect sends every
 // authenticated user to their canonical /home, which forwards to the default surface (Trails), so the
-// fallthrough chains /alice/personal/home -> /alice/personal/brain (the exact
-// probe out-ranks the `/*` splat, catching that final /brain hop).
+// fallthrough chains /alice/personal/home -> /alice/personal/trails (the exact
+// probe out-ranks the `/*` splat, catching that final /trails hop).
 function renderAt(path: string) {
   return render(
     <ThemeProvider>
       <MemoryRouter initialEntries={[path]}>
         <Routes>
           <Route path="/*" element={<PostLoginRouter />} />
-          <Route path="/alice/personal/brain" element={<LocationProbe />} />
+          <Route path="/alice/personal/trails" element={<LocationProbe />} />
         </Routes>
       </MemoryRouter>
     </ThemeProvider>,
@@ -198,7 +198,7 @@ describe('spec-148 t-1: Pulse feature-hide', () => {
     // The route was never registered, so the path falls through to the catch-all
     // RootRedirect → canonical /home → the default surface (Trails/Brain).
     await waitFor(() => {
-      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/brain');
+      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/trails');
     });
     expect(screen.queryByTestId('pulse-page')).not.toBeInTheDocument();
   });

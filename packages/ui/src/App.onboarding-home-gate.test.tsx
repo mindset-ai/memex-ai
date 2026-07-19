@@ -143,7 +143,7 @@ function renderAt(path: string) {
         <Route path="/*" element={<PostLoginRouter />} />
         {/* Probe the default-landing tenant path so we can assert RootRedirect's
             graduated → default surface (Trails) without dragging in TenantLayout/SpecList. */}
-        <Route path="/alice/personal/brain" element={<LocationProbe />} />
+        <Route path="/alice/personal/trails" element={<LocationProbe />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -175,7 +175,7 @@ describe('RootRedirect lands users by a read-only onboarding-state check (spec-4
     journeyFetch = () => Promise.resolve(journeyState(false));
     renderAt('/');
     await waitFor(() => {
-      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/brain');
+      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/trails');
     });
     expect(screen.queryByTestId('home-canvas-page')).not.toBeInTheDocument();
   });
@@ -187,7 +187,7 @@ describe('RootRedirect lands users by a read-only onboarding-state check (spec-4
     journeyFetch = () => Promise.resolve(journeyState(true));
     renderAt('/');
     await waitFor(() => {
-      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/brain');
+      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/trails');
     });
     expect(screen.queryByTestId('home-canvas-page')).not.toBeInTheDocument();
   });
@@ -207,7 +207,7 @@ describe('RootRedirect lands users by a read-only onboarding-state check (spec-4
     mockSession = makeSession({ hiddenFeatures: ['home'] });
     renderAt('/');
     await waitFor(() => {
-      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/brain');
+      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/trails');
     });
     expect(screen.queryByTestId('home-canvas-page')).not.toBeInTheDocument();
     // No Home-vs-Specs choice to make when home is hidden → the journey-state read is skipped.
@@ -220,7 +220,7 @@ describe('RootRedirect lands users by a read-only onboarding-state check (spec-4
     journeyFetch = () => Promise.resolve(journeyState(true));
     renderAt('/login');
     await waitFor(() => {
-      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/brain');
+      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/trails');
     });
   });
 

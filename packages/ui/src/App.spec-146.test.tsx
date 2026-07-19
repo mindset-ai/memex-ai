@@ -121,14 +121,14 @@ function LocationProbe() {
 // we can assert where the catch-all redirect lands. RootRedirect sends every
 // authenticated user to their default-tenant `/home` — the canonical redirect route —
 // which forwards to the chosen default surface (Trails/Brain). So the fallthrough
-// chain is catch-all → /alice/personal/home → /alice/personal/brain, and the probe
-// (an exact route, out-ranking the `/*` splat) catches that final /brain hop.
+// chain is catch-all → /alice/personal/home → /alice/personal/trails, and the probe
+// (an exact route, out-ranking the `/*` splat) catches that final /trails hop.
 function renderAt(path: string) {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <Routes>
         <Route path="/*" element={<PostLoginRouter />} />
-        <Route path="/alice/personal/brain" element={<LocationProbe />} />
+        <Route path="/alice/personal/trails" element={<LocationProbe />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -155,7 +155,7 @@ describe('spec-146 t-4: /scaffold route gate', () => {
     // The route was never registered, so the path falls through to the catch-all
     // RootRedirect → canonical /home → chosen default surface (Trails/Brain).
     await waitFor(() => {
-      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/brain');
+      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/trails');
     });
     expect(screen.queryByTestId('scaffold-inspect-page')).not.toBeInTheDocument();
   });

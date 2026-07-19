@@ -61,7 +61,7 @@ interface NavLinkDef {
 // leads the sidebar as a standalone item ABOVE the Principles group (the slot the
 // parked Home Canvas used to hold), so it owns the bare `/` altPath for the highlight.
 const BRAIN_NAV_LINK: NavLinkDef = {
-  to: '/brain',
+  to: '/trails',
   label: 'Trails',
   altPaths: ['/'],
   icon: (

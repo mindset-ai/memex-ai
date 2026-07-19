@@ -105,14 +105,14 @@ function LocationProbe() {
 
 // RootRedirect sends every authenticated user to their default-tenant canonical
 // /home, which forwards to the chosen default surface (Trails/Brain). So the catch-all
-// fallthrough chains /alice/personal/home → /alice/personal/brain; the exact probe
-// (out-ranking the `/*` splat) catches that final /brain hop.
+// fallthrough chains /alice/personal/home → /alice/personal/trails; the exact probe
+// (out-ranking the `/*` splat) catches that final /trails hop.
 function renderAt(path: string) {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <Routes>
         <Route path="/*" element={<PostLoginRouter />} />
-        <Route path="/alice/personal/brain" element={<LocationProbe />} />
+        <Route path="/alice/personal/trails" element={<LocationProbe />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -134,7 +134,7 @@ describe('spec-260 t-7: /qa-reports route gate (ac-18)', () => {
     renderAt('/alice/personal/qa-reports');
 
     await waitFor(() => {
-      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/brain');
+      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/trails');
     });
     expect(screen.queryByTestId('qa-reports-page')).not.toBeInTheDocument();
   });

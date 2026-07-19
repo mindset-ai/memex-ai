@@ -46,9 +46,9 @@ const Standard = lazy(() => import('./pages/Standard').then((m) => ({ default: m
 // spec-498 — Brain: the whole-vault knowledge graph (facets/standards/specs/decisions).
 const Brain = lazy(() => import('./pages/Brain').then((m) => ({ default: m.Brain })));
 // The surface the tenant `/home` redirect forwards to — the single knob for "the
-// default landing". Today it's the Brain/Trails route; change this one string to
+// default landing". Today it's the Trails route; change this one string to
 // re-point every default landing (nothing else references the surface directly).
-const DEFAULT_TENANT_SURFACE = 'brain';
+const DEFAULT_TENANT_SURFACE = 'trails';
 // spec-300 t-6 — the in-app Skills surface (list + detail).
 const SkillList = lazy(() => import('./pages/SkillList').then((m) => ({ default: m.SkillList })));
 const Skill = lazy(() => import('./pages/Skill').then((m) => ({ default: m.Skill })));
@@ -443,6 +443,15 @@ function VoiceGuideMount({
 // route itself renders RootRedirect, so there we keep the loop-avoidance fallback to the
 // default tenant — and skip the journey-state read entirely (no Home-vs-Specs choice to
 // make). A session with zero memberships falls back to null → /.
+// The tenant `/home` redirect target. Builds an ABSOLUTE `/:ns/:mx/<to>` path from
+// the current route params — robust regardless of nesting, unlike relative-path
+// resolution. `to` is DEFAULT_TENANT_SURFACE (today 'trails').
+function TenantSurfaceRedirect({ to }: { to: string }) {
+  const { namespace, memex } = useParams<{ namespace: string; memex: string }>();
+  if (!namespace || !memex) return null; // params always present under /:ns/:mx
+  return <Navigate to={`/${namespace}/${memex}/${to}`} replace />;
+}
+
 function RootRedirect() {
   const { session } = useAuth();
   const emailVerified = !!session?.user.emailVerified;
@@ -614,11 +623,10 @@ export function PostLoginRouter() {
             every post-auth flow here). `/home` is a thin redirect, not a surface:
             it forwards to whichever route is currently chosen as the default. One
             knob — DEFAULT_TENANT_SURFACE — so the choice lives in a single place and
-            callers only ever need to know "/home", not the surface behind it. */}
-        <Route
-          path="home"
-          element={<Navigate to={`../${DEFAULT_TENANT_SURFACE}`} relative="path" replace />}
-        />
+            callers only ever need to know "/home", not the surface behind it. The
+            redirect builds an ABSOLUTE tenant path from the route params so it can
+            never mis-resolve (no reliance on relative-path segment math). */}
+        <Route path="home" element={<TenantSurfaceRedirect to={DEFAULT_TENANT_SURFACE} />} />
         {/* spec-148 t-1 (ac-6/ac-7/ac-8): gate the `/pulse` route on the
             server-driven hide list, mirroring the `/scaffold` gate below. When
             'pulse' is hidden the route isn't registered, so `/:ns/:mx/pulse`
@@ -651,8 +659,10 @@ export function PostLoginRouter() {
         <Route path="issues" element={<IssuesList />} />
         <Route path="standards" element={<StandardList />} />
         <Route path="standards/:id" element={<Standard />} />
-        {/* spec-498: Brain — the whole-vault knowledge graph view. */}
-        <Route path="brain" element={<Brain />} />
+        {/* spec-498: Trails — the whole-vault knowledge graph view. The route is
+            user-facing so it carries the display name (/trails); the component and
+            its `brain-*` testids stay internal (the rename is display-only). */}
+        <Route path="trails" element={<Brain />} />
         {/* spec-300 t-6: Skills — the reusable-SKILL.md surface (list + detail). */}
         <Route path="skills" element={<SkillList />} />
         <Route path="skills/:id" element={<Skill />} />

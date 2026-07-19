@@ -5,7 +5,7 @@
 // Canvas)". That invariant STILL holds — no test here ever renders home-canvas-page.
 // What changed: the default-landing PATH is now the canonical tenant /home redirect
 // (computeDefaultLanding → /alice/personal/home), a thin pass-through that forwards to
-// the chosen default surface — today spec-498 Trails (/brain). So "never lands on
+// the chosen default surface — today spec-498 Trails (/trails). So "never lands on
 // /home" is reframed: RootRedirect routes THROUGH /home to Trails, and the old parked
 // Home Canvas is never the destination. The build-prompt-hero auto-land (spec-470
 // dec-9) was itself retired with the Home Canvas; every cohort now resolves to the
@@ -160,8 +160,8 @@ function renderAt(path: string) {
             RootRedirect sends the user without dragging in the real screens. The
             default landing is now the canonical /alice/personal/home, which forwards
             to the chosen surface (Trails/Brain); this exact probe out-ranks the `/*`
-            splat, so it catches that final /brain hop. */}
-        <Route path="/alice/personal/brain" element={<LocationProbe />} />
+            splat, so it catches that final /trails hop. */}
+        <Route path="/alice/personal/trails" element={<LocationProbe />} />
         <Route path="/welcome" element={<LocationProbe />} />
       </Routes>
     </MemoryRouter>,
@@ -193,7 +193,7 @@ describe('spec-461 t-1: RootRedirect never strands the user on the parked Home C
     journeyFetch = () => Promise.resolve(journeyState(true));
     renderAt('/');
     await waitFor(() => {
-      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/brain');
+      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/trails');
     });
     expect(screen.queryByTestId('home-canvas-page')).not.toBeInTheDocument();
   });
@@ -204,7 +204,7 @@ describe('spec-461 t-1: RootRedirect never strands the user on the parked Home C
     journeyFetch = () => Promise.resolve(journeyState(true));
     renderAt('/');
     await waitFor(() => {
-      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/brain');
+      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/trails');
     });
     expect(screen.queryByTestId('home-canvas-page')).not.toBeInTheDocument();
   });
@@ -225,7 +225,7 @@ describe('spec-461 t-1: RootRedirect never strands the user on the parked Home C
       await act(async () => {
         await vi.runAllTimersAsync();
       });
-      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/brain');
+      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/trails');
       expect(screen.queryByTestId('home-canvas-page')).not.toBeInTheDocument();
     } finally {
       vi.useRealTimers();
@@ -251,7 +251,7 @@ describe('spec-461 t-1: RootRedirect never strands the user on the parked Home C
     journeyFetch = () => Promise.resolve(journeyState(true));
     renderAt('/');
     await waitFor(() => {
-      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/brain');
+      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/trails');
     });
   });
 
@@ -280,7 +280,7 @@ describe('spec-461 t-1: RootRedirect never strands the user on the parked Home C
     journeyFetch = () => Promise.resolve(journeyState(true)); // has-spec → straight to the default surface
     renderAt('/home');
     await waitFor(() => {
-      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/brain');
+      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/trails');
     });
     expect(screen.queryByTestId('home-canvas-page')).not.toBeInTheDocument();
   });
