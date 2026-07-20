@@ -1,0 +1,14 @@
+-- spec-500 dec-1 — the "featured demo" flag on Memexes.
+--
+-- When true AND visibility='public', this memex is surfaced read-only in EVERY
+-- authenticated user's switcher (the "Explore" group) via listMemberships'
+-- featured channel — no org membership, no prior visit required, and no
+-- org_memberships row created (std-4 write-gate untouched). Purely a listing
+-- signal; it is NOT wired to any metrics/exclusion filter (dec-8 keeps the real
+-- memex-building-itself in analytics/live/usage).
+--
+-- Additive, NOT NULL DEFAULT false, so no existing memex is featured by the
+-- migration — the only lock is the one-time table default rewrite (std-39).
+-- The specific memex (mindset-prod/memex-building-itself) is turned on by a
+-- separate one-line data step per environment, not here.
+ALTER TABLE memexes ADD COLUMN IF NOT EXISTS is_featured_demo boolean NOT NULL DEFAULT false;

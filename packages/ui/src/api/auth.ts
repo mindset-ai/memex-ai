@@ -46,8 +46,12 @@ export interface MembershipSummary {
    * Optional for back-compat with sessions cached before spec-111 (and test
    * fixtures): absent ⇒ treat as `'org'` (full access). Read-only is opt-IN via
    * an explicit `'visited'`, never inferred from absence.
+   *
+   * `'featured'` (spec-500) — a `public + is_featured_demo` Memex surfaced
+   * read-only to EVERY authenticated user (the "Explore" group), no membership
+   * or prior visit required. Read-only, like `'visited'`.
    */
-  source?: 'org' | 'visited';
+  source?: 'org' | 'visited' | 'featured';
   /**
    * Effective access level for this row. `'write'` for org rows (std-4
    * members), `'read'` for visited public Memexes. Distinct from `role` (the

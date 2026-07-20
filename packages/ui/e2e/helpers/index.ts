@@ -47,6 +47,7 @@ export {
   signupWithToken,
   seedAssignee,
   setMemexVisibility,
+  setFeaturedDemo,
   seedActivityRow,
   disableMember,
   type PersonalMemex,

@@ -57,10 +57,16 @@ export function MemexSwitcher({ variant = 'topbar' }: { variant?: 'topbar' | 'si
   // memexes (source==='visited', read-only). Visited rows arrive as kind:'team'
   // from the server's user_memex_access join (t-6), so partition on `source`,
   // not `kind` — otherwise a visited public memex would masquerade as an org.
+  // Org rows are team memexes with no read-only provenance. Absent source ⇒ 'org'
+  // (back-compat, per the server type). Visited (spec-111) and featured (spec-500)
+  // rows also arrive as kind:'team' but are read-only, so partition on `source`.
   const orgMemexes = memberships.filter(
-    (m) => m.kind === 'team' && m.source !== 'visited',
+    (m) =>
+      m.kind === 'team' && (m.source === undefined || m.source === 'org'),
   );
   const visitedMemexes = memberships.filter((m) => m.source === 'visited');
+  // spec-500: public memexes featured to every user, read-only ("Explore" group).
+  const featuredMemexes = memberships.filter((m) => m.source === 'featured');
 
   // Identify the exact membership row the URL points at — match BOTH the
   // namespace and the memex slug, since an Org can hold multiple Memexes.
@@ -114,6 +120,16 @@ export function MemexSwitcher({ variant = 'topbar' }: { variant?: 'topbar' | 'si
   // Visited rows always carry a memexSlug (the server's join selects it), so no
   // 'main' fallback dance is needed — but keep one for parity/safety.
   function goToVisitedMemex(m: { slug: string; memexSlug?: string; memexId: string }) {
+    setOpen(false);
+    const mx = m.memexSlug ?? 'main';
+    if (m.slug === currentSlug && current?.memex === mx) return;
+    track('workspace.switched', { memexId: m.memexId });
+    navigate(tenantPathFor(m.slug, mx, '/home'));
+  }
+
+  // spec-500: navigate into a featured ("Explore") public memex. Identical to the
+  // visited handler — it is read-only, reached via the public-read path.
+  function goToFeaturedMemex(m: { slug: string; memexSlug?: string; memexId: string }) {
     setOpen(false);
     const mx = m.memexSlug ?? 'main';
     if (m.slug === currentSlug && current?.memex === mx) return;
@@ -257,6 +273,32 @@ export function MemexSwitcher({ variant = 'topbar' }: { variant?: 'topbar' | 'si
                       subtitle="Read-only"
                       active={active}
                       onClick={() => goToVisitedMemex(mx)}
+                      indent
+                    />
+                  );
+                })}
+              </>
+            )}
+
+            {featuredMemexes.length > 0 && (
+              <>
+                <div
+                  className="mt-1 px-3 pt-2 pb-1 text-xs font-medium uppercase tracking-wider text-muted border-t border-edge flex items-center gap-1.5"
+                  data-testid="featured-memexes-header"
+                >
+                  <span aria-hidden="true">🔍</span>
+                  <span>Explore</span>
+                </div>
+                {featuredMemexes.map((mx) => {
+                  const mxSlug = mx.memexSlug ?? 'main';
+                  const active = currentSlug === mx.slug && current?.memex === mxSlug;
+                  return (
+                    <SwitcherRow
+                      key={mx.memexId}
+                      title={mx.memexName ?? mx.name}
+                      subtitle="Read-only"
+                      active={active}
+                      onClick={() => goToFeaturedMemex(mx)}
                       indent
                     />
                   );

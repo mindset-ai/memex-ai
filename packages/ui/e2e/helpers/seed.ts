@@ -443,6 +443,15 @@ export async function setMemexVisibility(opts: {
   await call("POST", "/set-memex-visibility", opts);
 }
 
+/** spec-500: flip a Memex's featured-demo flag. A public + featured Memex is
+ *  surfaced read-only in every authenticated user's switcher ("Explore" group). */
+export async function setFeaturedDemo(opts: {
+  memexId: string;
+  isFeaturedDemo: boolean;
+}): Promise<void> {
+  await call("POST", "/set-featured-demo", opts);
+}
+
 /** Disable an org member and bulk-revoke their share tokens via the real
  *  disableMembership service. Caller must ensure a second admin exists in the
  *  org first (so the last-admin guard passes). */

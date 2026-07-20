@@ -116,6 +116,44 @@ export async function updateMemexVisibility(
 }
 
 /**
+ * Flip a Memex's featured-demo flag (spec-500). When true AND visibility is
+ * `public`, the Memex is surfaced read-only in EVERY authenticated user's
+ * switcher — the "Explore" group — via `listMemberships`' featured channel: no
+ * org membership required, and no `org_memberships` row is created, so the std-4
+ * write-gate is untouched. Purely a listing signal; it is NOT wired to any
+ * metrics/exclusion filter (dec-8 keeps the real memex-building-itself in
+ * analytics/live/usage).
+ *
+ * This is flipped once per environment for `mindset-prod/memex-building-itself`
+ * (an operator data step; see `scripts/set-featured-demo.ts`). The service is the
+ * data path only. Per std-8 the write goes through `mutate()` and emits a
+ * `memex`/`updated` event so reactive surfaces see the flip immediately.
+ *
+ * Throws ValidationError if the memex doesn't exist.
+ */
+export async function setFeaturedDemo(
+  memexId: string,
+  isFeaturedDemo: boolean,
+  ctx: RequestCtx = {},
+): Promise<Mutated<Memex>> {
+  return mutate(
+    ctx,
+    { memexId, entity: "memex", action: "updated" },
+    async () => {
+      const [updated] = await db
+        .update(memexes)
+        .set({ isFeaturedDemo, updatedAt: new Date() })
+        .where(eq(memexes.id, memexId))
+        .returning();
+      if (!updated) {
+        throw new ValidationError(`Memex ${memexId} not found`);
+      }
+      return updated;
+    },
+  );
+}
+
+/**
  * Rename a Memex's display name (`memexes.name`). Cosmetic — no URL/slug
  * impact, so no redirect and no cooldown. Caller authorization (owner/admin)
  * is enforced UPSTREAM by the route's adminGate. Per std-8 the write goes

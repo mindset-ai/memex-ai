@@ -85,7 +85,7 @@ import { addClausesToSection } from "../services/clauses.js";
 import { applyTagStrings } from "../services/tags.js";
 import { resolveRole } from "../services/doc-members.js";
 import { listAssignees, assign } from "../services/doc-assignees.js";
-import { updateMemexVisibility } from "../services/memexes.js";
+import { updateMemexVisibility, setFeaturedDemo } from "../services/memexes.js";
 import { disableMembership } from "../services/org-memberships.js";
 import { persistEvent } from "../services/activity-log.js";
 // spec-448 t-12: seed a version cut attributed to an actor OTHER than the
@@ -1330,6 +1330,23 @@ testOnlyRouter.post("/set-memex-visibility", async (c) => {
     return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
   }
   await updateMemexVisibility(parsed.data.memexId, parsed.data.visibility);
+  return c.json({ ok: true });
+});
+
+// spec-500: flip a Memex's featured-demo flag through the real service. The
+// "Explore" journey calls this (after making the memex public) to surface it
+// read-only in every user's switcher.
+const setFeaturedDemoSchema = z.object({
+  memexId: z.string().uuid(),
+  isFeaturedDemo: z.boolean(),
+});
+testOnlyRouter.post("/set-featured-demo", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = setFeaturedDemoSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  await setFeaturedDemo(parsed.data.memexId, parsed.data.isFeaturedDemo);
   return c.json({ ok: true });
 });
 
