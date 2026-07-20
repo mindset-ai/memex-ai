@@ -52,15 +52,14 @@ export const test = base.extend<{ resources: TestResources }>({
     //      can't leak a nameless dev user into the next test.
     await ensureUser(DEV_EMAIL);
     await clearOrgMemberships(DEV_EMAIL);
-    // spec-421: the first-load landing routes by the hasSpec milestone, so reset the dev
-    // user's authored specs each test — otherwise a real spec leaked by an earlier journey
-    // would send the shared dev user to the Specs board where a journey expects /home.
-    // (Demo specs are left intact; they never count toward hasSpec.)
+    // Reset the dev user's authored specs each test so every journey starts from a clean,
+    // predictable baseline — a real spec leaked by an earlier journey would otherwise show
+    // up on the board / graph. (Demo specs are left intact.) spec-498: the landing itself is
+    // now uniform (Trails) and no longer varies by the hasSpec milestone.
     await clearUserSpecs(DEV_EMAIL);
     await setUserName(DEV_EMAIL, DEV_NAME);
     // spec-305: needsOnboarding now keys off identity_confirmed_at (not !name), so
-    // confirm the dev user each test — otherwise every journey redirects to /home.
-    // (the onboarding journey-34 deliberately un-confirms to walk the welcome step.)
+    // confirm the dev user each test — otherwise every journey is redirected to /onboarding.
     await setIdentityConfirmed(DEV_EMAIL, true);
     // spec-206: pre-stamp the dev user as already greeted so Specky's first-run
     // auto-greeting never fires unexpectedly on a journey's first board load
@@ -145,9 +144,9 @@ export function bareUrl(path: string = "/"): string {
 /**
  * Navigate to a user's personal-memex Specs board and wait for it to render.
  *
- * spec-312: the bare origin `/` now lands every authenticated user on `/home` (the
- * universal landing), not the default-tenant Specs board. Journeys that need to start
- * ON the Specs board navigate to it explicitly via this helper instead of relying on
+ * spec-498: the bare origin `/` now lands every authenticated user on their personal-memex
+ * Trails (via the `/home` canonical redirect), not the default-tenant Specs board. Journeys
+ * that need to start ON the Specs board navigate to it explicitly via this helper instead of relying on
  * the old `/` → Specs hop. Defaults to the shared dev user.
  */
 export async function gotoSpecsBoard(

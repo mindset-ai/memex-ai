@@ -820,7 +820,9 @@ export async function resolveDecision(
     // imports services/comments.ts, which has no path back here, but the lazy load
     // also keeps the cost out of the hot path when no standards exist).
     const { scanForDecisionDrift } = await import("./standards.js");
-    await scanForDecisionDrift(memexId, `dec-${updated.seq}`, updated.title);
+    // spec-497 dec-3: thread the decision id so each drift comment this scan posts
+    // carries drift_decision_id for the knowledge-graph edge.
+    await scanForDecisionDrift(memexId, `dec-${updated.seq}`, updated.title, updated.id);
   } catch (err) {
     // Stay quiet by default; surface only when DEBUG_AGENT logging is on so debugging
     // a misbehaving scan is possible without polluting prod logs.

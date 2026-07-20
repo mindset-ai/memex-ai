@@ -74,6 +74,11 @@ function driftItem(overrides: Partial<DriftInboxItem> = {}): DriftInboxItem {
     content: 'Repo no longer does X.',
     proposedContent: null,
     createdAt: '2025-01-01T00:00:00Z',
+    decision: {
+      handle: 'dec-4',
+      title: 'Domain auto-join requires explicit consent',
+      specHandle: 'spec-9',
+    },
     section: { id: 's-1', sectionType: 'do', title: null, content: 'Always X.' },
     doc: {
       id: 'd-1',
@@ -280,16 +285,84 @@ describe('DriftInbox — no row buttons, click focuses the agent (spec-143 dec-3
   });
 });
 
-describe('DriftInbox — two explicit row types (spec-143 dec-2)', () => {
-  it('renders a drift as an observation row with NO diff, and a plan_revision as a proposal row WITH a before/after diff (ac-8)', async () => {
+describe('DriftInbox — two explicit row types, drift-card style (spec-143 dec-2 / spec-498)', () => {
+  it('a drift row reads as a relationship (dec ✗ contradicts std) and does NOT dump the comment body (ac-8)', async () => {
     tagAc(AC_TWO_ROW_TYPES);
     fetchDriftInboxMock.mockResolvedValueOnce([
       driftItem({
         commentId: 'obs-1',
         commentType: 'drift',
-        content: 'Repo no longer caches.',
+        content: 'The full drift finding body that must NOT appear in the list.',
         proposedContent: null,
+        decision: {
+          handle: 'dec-2',
+          title: 'Domain auto-join requires explicit consent',
+          specHandle: 'spec-9',
+        },
+        doc: {
+          id: 'd-9',
+          handle: 'std-10',
+          title: 'Secrets never live in the repo',
+          docType: 'standard',
+          status: 'build',
+        },
       }),
+    ]);
+
+    render(
+      <MemoryRouter initialEntries={['/drift']}>
+        <DriftInbox />
+      </MemoryRouter>,
+    );
+
+    const row = await screen.findByTestId('drift-inbox-row');
+    expect(row).toHaveAttribute('data-row-type', 'observation');
+    // decision ✗ contradicts standard — the important information at a glance.
+    expect(row.querySelector('[data-testid="drift-decision"]')!.textContent).toContain('dec-2');
+    expect(row.querySelector('[data-testid="drift-decision"]')!.textContent).toContain(
+      'Domain auto-join requires explicit consent',
+    );
+    expect(row.querySelector('[data-testid="drift-contradicts"]')!.textContent).toContain(
+      'contradicts',
+    );
+    expect(row.querySelector('[data-testid="drift-standard"]')!.textContent).toContain('std-10');
+    expect(row.querySelector('[data-testid="drift-standard"]')!.textContent).toContain(
+      'Secrets never live in the repo',
+    );
+    // The heavy comment body is NOT dumped into the list row.
+    expect(row.textContent).not.toContain('must NOT appear in the list');
+    // No before/after diff on any row now.
+    expect(document.querySelector('[data-testid="drift-proposal-diff"]')).toBeNull();
+  });
+
+  it('a decision-less (legacy) drift degrades to the standard + a clamped finding, no full body', async () => {
+    fetchDriftInboxMock.mockResolvedValueOnce([
+      driftItem({
+        commentId: 'legacy-1',
+        commentType: 'drift',
+        content: 'A legacy finding with no linked decision.',
+        proposedContent: null,
+        decision: null,
+      }),
+    ]);
+
+    render(
+      <MemoryRouter initialEntries={['/drift']}>
+        <DriftInbox />
+      </MemoryRouter>,
+    );
+
+    const row = await screen.findByTestId('drift-inbox-row');
+    // No decision row, but the standard it's on still renders…
+    expect(row.querySelector('[data-testid="drift-decision"]')).toBeNull();
+    expect(row.querySelector('[data-testid="drift-standard"]')).not.toBeNull();
+    // …and the finding shows (clamped), so the row isn't information-free.
+    expect(row.textContent).toContain('A legacy finding with no linked decision.');
+  });
+
+  it('a proposal row is a one-liner ("Proposes a change to std-N …") — the heavy diff is gone (ac-9)', async () => {
+    tagAc(AC_NORMALIZED_PROPOSAL);
+    fetchDriftInboxMock.mockResolvedValueOnce([
       driftItem({
         commentId: 'prop-1',
         commentType: 'plan_revision',
@@ -305,68 +378,18 @@ describe('DriftInbox — two explicit row types (spec-143 dec-2)', () => {
       </MemoryRouter>,
     );
 
-    const rows = await screen.findAllByTestId('drift-inbox-row');
-    expect(rows).toHaveLength(2);
-
-    // The observation row declares its type and shows no diff.
-    const observationRow = rows.find(
-      (r) => r.getAttribute('data-comment-type') === 'drift',
-    )!;
-    expect(observationRow).toHaveAttribute('data-row-type', 'observation');
-    expect(
-      observationRow.querySelector('[data-testid="drift-proposal-diff"]'),
-    ).toBeNull();
-    expect(
-      observationRow.querySelector('[data-testid="drift-observation-body"]'),
-    ).not.toBeNull();
-
-    // The proposal row declares its type and shows a before/after diff with both
-    // the current section content and the proposed text.
-    const proposalRow = rows.find(
-      (r) => r.getAttribute('data-comment-type') === 'plan_revision',
-    )!;
-    expect(proposalRow).toHaveAttribute('data-row-type', 'proposal');
-    const diff = proposalRow.querySelector('[data-testid="drift-proposal-diff"]');
-    expect(diff).not.toBeNull();
-    expect(diff!.textContent).toContain('Always cache.'); // current (before)
-    expect(diff!.textContent).toContain('Always cache with Redis.'); // proposed (after)
-  });
-
-  it('renders a plan_revision with NO ~~~proposed-content fence as a proposal diff (never the blob) — the fall-through path is gone (ac-9)', async () => {
-    tagAc(AC_NORMALIZED_PROPOSAL);
-    // An unfenced proposal: the server normalizes proposedContent to the raw
-    // body, so the UI must still render the proposal diff rather than a blob.
-    fetchDriftInboxMock.mockResolvedValueOnce([
-      driftItem({
-        commentId: 'prop-unfenced',
-        commentType: 'plan_revision',
-        content: 'Please tighten the wording on this rule.',
-        proposedContent: 'Please tighten the wording on this rule.',
-        section: { id: 's-3', sectionType: 'do', title: null, content: 'Loose rule.' },
-      }),
-    ]);
-
-    render(
-      <MemoryRouter initialEntries={['/drift']}>
-        <DriftInbox />
-      </MemoryRouter>,
-    );
-
     const row = await screen.findByTestId('drift-inbox-row');
     expect(row).toHaveAttribute('data-row-type', 'proposal');
-    // It renders the diff, NOT an undifferentiated observation blob.
-    expect(
-      row.querySelector('[data-testid="drift-proposal-diff"]'),
-    ).not.toBeNull();
-    expect(
-      row.querySelector('[data-testid="drift-observation-body"]'),
-    ).toBeNull();
-    const diff = row.querySelector('[data-testid="drift-proposal-diff"]')!;
-    expect(diff.textContent).toContain('Loose rule.'); // current
-    expect(diff.textContent).toContain('Please tighten the wording'); // proposed
+    const summary = row.querySelector('[data-testid="drift-proposal-summary"]')!;
+    expect(summary.textContent).toContain('Proposes a change to');
+    expect(summary.textContent).toContain('std-100');
+    // The before/after diff and the proposed text are NOT in the list row.
+    expect(row.querySelector('[data-testid="drift-proposal-diff"]')).toBeNull();
+    expect(row.textContent).not.toContain('Always cache with Redis.');
+    expect(row.textContent).not.toContain('Always cache.');
   });
 
-  it('every row renders via exactly one of the two visually-distinct row types — no item falls through to a blob (ac-2)', async () => {
+  it('every row renders via exactly one of the two row types — drift observation vs proposal summary (ac-2)', async () => {
     tagAc(AC_SCOPE_RENDER);
     fetchDriftInboxMock.mockResolvedValueOnce([
       driftItem({ commentId: 'a', commentType: 'drift', proposedContent: null }),
@@ -392,18 +415,19 @@ describe('DriftInbox — two explicit row types (spec-143 dec-2)', () => {
 
     const rows = await screen.findAllByTestId('drift-inbox-row');
     expect(rows).toHaveLength(3);
-    // Every row carries exactly one of the two explicit row types.
     for (const row of rows) {
       const rowType = row.getAttribute('data-row-type');
       expect(['observation', 'proposal']).toContain(rowType);
-      const hasDiff =
-        row.querySelector('[data-testid="drift-proposal-diff"]') !== null;
+      const hasSummary =
+        row.querySelector('[data-testid="drift-proposal-summary"]') !== null;
       const hasObservation =
         row.querySelector('[data-testid="drift-observation-body"]') !== null;
       // Exactly one rendering path — never both, never neither (the blob).
-      expect(hasDiff).toBe(rowType === 'proposal');
+      expect(hasSummary).toBe(rowType === 'proposal');
       expect(hasObservation).toBe(rowType === 'observation');
-      expect(hasDiff !== hasObservation).toBe(true);
+      expect(hasSummary !== hasObservation).toBe(true);
+      // The heavy diff is gone from the list entirely.
+      expect(row.querySelector('[data-testid="drift-proposal-diff"]')).toBeNull();
     }
   });
 });
@@ -517,6 +541,155 @@ describe('DriftInbox — c-N refs + Discuss with Agent (spec-143 i-2)', () => {
 
     expect(mockAddContextChip).toHaveBeenCalledTimes(1);
     expect(mockSendMessage).not.toHaveBeenCalled();
+  });
+});
+
+// spec-498: the dec-N / std-N handles in a drift row are clickable, tenant-correct
+// links to those items (dec → the spec's decision URL, std → the standard).
+describe('DriftInbox — handle links (dec-N → spec decision, std-N → standard)', () => {
+  it('renders dec-N as a tenant-correct link to /specs/:spec/decisions/:dec and std-N to /standards/:std', async () => {
+    // tenantPath reads the tenant from window.location — set a tenant so the
+    // links carry the /:ns/:mx prefix (the router renders the absolute href).
+    window.history.pushState({}, '', '/acme/team/drift');
+    try {
+      fetchDriftInboxMock.mockResolvedValueOnce([
+        driftItem({
+          commentId: 'obs-link',
+          commentType: 'drift',
+          decision: { handle: 'dec-2', title: 'Consent decision', specHandle: 'spec-9' },
+          doc: {
+            id: 'd-1',
+            handle: 'std-100',
+            title: 'Caching standard',
+            docType: 'standard',
+            status: 'build',
+          },
+        }),
+      ]);
+
+      render(
+        <MemoryRouter initialEntries={['/acme/team/drift']}>
+          <DriftInbox />
+        </MemoryRouter>,
+      );
+
+      const decLink = await screen.findByText('dec-2');
+      expect(decLink.tagName).toBe('A');
+      expect(decLink).toHaveAttribute('href', '/acme/team/specs/spec-9/decisions/dec-2');
+
+      const stdLink = screen.getByText('std-100');
+      expect(stdLink.tagName).toBe('A');
+      expect(stdLink).toHaveAttribute('href', '/acme/team/standards/std-100');
+    } finally {
+      // Restore default location so later tests see no tenant (unprefixed links).
+      window.history.pushState({}, '', '/');
+    }
+  });
+
+  it('the dec-N handle degrades to plain text (no anchor) when the decision has no owning spec', async () => {
+    fetchDriftInboxMock.mockResolvedValueOnce([
+      driftItem({
+        commentId: 'obs-nospec',
+        commentType: 'drift',
+        decision: { handle: 'dec-7', title: 'Orphan decision', specHandle: null },
+      }),
+    ]);
+
+    render(
+      <MemoryRouter initialEntries={['/drift']}>
+        <DriftInbox />
+      </MemoryRouter>,
+    );
+
+    const dec = await screen.findByText('dec-7');
+    // Plain text, not an anchor — no valid decision URL without a spec.
+    expect(dec.tagName).not.toBe('A');
+    expect(screen.queryByTestId('drift-decision-link')).not.toBeInTheDocument();
+  });
+
+  it('clicking the dec-N link does NOT also focus the agent (stopPropagation)', async () => {
+    const user = userEvent.setup();
+    fetchDriftInboxMock.mockResolvedValueOnce([
+      driftItem({
+        commentId: 'obs-stop',
+        commentType: 'drift',
+        decision: { handle: 'dec-3', title: 'A decision', specHandle: 'spec-1' },
+      }),
+    ]);
+
+    render(
+      <MemoryRouter initialEntries={['/drift']}>
+        <DriftInbox />
+      </MemoryRouter>,
+    );
+
+    const decLink = await screen.findByTestId('drift-decision-link');
+    await user.click(decLink);
+    expect(mockAddContextChip).not.toHaveBeenCalled();
+  });
+});
+
+// spec-498: `?drift=<commentId>` deep-links the inbox to a SPECIFIC drift item —
+// the Brain knowledge graph's drift edge / drift card links here so the click-through
+// lands on the exact item, not just the doc-filtered list. It scrolls the matching
+// row into view and gives it a transient highlight.
+describe('DriftInbox — deep-link to a specific drift (?drift=<commentId>)', () => {
+  it('scrolls the matching row into view and highlights it; other rows are not highlighted', async () => {
+    const scrollSpy = vi.fn();
+    // jsdom does not implement Element.scrollIntoView — stub it, restore after.
+    const originalScroll = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scrollSpy;
+    try {
+      fetchDriftInboxMock.mockResolvedValue([
+        driftItem({ commentId: 'drift-c-41', commentHandle: 'c-41' }),
+        driftItem({ commentId: 'drift-c-42', commentHandle: 'c-42' }),
+      ]);
+
+      render(
+        <MemoryRouter initialEntries={['/drift?doc=std-100&drift=drift-c-42']}>
+          <DriftInbox />
+        </MemoryRouter>,
+      );
+
+      await screen.findAllByTestId('drift-inbox-row');
+
+      // The targeted row gets the transient highlight…
+      await waitFor(() => {
+        const target = document.querySelector('[data-comment-id="drift-c-42"]');
+        expect(target).toHaveAttribute('data-highlighted', 'true');
+      });
+      // …and it was scrolled into view.
+      expect(scrollSpy).toHaveBeenCalled();
+      // The non-targeted row is left alone.
+      const other = document.querySelector('[data-comment-id="drift-c-41"]');
+      expect(other).not.toHaveAttribute('data-highlighted');
+    } finally {
+      Element.prototype.scrollIntoView = originalScroll;
+    }
+  });
+
+  it('does nothing (no highlight) when the drift id matches no row — never crashes', async () => {
+    const scrollSpy = vi.fn();
+    const originalScroll = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scrollSpy;
+    try {
+      fetchDriftInboxMock.mockResolvedValue([
+        driftItem({ commentId: 'drift-c-41', commentHandle: 'c-41' }),
+      ]);
+
+      render(
+        <MemoryRouter initialEntries={['/drift?drift=does-not-exist']}>
+          <DriftInbox />
+        </MemoryRouter>,
+      );
+
+      await screen.findAllByTestId('drift-inbox-row');
+      // No row is highlighted and no scroll happened.
+      expect(document.querySelector('[data-highlighted="true"]')).toBeNull();
+      expect(scrollSpy).not.toHaveBeenCalled();
+    } finally {
+      Element.prototype.scrollIntoView = originalScroll;
+    }
   });
 });
 

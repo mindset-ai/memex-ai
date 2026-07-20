@@ -88,6 +88,11 @@ vi.mock('./pages/HomeCanvas', () => ({
 vi.mock('./pages/SpecList', () => ({
   SpecList: () => <div data-testid="specs-page">specs</div>,
 }));
+// The canonical default surface behind /home (spec-498 Trails) — stubbed so the
+// default landing resolves to a light node, not the real pixi graph.
+vi.mock('./pages/Brain', () => ({
+  Brain: () => <div data-testid="brain-page">trails</div>,
+}));
 vi.mock('./pages/SettingsIntegrations', () => ({
   SettingsIntegrations: () => <div data-testid="integrations-page">integrations</div>,
 }));
@@ -160,21 +165,22 @@ describe('spec-441: RootRedirect name gate', () => {
     expect(fetchJourneyStateSpy).not.toHaveBeenCalled();
   });
 
-  // spec-461 dec-1: a named user now lands on their Specs board (not /home). These name-gate
-  // ACs only assert the user is NOT bounced to /onboarding; the landing sentinel is specs-page.
+  // A named user lands on the canonical /home → the default surface (Trails/Brain),
+  // not /onboarding. These name-gate ACs only assert the user is NOT bounced to
+  // /onboarding; the landing sentinel is the default surface (brain-page).
   it('ac-3: named user (e.g. Google SSO) at / is NOT redirected to /onboarding', async () => {
     tagAc(AC(3));
     mockSession = makeSession({ name: 'Alice' });
     renderAt('/');
-    expect(await screen.findByTestId('specs-page')).toBeInTheDocument();
+    expect(await screen.findByTestId('brain-page')).toBeInTheDocument();
     expect(screen.queryByTestId('onboarding-page')).not.toBeInTheDocument();
   });
 
-  it('ac-4: returning named user landing (/ → the Specs board) is unchanged by the name gate', async () => {
+  it('ac-4: returning named user landing (/ → the default surface) is unchanged by the name gate', async () => {
     tagAc(AC(4));
     mockSession = makeSession({ name: 'Alice' });
     renderAt('/');
-    expect(await screen.findByTestId('specs-page')).toBeInTheDocument();
+    expect(await screen.findByTestId('brain-page')).toBeInTheDocument();
     expect(screen.queryByTestId('onboarding-page')).not.toBeInTheDocument();
   });
 
@@ -182,7 +188,7 @@ describe('spec-441: RootRedirect name gate', () => {
     tagAc(AC(5));
     mockSession = makeSession({ name: 'Alice' });
     renderAt('/');
-    expect(await screen.findByTestId('specs-page')).toBeInTheDocument();
+    expect(await screen.findByTestId('brain-page')).toBeInTheDocument();
     expect(screen.queryByTestId('onboarding-page')).not.toBeInTheDocument();
   });
 

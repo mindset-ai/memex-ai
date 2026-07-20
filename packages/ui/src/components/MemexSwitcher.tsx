@@ -17,9 +17,9 @@ import { useTelemetry } from '../hooks/useTelemetry';
 // t-23 of doc-15: switched from cross-origin `window.location.href` redirects
 // (with auth-handoff fragments) to same-origin React Router navigation. Every
 // tenant lives under `/<namespace>/<memex>/...` on a single origin, so we just
-// navigate(). The default landing in the destination tenant is `/specs` —
-// switching mid-doc abandons the doc deep-link because handles aren't
-// guaranteed to exist in the target tenant.
+// navigate(). The default landing in the destination tenant is `/home` — the
+// canonical default-landing redirect (→ Trails today); switching mid-doc abandons
+// the doc deep-link because handles aren't guaranteed to exist in the target tenant.
 export function MemexSwitcher({ variant = 'topbar' }: { variant?: 'topbar' | 'sidebar' } = {}) {
   const { session } = useAuth();
   const navigate = useNavigate();
@@ -100,7 +100,7 @@ export function MemexSwitcher({ variant = 'topbar' }: { variant?: 'topbar' | 'si
     if (!currentIsPersonal) {
       track('workspace.switched', { memexId: personalMembership.memexId });
     }
-    navigate(tenantPathFor(ns, mx, '/specs'));
+    navigate(tenantPathFor(ns, mx, '/home'));
   }
 
   function goToOrgMemex(m: { slug: string; memexSlug?: string; memexId: string }) {
@@ -108,7 +108,7 @@ export function MemexSwitcher({ variant = 'topbar' }: { variant?: 'topbar' | 'si
     const mx = m.memexSlug ?? 'main';
     if (m.slug === currentSlug && current?.memex === mx) return;
     track('workspace.switched', { memexId: m.memexId });
-    navigate(tenantPathFor(m.slug, mx, '/specs'));
+    navigate(tenantPathFor(m.slug, mx, '/home'));
   }
 
   // Visited rows always carry a memexSlug (the server's join selects it), so no
@@ -118,7 +118,7 @@ export function MemexSwitcher({ variant = 'topbar' }: { variant?: 'topbar' | 'si
     const mx = m.memexSlug ?? 'main';
     if (m.slug === currentSlug && current?.memex === mx) return;
     track('workspace.switched', { memexId: m.memexId });
-    navigate(tenantPathFor(m.slug, mx, '/specs'));
+    navigate(tenantPathFor(m.slug, mx, '/home'));
   }
 
   // Group org memberships by namespace slug so sibling Memexes inside the same

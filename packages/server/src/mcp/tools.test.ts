@@ -109,6 +109,7 @@ const COMMENT_ROW = {
   sectionId: TEST_SECTION_ID,
   decisionId: null,
   taskId: null,
+  driftDecisionId: null,
 };
 
 // spec-161: standard + clause fixtures for the clause-tool guard tests.
@@ -720,6 +721,7 @@ describe("MCP Tool handlers via HTTP", () => {
               sectionId: TEST_SECTION_ID,
               decisionId: null,
               taskId: null,
+              driftDecisionId: null,
               authorName: "Alice",
               authorUserId: null,
               authorNamespaceId: null,

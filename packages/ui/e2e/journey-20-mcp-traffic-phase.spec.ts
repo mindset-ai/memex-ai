@@ -105,7 +105,9 @@ test("MCP traffic never moves the Spec card, and an ahead-of-phase call is refus
   });
   const taskRef = `${specRef}/tasks/t-${seededTask.seq}`;
 
-  await page.goto(bareUrl(`/${tenant.namespaceSlug}/${tenant.memexSlug}`));
+  // spec-498: the bare tenant index now renders Trails, so navigate to the explicit
+  // Specs board — this journey watches a Spec CARD on the board, not the graph.
+  await page.goto(bareUrl(`/${tenant.namespaceSlug}/${tenant.memexSlug}/specs`));
   const board = page.getByTestId("kanban-board");
   await expect(board).toBeVisible({ timeout: 15_000 });
 

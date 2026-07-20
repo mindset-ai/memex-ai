@@ -54,13 +54,16 @@ export interface StandardsGraph {
 /** Default cosine-similarity floor for the semantic overlay. */
 export const DEFAULT_SEMANTIC_THRESHOLD = 0.5;
 
-export async function standardsGraph(
-  memexId: string,
-  opts: { semanticThreshold?: number } = {},
-): Promise<StandardsGraph> {
-  const threshold = opts.semanticThreshold ?? DEFAULT_SEMANTIC_THRESHOLD;
+// ── Shared query internals (spec-497 dec-1 / ac-12) ──────────────────────────
+// The standards-node, mention-edge, and semantic-edge SQL is the common backbone
+// of BOTH the standards-graph endpoint (spec-179) and the knowledge-graph endpoint
+// (spec-497). Extracted here so the two share ONE source rather than copy-pasting;
+// standardsGraph()'s output is unchanged by the extraction (its regression tests
+// pin the shape). knowledge-graph.ts imports these directly.
 
-  const nodes = (await db.execute(sql`
+/** The standard nodes (doc + live clause count) for a memex, ordered by handle. */
+export async function standardsGraphNodes(memexId: string): Promise<StandardsGraphNode[]> {
+  return (await db.execute(sql`
     SELECT
       d.id AS "docId",
       d.handle,
@@ -72,8 +75,11 @@ export async function standardsGraph(
     GROUP BY d.id, d.handle, d.title
     ORDER BY d.handle
   `)) as unknown as StandardsGraphNode[];
+}
 
-  const mentionEdges = (await db.execute(sql`
+/** standard→standard mention edges (clause_refs join), weighted + with evidence. */
+export async function standardsGraphMentionEdges(memexId: string): Promise<MentionEdge[]> {
+  return (await db.execute(sql`
     SELECT
       cr.source_doc_id AS "sourceDocId",
       cr.target_doc_id AS "targetDocId",
@@ -95,11 +101,17 @@ export async function standardsGraph(
     GROUP BY cr.source_doc_id, cr.target_doc_id
     ORDER BY count DESC
   `)) as unknown as MentionEdge[];
+}
 
+/** Undirected semantic-similarity edges over standards-section embeddings. */
+export async function standardsGraphSemanticEdges(
+  memexId: string,
+  threshold: number = DEFAULT_SEMANTIC_THRESHOLD,
+): Promise<SemanticEdge[]> {
   // Pairwise doc-level similarity. s1.doc_id < s2.doc_id keeps each pair once
   // (the overlay is undirected). Standards corpora are small (tens of docs,
   // hundreds of sections), so the cross join is cheap.
-  const semanticEdges = (await db.execute(sql`
+  return (await db.execute(sql`
     SELECT
       s1.doc_id AS "sourceDocId",
       s2.doc_id AS "targetDocId",
@@ -115,6 +127,17 @@ export async function standardsGraph(
     HAVING max(1 - (s1.embedding <=> s2.embedding)) >= ${threshold}
     ORDER BY similarity DESC
   `)) as unknown as SemanticEdge[];
+}
 
+export async function standardsGraph(
+  memexId: string,
+  opts: { semanticThreshold?: number } = {},
+): Promise<StandardsGraph> {
+  const threshold = opts.semanticThreshold ?? DEFAULT_SEMANTIC_THRESHOLD;
+  const [nodes, mentionEdges, semanticEdges] = await Promise.all([
+    standardsGraphNodes(memexId),
+    standardsGraphMentionEdges(memexId),
+    standardsGraphSemanticEdges(memexId, threshold),
+  ]);
   return { nodes, mentionEdges, semanticEdges };
 }

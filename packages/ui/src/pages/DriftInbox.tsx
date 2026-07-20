@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { fetchDriftInbox, type DriftInboxItem } from '../api/client';
 import { useDocChangeStream } from '../hooks/useDocChangeStream';
 import { useChat } from '../components/ChatContext';
-import { formatDate } from '../utils/format';
+import { tenantPath } from '../utils/tenantUrl';
+import { timeAgo } from '../utils/timeAgo';
 import { Spinner } from '../components/Spinner';
-import { MarkdownText } from '../components/chat/MarkdownText';
 import { OpeningDriftController } from '../components/chat/OpeningDriftController';
 
 /**
@@ -16,14 +16,15 @@ import { OpeningDriftController } from '../components/chat/OpeningDriftControlle
  * Standard. An optional `?doc=std-N` query param (the per-standard drift-badge
  * deep-link) narrows the inbox to a single standard.
  *
- * Two explicit row types (spec-143 dec-2):
- *   - Observation (`drift`) — the repo has diverged from the rule; a finding,
- *     not a proposed edit. Rendered as a compact single-block statement.
- *   - Proposal (`plan_revision`) — a proposed change to the standard, ALWAYS
- *     rendered as a before/after diff (current section content vs the server-
- *     normalized `proposedContent`). The server guarantees `proposedContent` is
- *     non-null for every proposal (even unfenced ones), so no row ever falls
- *     through to an undifferentiated markdown blob.
+ * Two explicit row types (spec-143 dec-2), reworked (spec-498) to echo the Brain
+ * "drift card" — the important information at a glance, not a wall of text:
+ *   - Observation (`drift`) — the repo has diverged from a rule. Rendered as a
+ *     RELATIONSHIP: the source decision (`dec-N` + title) ✗ contradicts the
+ *     standard (`std-N` + title) it violates. The full comment body is NOT dumped
+ *     into the list (too much to read); the agent explains detail on Discuss.
+ *   - Proposal (`plan_revision`) — a proposed change to a standard. Rendered as a
+ *     one-line "Proposes a change to std-N …". The heavy before/after diff is out
+ *     of the list — reachable via Discuss with Agent or the standard page.
  *
  * No inline action buttons (spec-143 dec-3). The per-row Accept / Reject /
  * Resolve buttons are gone — deciding whether a standard should change in
@@ -163,6 +164,35 @@ function DriftInboxBody({
   onFocus,
   onDiscuss,
 }: DriftInboxBodyProps) {
+  // Deep-link to a specific drift: `?drift=<commentId>` scrolls the matching row
+  // into view and gives it a transient rose highlight, so a link into the inbox
+  // (e.g. from the Brain knowledge graph's drift edge or card) lands on the EXACT
+  // item, not just the doc-filtered list. Complements the existing `?doc=std-N`.
+  const rowRefs = useRef(new Map<string, HTMLDivElement>());
+  const [highlightedCommentId, setHighlightedCommentId] = useState<string | null>(null);
+  const driftDeepLink = searchParams.get('drift');
+
+  useEffect(() => {
+    if (!driftDeepLink) {
+      setHighlightedCommentId(null);
+      return;
+    }
+    // Only act once the target row is actually in the loaded list (and mounted).
+    if (!items.some((it) => it.commentId === driftDeepLink)) return;
+    const el = rowRefs.current.get(driftDeepLink);
+    if (!el) return;
+    // jsdom has no scrollIntoView — guard so tests never throw. Honour reduced
+    // motion (matchMedia is absent in jsdom, so guard that too).
+    const reduce =
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    el.scrollIntoView?.({ behavior: reduce ? 'auto' : 'smooth', block: 'center' });
+    setHighlightedCommentId(driftDeepLink);
+    // Transient: clear after ~2s so re-navigating to the same item re-triggers.
+    const timer = window.setTimeout(() => setHighlightedCommentId(null), 2000);
+    return () => window.clearTimeout(timer);
+  }, [driftDeepLink, items]);
+
   return (
     <div className="h-full flex flex-col px-6 py-6">
       <div className="flex items-center justify-between mb-6 flex-none">
@@ -213,69 +243,57 @@ function DriftInboxBody({
           )
         ) : (
           items.map((item) => {
-            // Two explicit row types (dec-2): a `plan_revision` is a proposal
-            // (always a before/after diff via the server-normalized
-            // proposedContent); a `drift` is an observation (no diff).
             const isProposal = item.commentType === 'plan_revision';
             // The user-facing item number — the comment's per-doc sequence
             // (c-N) without the internal `c-` prefix (spec-143 i-2 feedback:
             // "c-" reads as jargon; the number is what identifies the item).
             const itemNumber = item.commentHandle.replace(/^c-/, '');
             // Drift is standards-only (b-63), so every row links to a Standard.
-            const docHref = `/standards/${item.doc.handle}`;
+            // tenantPath keeps the link under the current /:ns/:mx (a bare
+            // /standards/... would drop the tenant prefix).
+            const docHref = tenantPath(`/standards/${item.doc.handle}`);
+            // The source decision's canonical URL — only when its owning spec is
+            // known (there's no decision route without a spec); else no link.
+            const decHref = item.decision?.specHandle
+              ? tenantPath(`/specs/${item.decision.specHandle}/decisions/${item.decision.handle}`)
+              : null;
             return (
               <div
                 key={item.commentId}
+                ref={(el) => {
+                  if (el) rowRefs.current.set(item.commentId, el);
+                  else rowRefs.current.delete(item.commentId);
+                }}
                 onClick={() => onFocus(item)}
-                className="border border-edge-subtle rounded-md bg-panel p-4 cursor-pointer hover:border-edge hover:bg-card-hover transition-colors"
+                className={`border rounded-md bg-panel p-4 cursor-pointer hover:border-edge hover:bg-card-hover transition-colors ${
+                  highlightedCommentId === item.commentId
+                    ? 'border-edge-subtle ring-2 ring-status-danger-border'
+                    : 'border-edge-subtle'
+                }`}
                 data-testid="drift-inbox-row"
+                data-comment-id={item.commentId}
                 data-comment-type={item.commentType}
                 data-row-type={isProposal ? 'proposal' : 'observation'}
+                data-highlighted={highlightedCommentId === item.commentId ? 'true' : undefined}
                 title="Focus the drift agent on this item"
               >
-                {/* min-w-0 on the left cluster lets the TITLE truncate instead
-                    of forcing the pill / handles / button to wrap mid-token. */}
+                {/* Meta row: the type badge (carries the c-N ref the agent acts
+                    on) on the left; opened-ago + Discuss on the right. */}
                 <div className="flex items-center justify-between gap-3 mb-2">
-                  <div className="flex items-center gap-2 text-xs min-w-0">
-                    {/* spec-143 i-2: the item's number lives INSIDE the type
-                        badge so it clearly numbers this inbox item ("Drift #2").
-                        It's the comment's per-doc sequence on the Standard
-                        (c-N) — the ref the agent acts on. */}
-                    <span
-                      className={
-                        item.commentType === 'drift'
-                          ? 'flex-none whitespace-nowrap px-2 py-0.5 rounded-full bg-status-danger-bg text-status-danger-text border border-status-danger-border font-medium'
-                          : 'flex-none whitespace-nowrap px-2 py-0.5 rounded-full bg-status-info-bg text-status-info-text border border-status-info-border font-medium'
-                      }
-                      title={`Item #${itemNumber} — use this number to refer to the item when discussing it with the agent`}
-                    >
-                      {item.commentType === 'drift' ? 'Drift' : 'Proposed change'}{' '}
-                      <span data-testid="drift-comment-handle">#{itemNumber}</span>
-                    </span>
-                    <Link
-                      to={docHref}
-                      onClick={(e) => e.stopPropagation()}
-                      className="flex-none whitespace-nowrap font-mono text-secondary hover:underline"
-                    >
-                      {item.doc.handle}
-                    </Link>
-                    {/* min-w-0 lets the title WRAP within the flex row instead
-                        of truncating or forcing the fixed tokens to break. */}
-                    <span className="text-muted wrap-break-word min-w-0">
-                      {item.doc.title}
-                    </span>
-                    {item.section && (
-                      <span className="flex-none whitespace-nowrap text-muted">
-                        · section{' '}
-                        <span className="font-mono">{item.section.sectionType}</span>
-                      </span>
-                    )}
-                  </div>
+                  <span
+                    className={
+                      item.commentType === 'drift'
+                        ? 'flex-none whitespace-nowrap px-2 py-0.5 rounded-full bg-status-danger-bg text-status-danger-text border border-status-danger-border text-xs font-medium'
+                        : 'flex-none whitespace-nowrap px-2 py-0.5 rounded-full bg-status-info-bg text-status-info-text border border-status-info-border text-xs font-medium'
+                    }
+                    title={`Item #${itemNumber} — use this number to refer to the item when discussing it with the agent`}
+                  >
+                    {item.commentType === 'drift' ? 'Drift' : 'Proposed change'}{' '}
+                    <span data-testid="drift-comment-handle">#{itemNumber}</span>
+                  </span>
                   <div className="flex items-center gap-3 flex-none">
                     <span className="text-xs text-muted whitespace-nowrap">
-                      {item.authorName}
-                      {item.source ? ` (${item.source})` : ''} ·{' '}
-                      {formatDate(item.createdAt)}
+                      opened {timeAgo(item.createdAt)}
                     </span>
                     {/* spec-143 i-2: kicks off the resolution conversation —
                         focuses the agent on the item AND sends the opening
@@ -297,41 +315,89 @@ function DriftInboxBody({
                   </div>
                 </div>
 
+                {/* The important information, drift-card style. A drift reads as a
+                    relationship (decision ✗ contradicts standard); a proposal is a
+                    one-liner. Neither dumps the full comment body / diff (spec-498
+                    — too much to read in a list; the agent explains on Discuss). */}
                 {isProposal ? (
                   <div
-                    className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3"
-                    data-testid="drift-proposal-diff"
+                    className="flex items-baseline gap-1.5 text-sm min-w-0"
+                    data-testid="drift-proposal-summary"
                   >
-                    <div>
-                      <div className="text-xs uppercase tracking-wide text-muted mb-1">
-                        Current section content
-                      </div>
-                      <div className="text-xs text-secondary bg-surface/60 border border-edge-subtle rounded-sm p-2 wrap-break-word">
-                        {item.section?.content ? (
-                          <MarkdownText inline={false}>
-                            {item.section.content}
-                          </MarkdownText>
-                        ) : (
-                          <span className="text-muted">(no current content)</span>
-                        )}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-xs uppercase tracking-wide text-muted mb-1">
-                        Proposed
-                      </div>
-                      <div className="text-xs text-secondary bg-surface/60 border border-status-info-border rounded-sm p-2 wrap-break-word">
-                        <MarkdownText inline={false}>
-                          {item.proposedContent ?? item.content}
-                        </MarkdownText>
-                      </div>
-                    </div>
+                    <span className="flex-none text-muted">Proposes a change to</span>
+                    <Link
+                      to={docHref}
+                      onClick={(e) => e.stopPropagation()}
+                      className="flex-none font-mono text-secondary hover:underline"
+                    >
+                      {item.doc.handle}
+                    </Link>
+                    <span className="truncate text-secondary">{item.doc.title}</span>
                   </div>
                 ) : (
-                  <div data-testid="drift-observation-body">
-                    <MarkdownText inline={false} className="text-sm text-secondary">
-                      {item.content}
-                    </MarkdownText>
+                  <div className="space-y-1 text-sm" data-testid="drift-observation-body">
+                    {item.decision ? (
+                      <>
+                        <div
+                          className="flex items-baseline gap-1.5 min-w-0"
+                          data-testid="drift-decision"
+                        >
+                          {decHref ? (
+                            <Link
+                              to={decHref}
+                              onClick={(e) => e.stopPropagation()}
+                              className="flex-none font-mono text-muted hover:underline"
+                              data-testid="drift-decision-link"
+                            >
+                              {item.decision.handle}
+                            </Link>
+                          ) : (
+                            <span className="flex-none font-mono text-muted">
+                              {item.decision.handle}
+                            </span>
+                          )}
+                          <span className="truncate text-secondary">{item.decision.title}</span>
+                        </div>
+                        <div
+                          className="text-xs font-medium text-status-danger-text"
+                          data-testid="drift-contradicts"
+                        >
+                          ✗ contradicts
+                        </div>
+                        <div
+                          className="flex items-baseline gap-1.5 min-w-0"
+                          data-testid="drift-standard"
+                        >
+                          <Link
+                            to={docHref}
+                            onClick={(e) => e.stopPropagation()}
+                            className="flex-none font-mono text-secondary hover:underline"
+                          >
+                            {item.doc.handle}
+                          </Link>
+                          <span className="truncate text-secondary">{item.doc.title}</span>
+                        </div>
+                      </>
+                    ) : (
+                      // Legacy drift with no linked decision: show the standard it's
+                      // on and a clamped finding — never the full body.
+                      <>
+                        <div
+                          className="flex items-baseline gap-1.5 min-w-0"
+                          data-testid="drift-standard"
+                        >
+                          <Link
+                            to={docHref}
+                            onClick={(e) => e.stopPropagation()}
+                            className="flex-none font-mono text-secondary hover:underline"
+                          >
+                            {item.doc.handle}
+                          </Link>
+                          <span className="truncate text-secondary">{item.doc.title}</span>
+                        </div>
+                        <div className="text-xs text-muted line-clamp-2">{item.content}</div>
+                      </>
+                    )}
                   </div>
                 )}
               </div>

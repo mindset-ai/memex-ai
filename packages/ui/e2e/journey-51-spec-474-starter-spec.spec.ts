@@ -15,21 +15,20 @@
 // is on the board.
 //
 // What this journey pins:
-//   1. A brand-new user signs up and lands on /home (spec-421 ac-15 — spec-less).
+//   1. A brand-new user signs up and lands on their personal-memex Trails (spec-498).
 //   2. On first authenticated load the "Getting your Memex ready…" blocker appears (best
 //      effort — provisioning can outrun the poll) and then RESOLVES (the onboarding name
 //      form, gated behind the blocker, rendering is the hard proof it cleared).
 //   3. The "Understanding Memex" starter Spec is present on the user's Specs board, in the
 //      Specify column, and there is NO demo Spec / DEMO badge / demo-pill anywhere.
-//   4. hasSpec stays DARK: the system-attributed starter Spec does NOT satisfy the user's
-//      hasSpec milestone (journey-state.ts excludes createdByUserId NULL), so a confirmed
-//      spec-less user still resolves to their /home build-prompt hero — they must author
-//      their OWN spec before onboarding advances.
+//   (spec-498: the old point 4 — proving the system-attributed starter Spec leaves the user
+//    spec-less by landing them on the /home hero rather than the board — is retired here.
+//    Trails is now the universal landing for every cohort, so the landing no longer signals
+//    hasSpec; the createdByUserId-NULL exclusion stays covered by journey-state.ts units.)
 //
-// Verifies spec-474 ac-7 (cold-DB journey: fresh signup sees the starter spec, no demo,
-// landing unchanged), ac-1 (exactly one system-attributed starter spec, no demo walkthrough),
-// ac-4 (seeding never advances onboarding — hasSpec stays dark), and ac-22 (the readiness
-// blocker gates only until seeding completes).
+// Verifies spec-474 ac-7 (cold-DB journey: fresh signup sees the starter spec, no demo),
+// ac-1 (exactly one system-attributed starter spec, no demo walkthrough), and ac-22 (the
+// readiness blocker gates only until seeding completes).
 
 import {
   test,
@@ -45,7 +44,6 @@ import {
 const STARTER_SPEC_TITLE = "Understanding Memex"; // db/starter-spec.fixture.ts
 
 const S474_AC1 = "mindset-prod/memex-building-itself/specs/spec-474/acs/ac-1";
-const S474_AC4 = "mindset-prod/memex-building-itself/specs/spec-474/acs/ac-4";
 const S474_AC7 = "mindset-prod/memex-building-itself/specs/spec-474/acs/ac-7";
 const S474_AC22 = "mindset-prod/memex-building-itself/specs/spec-474/acs/ac-22";
 
@@ -57,7 +55,7 @@ const TITLE =
 test.afterEach(async ({}, testInfo) => {
   if (testInfo.status === "skipped") return;
   await emitAcEvents(
-    [S474_AC1, S474_AC4, S474_AC7, S474_AC22],
+    [S474_AC1, S474_AC7, S474_AC22],
     testInfo.status === "passed" ? "pass" : "fail",
     `${FILE}::${testInfo.title}`,
     testInfo.duration,
@@ -113,9 +111,9 @@ test(TITLE, async ({ page, resources }) => {
   await page.getByRole("button", { name: /^Continue$/ }).click();
   // spec-444: dismiss welcome video gate that fires for new users after name capture.
   await dismissWelcomeVideo(page);
-  // ── 1. spec-421 ac-15 / spec-470-473 dec-9: a fresh CONFIRMED spec-less user
-  //       auto-lands on their /home build-prompt hero. ──────────────────────────
-  await expect(page).toHaveURL(/\/home(\?|#|$)/, { timeout: 15_000 });
+  // ── 1. spec-498: a fresh user lands on their personal-memex Trails (the /home
+  //       canonical redirect forwards to /:ns/:mx/trails). ─────────────────────
+  await expect(page).toHaveURL(/\/trails(\?|#|$)/, { timeout: 15_000 });
 
   // ── 3. The "Understanding Memex" starter spec is on the board, in Specify, no demo ─
   // The board itself is the deterministic readiness barrier — and, being a real authenticated
@@ -148,13 +146,11 @@ test(TITLE, async ({ page, resources }) => {
   // anywhere on the board (the testid is gone from source, so this guards the regression).
   await expect(page.getByTestId("spec-demo-pill")).toHaveCount(0);
 
-  // ── 4. The starter spec does NOT satisfy hasSpec (it is system-attributed, ac-4) ──
-  // Under hero-first (spec-470/473 dec-9) the "/" landing IS the hasSpec signal: a confirmed
-  // spec-less user resolves to their /home build-prompt hero, a has-spec user to their board.
-  // The system-attributed starter spec does NOT light hasSpec (journey-state excludes
-  // createdByUserId NULL), so the user is still spec-less — proof the seed did NOT advance
-  // their onboarding.
-  await page.goto(bareUrl("/"));
-  await expect(page).toHaveURL(/\/home(\?|#|$)/, { timeout: 15_000 });
-  await expect(page.getByTestId("build-prompt-hero")).toBeVisible({ timeout: 15_000 });
+  // ── 4. RETIRED here (spec-498): ac-4 ("the system-attributed starter spec does not
+  // satisfy hasSpec") was proven via the landing surface — spec-less → /home hero vs
+  // has-spec → board. With Trails now the universal landing for every cohort, the landing
+  // no longer signals hasSpec, so this journey can't assert ac-4 that way. The attribution
+  // invariant itself (createdByUserId NULL excluded from hasSpec) stays covered by the
+  // journey-state.ts unit suite. The starter-spec provisioning (ac-1/ac-7/ac-22) above is
+  // this journey's live coverage.
 });

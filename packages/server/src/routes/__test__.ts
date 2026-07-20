@@ -46,7 +46,7 @@ import { STARTER_SPEC_TITLE } from "../db/starter-spec.fixture.js";
 import { createDocDraft, updateDocStatus } from "../services/documents.js";
 import { markNarrativeConsolidated } from "../services/narrative.js";
 import { publishEntry } from "../services/whats-new.js";
-import { createDecision } from "../services/decisions.js";
+import { createDecision, resolveDecision } from "../services/decisions.js";
 import { hashPassword } from "../services/passwords.js";
 import { issueAuthToken } from "../services/auth-tokens.js";
 import { mutate } from "../services/mutate.js";
@@ -81,6 +81,7 @@ import { addTaskComment, addComment, addDecisionComment, addAnchoredComment } fr
 import { addMentions, assignComment } from "../services/comment-mentions.js";
 import { createShareToken, listShareTokensForDoc } from "../services/share-tokens.js";
 import { addSection } from "../services/sections.js";
+import { addClausesToSection } from "../services/clauses.js";
 import { applyTagStrings } from "../services/tags.js";
 import { resolveRole } from "../services/doc-members.js";
 import { listAssignees, assign } from "../services/doc-assignees.js";
@@ -544,14 +545,19 @@ testOnlyRouter.post("/seed-open-decision", async (c) => {
 // owner's default facet vocabulary, a spec in build, and a task + a decision that each
 // carry a cast ballot marking one facet true. Returns the spec handle + the facet key
 // the pills should display.
-const seedFacetScenarioSchema = z.object({ memexId: z.string() });
+const seedFacetScenarioSchema = z.object({
+  memexId: z.string(),
+  // spec-498 (dec-7): resolve the balloted decision through the real service so
+  // the Brain journey's decision appears under the graph's resolved default.
+  resolve: z.boolean().optional(),
+});
 testOnlyRouter.post("/seed-facet-scenario", async (c) => {
   const body = await c.req.json().catch(() => null);
   const parsed = seedFacetScenarioSchema.safeParse(body);
   if (!parsed.success) {
     return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
   }
-  const { memexId } = parsed.data;
+  const { memexId, resolve } = parsed.data;
 
   const owner = await ownerForMemex(memexId);
   if (!owner) return c.json({ error: "no owner for memex" }, 400);
@@ -569,8 +575,15 @@ testOnlyRouter.post("/seed-facet-scenario", async (c) => {
   await castTaskBallot(memexId, spec.id, task.id, ballot, {});
   const decision = await createDecision(memexId, spec.id, "A balloted decision", undefined, "human");
   await castDecisionBallot(memexId, spec.id, decision.id, ballot, {});
+  // spec-498 (dec-7): optionally resolve through the real service, so the
+  // decision passes the knowledge graph's resolved default filter.
+  if (resolve) {
+    await resolveDecision(memexId, decision.id, "Resolved while seeding the scenario.");
+  }
 
-  return c.json({ specHandle: spec.handle, facetKey: chosen });
+  // spec-498 (dec-4): the Brain journey links a drift comment to this decision
+  // and asserts its node/deep-link, so the ids it already owns are returned.
+  return c.json({ specHandle: spec.handle, facetKey: chosen, decisionId: decision.id, decisionSeq: decision.seq });
 });
 
 // Real native-auth signup [per std-13] that ALSO returns the raw email-
@@ -1006,6 +1019,10 @@ const seedCommentSchema = z.object({
   // source; anchorStartOffset, when supplied, is the START. Section target only.
   anchorEndOffset: z.number().int().nonnegative().optional(),
   anchorStartOffset: z.number().int().nonnegative().optional(),
+  // spec-498 (dec-4): link a seeded drift comment to its source decision via
+  // the comments service's existing extras.driftDecisionId (spec-497), so the
+  // Brain journey can materialize a drift edge through the real write path.
+  driftDecisionId: z.string().uuid().optional(),
 });
 testOnlyRouter.post("/seed-comment", async (c) => {
   const body = await c.req.json().catch(() => null);
@@ -1013,10 +1030,11 @@ testOnlyRouter.post("/seed-comment", async (c) => {
   if (!parsed.success) {
     return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
   }
-  const { memexId, target, targetId, authorName, content, commentType, anchorEndOffset, anchorStartOffset } = parsed.data;
-  const extras = commentType
-    ? ({ type: commentType } as Parameters<typeof addComment>[4])
-    : undefined;
+  const { memexId, target, targetId, authorName, content, commentType, anchorEndOffset, anchorStartOffset, driftDecisionId } = parsed.data;
+  const extras =
+    commentType || driftDecisionId
+      ? ({ type: commentType, driftDecisionId } as Parameters<typeof addComment>[4])
+      : undefined;
   const comment =
     target === "section"
       ? anchorEndOffset != null
@@ -1483,4 +1501,33 @@ testOnlyRouter.post("/seed-version-cut", async (c) => {
     ctx,
   );
   return c.json({ versionId: result.id, versionNumber: result.versionNumber });
+});
+
+// spec-496 (t-5): seed clauses onto a standard's section through the REAL
+// addClausesToSection service — syncClauseRefsTx materializes any `std-N`
+// handle mentions in the clause bodies, giving the standards-map journey its
+// mention edges without raw SQL [per std-28]. Env-gated like everything here;
+// no product contract is touched (spec-496 ac-8 carve-out).
+const seedClausesSchema = z.object({
+  memexId: z.string().uuid(),
+  sectionId: z.string().uuid(),
+  clauses: z.array(z.string().min(1)).min(1),
+});
+testOnlyRouter.post("/seed-clauses", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = seedClausesSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { memexId, sectionId, clauses } = parsed.data;
+  // Facets: [] = the explicit governs-nothing verdict (valid where a facet
+  // vocabulary exists; ignored where none does).
+  const created = await addClausesToSection(
+    memexId,
+    sectionId,
+    clauses.map((clauseBody) => ({ body: clauseBody, facets: [] })),
+    // std-32: thread a channel — a seeded write is still an attributed write.
+    { channel: "server", actorName: "e2e-seed" },
+  );
+  return c.json({ clauseIds: created.map((r) => r.id) });
 });

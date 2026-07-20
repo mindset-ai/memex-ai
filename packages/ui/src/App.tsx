@@ -35,11 +35,20 @@ const NamespaceHome = lazy(() =>
 const NamespaceSettings = lazy(() =>
   import('./pages/NamespaceSettings').then((m) => ({ default: m.NamespaceSettings })),
 );
-const HomeCanvas = lazy(() => import('./pages/HomeCanvas').then((m) => ({ default: m.HomeCanvas })));
+// The global Home Canvas (flat /home onboarding tracker) is PARKED for now — the
+// per-memex Brain (the knowledge-graph landing) replaces it as the default surface.
+// Kept in the tree, commented out, so it can be revived without re-plumbing.
+// const HomeCanvas = lazy(() => import('./pages/HomeCanvas').then((m) => ({ default: m.HomeCanvas })));
 const StandardList = lazy(() =>
   import('./pages/StandardList').then((m) => ({ default: m.StandardList })),
 );
 const Standard = lazy(() => import('./pages/Standard').then((m) => ({ default: m.Standard })));
+// spec-498 — Brain: the whole-vault knowledge graph (facets/standards/specs/decisions).
+const Brain = lazy(() => import('./pages/Brain').then((m) => ({ default: m.Brain })));
+// The surface the tenant `/home` redirect forwards to — the single knob for "the
+// default landing". Today it's the Trails route; change this one string to
+// re-point every default landing (nothing else references the surface directly).
+const DEFAULT_TENANT_SURFACE = 'trails';
 // spec-300 t-6 — the in-app Skills surface (list + detail).
 const SkillList = lazy(() => import('./pages/SkillList').then((m) => ({ default: m.SkillList })));
 const Skill = lazy(() => import('./pages/Skill').then((m) => ({ default: m.Skill })));
@@ -434,6 +443,15 @@ function VoiceGuideMount({
 // route itself renders RootRedirect, so there we keep the loop-avoidance fallback to the
 // default tenant — and skip the journey-state read entirely (no Home-vs-Specs choice to
 // make). A session with zero memberships falls back to null → /.
+// The tenant `/home` redirect target. Builds an ABSOLUTE `/:ns/:mx/<to>` path from
+// the current route params — robust regardless of nesting, unlike relative-path
+// resolution. `to` is DEFAULT_TENANT_SURFACE (today 'trails').
+function TenantSurfaceRedirect({ to }: { to: string }) {
+  const { namespace, memex } = useParams<{ namespace: string; memex: string }>();
+  if (!namespace || !memex) return null; // params always present under /:ns/:mx
+  return <Navigate to={`/${namespace}/${memex}/${to}`} replace />;
+}
+
 function RootRedirect() {
   const { session } = useAuth();
   const emailVerified = !!session?.user.emailVerified;
@@ -450,14 +468,12 @@ function RootRedirect() {
   useEffect(() => {
     if (!needDecision || landOnHome === null || firedRef.current) return;
     firedRef.current = true;
-    // spec-470 dec-9: the destination reflects the real target — a CONFIRMED
-    // spec-less user (a successful read with hasSpec=false) now auto-lands on /home
-    // (the build-prompt hero); a has-spec user, and the failed/unknown-read fallback,
-    // land on their Specs board. `graduated` (= hasSpec) stays the raw engagement
-    // signal. This effect only runs when 'home' is visible (needDecision excludes
-    // homeHidden), so a hidden-home fallback never reports 'home' here.
-    const confirmedSpecLess = landOnHome && getCachedJourneyState()?.milestones?.hasSpec === false;
-    const props = { destination: confirmedSpecLess ? 'home' : 'specs', graduated: !landOnHome };
+    // The Home Canvas is PARKED (the per-memex Brain replaces it), so the spec-470
+    // dec-9 confirmedSpecLess → /home landing is retired: EVERY landing user now goes
+    // to their default board, so `destination` is always 'specs'. `graduated`
+    // (= hasSpec) stays the raw engagement signal (how many landers haven't graduated).
+    // Restore the confirmedSpecLess → 'home' destination when the Home Canvas returns.
+    const props = { destination: 'specs', graduated: !landOnHome };
     // RootRedirect renders at the flat `/` (or `/login`), where `track()` resolves the
     // tenant from the cached session. In the rare case there's no resolvable tenant (e.g.
     // a session with no current Memex yet), fall back to the anonymous ingress so the
@@ -488,17 +504,12 @@ function RootRedirect() {
   if (landOnHome && !sessionStorage.getItem('welcomeVideoDismissed')) {
     return <Navigate to="/welcome" replace />;
   }
-  // spec-470 dec-9 (supersedes spec-461 dec-1 for the spec-less cohort): a CONFIRMED
-  // spec-less user auto-lands on /home — the build-prompt hero — so they reach it. A
-  // has-spec user still lands on their Specs board (spec-461 preserved for that
-  // cohort). "Confirmed" = a SUCCESSFUL journey read with hasSpec=false, which
-  // useShouldLandOnHome caches; the failed/unknown-read fallback (landOnHome true by
-  // default, but no confirmed spec-less cache) keeps spec-461's safe board landing so
-  // a transient read blip never drops a possibly-engaged user onto the hero. Reached
-  // only when 'home' is visible (homeHidden fell back above — the clean rollback);
-  // the spec-444 welcome gate above still fires first (→ /welcome), then /home.
-  const confirmedSpecLess = landOnHome && getCachedJourneyState()?.milestones?.hasSpec === false;
-  if (confirmedSpecLess) return <Navigate to="/home" replace />;
+  // The global /home (build-prompt hero) is PARKED — the per-memex Brain replaces it as
+  // the default surface. The spec-470 dec-9 confirmedSpecLess → /home auto-land is
+  // therefore retired: everyone now falls through to their default tenant landing
+  // (computeDefaultLanding), which lands on the memex whose index is now the Brain.
+  // The spec-444 welcome-video gate above still fires first for first-timers. Revive
+  // the confirmedSpecLess → /home branch here if the Home Canvas comes back.
   const target = computeDefaultLanding(session);
   if (target) return <Navigate to={target} replace />;
   return null;
@@ -564,25 +575,23 @@ export function PostLoginRouter() {
       <Route path="/upgrade/confirmation" element={<FlatShell><UpgradeConfirmation /></FlatShell>} />
       <Route path="/upgrade/:plan" element={<FlatShell><UpgradeSeats /></FlatShell>} />
       <Route path="/account" element={<Navigate to="/org" replace />} />
-      {/* spec-303 — Home Canvas: user-level, flat (not tenant-scoped). Gated on
-          the server-driven hide list (feature: 'home') so the surface can be
-          hidden per-env (e.g. prod) while live on int — same mechanism as /pulse.
-          When hidden we REDIRECT rather than drop the route: /home is a flat,
-          single-segment path, so an unregistered route would otherwise be claimed
-          by /:namespace below (resolving "home" as a namespace). RootRedirect
-          sends the user to their default landing instead. */}
-      <Route
-        path="/home"
-        element={
-          isFeatureHidden(session, 'home') ? (
-            <RootRedirect />
-          ) : (
-            <FlatShell>
-              <HomeCanvas />
-            </FlatShell>
-          )
-        }
-      />
+      {/* Home Canvas PARKED — the per-memex Brain replaces the flat /home onboarding
+          tracker as the default surface. The route stays registered (a flat,
+          single-segment path would otherwise be claimed by /:namespace below,
+          resolving "home" as a namespace) but now always RootRedirects to the
+          default tenant landing. To revive the tracker, restore the isFeatureHidden
+          branch below and un-comment the HomeCanvas import at the top of this file.
+            element={
+              isFeatureHidden(session, 'home') ? (
+                <RootRedirect />
+              ) : (
+                <FlatShell>
+                  <HomeCanvas />
+                </FlatShell>
+              )
+            }
+      */}
+      <Route path="/home" element={<RootRedirect />} />
 
 
       {/* Bare /specs is a flat, single-segment path with no tenant prefix, so it
@@ -606,7 +615,18 @@ export function PostLoginRouter() {
 
       {/* Tenancy-scoped routes — every path segment lives under /:ns/:mx. */}
       <Route path="/:namespace/:memex" element={<TenantLayout />}>
-        <Route index element={<SpecList />} />
+        {/* The memex's default landing is the Brain — the whole-vault knowledge
+            graph (facets/standards/specs/decisions + drift). Was the Specs board;
+            the Specs board still lives at the explicit /specs route below. */}
+        <Route index element={<Brain />} />
+        {/* The canonical default landing (AuthContext.computeDefaultLanding sends
+            every post-auth flow here). `/home` is a thin redirect, not a surface:
+            it forwards to whichever route is currently chosen as the default. One
+            knob — DEFAULT_TENANT_SURFACE — so the choice lives in a single place and
+            callers only ever need to know "/home", not the surface behind it. The
+            redirect builds an ABSOLUTE tenant path from the route params so it can
+            never mis-resolve (no reliance on relative-path segment math). */}
+        <Route path="home" element={<TenantSurfaceRedirect to={DEFAULT_TENANT_SURFACE} />} />
         {/* spec-148 t-1 (ac-6/ac-7/ac-8): gate the `/pulse` route on the
             server-driven hide list, mirroring the `/scaffold` gate below. When
             'pulse' is hidden the route isn't registered, so `/:ns/:mx/pulse`
@@ -639,6 +659,10 @@ export function PostLoginRouter() {
         <Route path="issues" element={<IssuesList />} />
         <Route path="standards" element={<StandardList />} />
         <Route path="standards/:id" element={<Standard />} />
+        {/* spec-498: Trails — the whole-vault knowledge graph view. The route is
+            user-facing so it carries the display name (/trails); the component and
+            its `brain-*` testids stay internal (the rename is display-only). */}
+        <Route path="trails" element={<Brain />} />
         {/* spec-300 t-6: Skills — the reusable-SKILL.md surface (list + detail). */}
         <Route path="skills" element={<SkillList />} />
         <Route path="skills/:id" element={<Skill />} />

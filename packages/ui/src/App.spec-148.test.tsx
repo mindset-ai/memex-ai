@@ -26,7 +26,8 @@ const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-148/acs
 
 // Mutable session fixture — each test sets `hiddenFeatures` before rendering.
 // `alice/personal` is the personal membership, so computeDefaultLanding (kept
-// real) resolves the default landing to /alice/personal/specs.
+// real) resolves the default landing to the canonical /alice/personal/home,
+// which forwards to the chosen default surface (Trails/Brain).
 let mockSession: SessionPayload;
 function makeSession(hiddenFeatures: string[]): SessionPayload {
   return {
@@ -101,7 +102,7 @@ vi.mock('./pages/Pulse', () => ({
 }));
 
 // spec-461 dec-1: RootRedirect never auto-lands on /home — every authenticated user
-// falls through to their default-tenant Specs board. This gate test only cares that a
+// falls through to the canonical /home → the default surface (Trails). This gate test only cares that a
 // hidden feature route falls through to that universal landing; the journey read no
 // longer changes the target (kept here as a realistic fixture).
 vi.mock('./api/journey', async () => {
@@ -134,15 +135,16 @@ function LocationProbe() {
 
 // Render the real route tree at `path`, plus a probe at the universal landing so we
 // can assert where the catch-all redirect lands. spec-461: RootRedirect sends every
-// authenticated user to their default-tenant Specs board (never /home), so the
-// fallthrough target is /alice/personal/specs.
+// authenticated user to their canonical /home, which forwards to the default surface (Trails), so the
+// fallthrough chains /alice/personal/home -> /alice/personal/trails (the exact
+// probe out-ranks the `/*` splat, catching that final /trails hop).
 function renderAt(path: string) {
   return render(
     <ThemeProvider>
       <MemoryRouter initialEntries={[path]}>
         <Routes>
           <Route path="/*" element={<PostLoginRouter />} />
-          <Route path="/alice/personal/specs" element={<LocationProbe />} />
+          <Route path="/alice/personal/trails" element={<LocationProbe />} />
         </Routes>
       </MemoryRouter>
     </ThemeProvider>,
@@ -194,9 +196,9 @@ describe('spec-148 t-1: Pulse feature-hide', () => {
     renderAt('/alice/personal/pulse');
 
     // The route was never registered, so the path falls through to the catch-all
-    // RootRedirect → universal landing (the Specs board, spec-461 dec-1).
+    // RootRedirect → canonical /home → the default surface (Trails/Brain).
     await waitFor(() => {
-      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/specs');
+      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/trails');
     });
     expect(screen.queryByTestId('pulse-page')).not.toBeInTheDocument();
   });

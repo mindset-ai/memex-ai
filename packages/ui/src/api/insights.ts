@@ -98,6 +98,96 @@ export async function fetchStandardsGraph(): Promise<StandardsGraphData> {
   return fetchJsonRaw<StandardsGraphData>(fetchWithRetry, `${tBase()}/analytics/standards-graph`);
 }
 
+// ── Knowledge graph (spec-497 — the multi-type "whole vault" graph) ───────────
+// Shapes mirror packages/server/src/services/knowledge-graph.ts exactly. Feeds the
+// spec-496 renderer's multi-type mode: facet / standard / spec / decision nodes,
+// typed edges, and drift. Node ids are stable DB uuids so refetches diff cleanly.
+
+export type KnowledgeGraphDecisionFilter = 'resolved' | 'all' | 'none';
+
+export interface KnowledgeGraphFacetNode {
+  id: string;
+  key: string;
+  name: string | null;
+  description: string;
+  ord: number;
+  standardCount: number;
+  decisionCount: number;
+}
+
+export interface KnowledgeGraphStandardNode {
+  docId: string;
+  handle: string;
+  title: string;
+  clauseCount: number;
+  taggedClauseCount: number;
+  openDriftCount: number;
+}
+
+export interface KnowledgeGraphSpecNode {
+  docId: string;
+  handle: string;
+  title: string;
+  status: string;
+  decisionCount: number;
+}
+
+export interface KnowledgeGraphDecisionNode {
+  id: string;
+  handle: string;
+  title: string;
+  status: string;
+  resolvedAt: string | null;
+}
+
+export interface KnowledgeGraphStandardFacetEdge {
+  standardDocId: string;
+  facetId: string;
+  clauseCount: number;
+  evidence: Array<{ clauseHandle: string; snippet: string }>;
+}
+
+export interface KnowledgeGraphData {
+  nodes: {
+    facets: KnowledgeGraphFacetNode[];
+    standards: KnowledgeGraphStandardNode[];
+    specs: KnowledgeGraphSpecNode[];
+    decisions: KnowledgeGraphDecisionNode[];
+  };
+  edges: {
+    specDecision: Array<{ specDocId: string; decisionId: string }>;
+    standardFacet: KnowledgeGraphStandardFacetEdge[];
+    decisionFacet: Array<{ decisionId: string; facetId: string }>;
+    mentions: StandardsGraphMentionEdge[];
+    semantic: StandardsGraphSemanticEdge[];
+    drift: Array<{
+      decisionId: string;
+      standardDocId: string;
+      sectionId: string;
+      commentId: string;
+      openedAt: string;
+    }>;
+  };
+  meta: {
+    decisionFilter: KnowledgeGraphDecisionFilter;
+    truncated: boolean;
+    counts: { facets: number; standards: number; specs: number; decisions: number };
+  };
+}
+
+export async function fetchKnowledgeGraph(
+  opts: { decisions?: KnowledgeGraphDecisionFilter; semanticThreshold?: number } = {},
+): Promise<KnowledgeGraphData> {
+  const params = new URLSearchParams();
+  if (opts.decisions) params.set('decisions', opts.decisions);
+  if (opts.semanticThreshold !== undefined) params.set('semanticThreshold', String(opts.semanticThreshold));
+  const qs = params.toString();
+  return fetchJsonRaw<KnowledgeGraphData>(
+    fetchWithRetry,
+    `${tBase()}/analytics/knowledge-graph${qs ? `?${qs}` : ''}`,
+  );
+}
+
 export interface FunnelStage {
   phase: SpecPhase;
   count: number;

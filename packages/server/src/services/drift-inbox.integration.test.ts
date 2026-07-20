@@ -7,6 +7,7 @@ import { db } from "../db/connection.js";
 import { documents } from "../db/schema.js";
 import { createStandard, flagDrift, proposeStandardChange } from "./standards.js";
 import { createDocDraft } from "./documents.js";
+import { createDecision } from "./decisions.js";
 import { addComment, resolveComment } from "./comments.js";
 import { listDriftInbox } from "./drift-inbox.js";
 import { makeTestMemex } from "./test-helpers.js";
@@ -85,6 +86,51 @@ describe("listDriftInbox", () => {
     // spec-143 i-2: every row carries its per-doc c-N handle so items are
     // referenceable by handle in the UI and by the agent.
     expect(driftRow?.commentHandle).toMatch(/^c-\d+$/);
+  });
+
+  it("surfaces the source decision (dec-N + title + owning spec handle) for a drift linked via drift_decision_id (spec-498)", async () => {
+    const std = await createStandard(memexId, {
+      title: "Consent standard",
+      sections: [{ sectionType: "do", content: "Require explicit consent." }],
+    });
+    createdDocIds.push(std.id);
+
+    // The decision the repo will be found to contradict lives on its owning SPEC,
+    // so the inbox can build the canonical /specs/:spec/decisions/:dec URL.
+    const spec = await createDocDraft(memexId, "Auth spec", "How auth works", "spec");
+    createdDocIds.push(spec.id);
+    const decision = await createDecision(
+      memexId,
+      spec.id,
+      "Domain auto-join requires explicit consent",
+    );
+
+    // A drift STAMPED with the triggering decision (spec-497 dec-3 flagDrift path)…
+    const linkedDrift = await flagDrift(
+      memexId,
+      std.sections[0].id,
+      "Repo auto-joins without consent.",
+      { driftDecisionId: decision.id },
+    );
+    // …and a plain drift with NO linked decision (legacy shape).
+    const unlinkedDrift = await flagDrift(
+      memexId,
+      std.sections[0].id,
+      "An unrelated divergence.",
+    );
+
+    const page = await listDriftInbox(memexId);
+
+    const linkedRow = page.items.find((r) => r.commentId === linkedDrift.id);
+    expect(linkedRow?.decision).toEqual({
+      handle: `dec-${decision.seq}`,
+      title: "Domain auto-join requires explicit consent",
+      specHandle: spec.handle, // spec-N — the owning spec, for the decision URL
+    });
+
+    // A drift with no decision link degrades to null — the UI shows just the standard.
+    const unlinkedRow = page.items.find((r) => r.commentId === unlinkedDrift.id);
+    expect(unlinkedRow?.decision).toBeNull();
   });
 
   it("excludes resolved comments", async () => {
