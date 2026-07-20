@@ -38,7 +38,8 @@ export interface AddMemexFormProps {
   orgName: string;
   onCancel?: () => void;
   // Override the post-create navigation target. Defaults to navigating to
-  // `/<namespace>/<slug>/specs` so the user lands inside their new Memex.
+  // `/<namespace>/<slug>/home` (the canonical default landing → Trails) so the
+  // user lands inside their new Memex.
   onCreated?: (memexSlug: string) => void;
   // Caller-provided toast hook for the 403 / kind_not_org and 403 / not_a_member
   // cases that close the dialog. Defaults to console.warn.
@@ -102,7 +103,7 @@ export function AddMemexForm({
           // spec-403 dec-1: allowlist the slug right before navigating. Already
           // server-validated (check.available); the explicit guard breaks the CodeQL
           // js/xss-through-dom flow and proves a same-origin path (no scheme/colon).
-          window.location.href = tenantPathFor(namespaceSlug, trimmed, '/specs');
+          window.location.href = tenantPathFor(namespaceSlug, trimmed, '/home');
         }
       } catch (err) {
         setSubmitting(false);
