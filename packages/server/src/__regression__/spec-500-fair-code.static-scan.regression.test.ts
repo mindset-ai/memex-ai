@@ -30,7 +30,7 @@ const SPEC_500_FILES = [
   "packages/ui/src/hooks/useMemexAccess.ts",
   "packages/ui/e2e/helpers/seed.ts",
   "packages/ui/e2e/helpers/index.ts",
-  "packages/ui/e2e/journey-54-spec-500-explore-memex.spec.ts",
+  "packages/ui/e2e/journey-65-spec-500-explore-memex.spec.ts",
 ];
 
 function isEeMarked(repoRelPath: string): boolean {
