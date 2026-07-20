@@ -167,10 +167,25 @@ test.describe("spec-118 ac-21 — assignment propagates to the board live", () =
       purpose: "Board should react to an assignment with no reload.",
     });
 
+    // Arm the SSE-connection wait BEFORE navigating so we catch the board's
+    // useDocChangeStream(null) opening GET /docs/events. The in-memory bus has no
+    // replay: an assignment emitted before this subscriber attaches would be
+    // dropped and the board would never react (cf. journey-16's grace windows).
+    const boardStreamConnected = page.waitForResponse(
+      (r) => r.url().includes("/docs/events") && r.status() === 200,
+      { timeout: 15_000 },
+    );
+
     // Board open — the card starts in the explicit "Unassigned" state.
     await page.goto(tenantPath(tenant.namespaceSlug, tenant.memexSlug, "/specs"));
     await expect(page.getByText("Live assignment spec")).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId("spec-unassigned").first()).toBeVisible();
+
+    // Wait until the stream's response headers are in, then a short settle so the
+    // server-side bus.subscribe is registered before we emit — otherwise the
+    // assignment event can race ahead of the subscription on a loaded CI box.
+    await boardStreamConnected;
+    await page.waitForTimeout(300);
 
     // Assign dev on a SEPARATE channel (test surface → real service → mutate() →
     // unified bus [per std-8]). The board's own React state is untouched, so any
