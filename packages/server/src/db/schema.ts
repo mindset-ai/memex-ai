@@ -1514,6 +1514,14 @@ export const memexes = pgTable(
     // org-members-only. Defaults to 'private' so existing memexes are never
     // silently exposed by the migration.
     visibility: text("visibility").notNull().default("private"),
+    // spec-500: the "featured demo" flag. When true AND visibility='public', this
+    // memex is surfaced read-only in EVERY authenticated user's switcher (the
+    // "Explore" group) via listMemberships' featured channel — no org membership
+    // required, no membership row created (std-4 write-gate untouched). Purely a
+    // listing signal: it is NOT wired to any metrics/exclusion filter (dec-8 keeps
+    // the real memex-building-itself in analytics/live/usage). Defaults to false so
+    // no memex is featured by the migration.
+    isFeaturedDemo: boolean("is_featured_demo").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     // spec-474 dec-6: content-provisioning marker. NULL = the onboarding content seed

@@ -7,6 +7,8 @@ import { tagAc } from "@memex-ai-ac/vitest";
 
 const AC_SIGNUP_AUTOADD =
   'mindset-prod/memex-building-itself/specs/spec-111/acs/ac-8';
+// spec-500 ac-2: the featured Memex renders read-only under an "Explore" group.
+const AC_EXPLORE = 'mindset-prod/memex-building-itself/specs/spec-500/acs/ac-2';
 
 // getCurrentTenant reads window.location; pin it so the switcher renders
 // deterministically regardless of the jsdom URL.
@@ -64,6 +66,20 @@ function visitedRow(): MembershipSummary {
     kind: 'team',
     role: 'member',
     source: 'visited',
+    accessLevel: 'read',
+  };
+}
+
+function featuredRow(): MembershipSummary {
+  return {
+    memexId: 'mx-featured',
+    slug: 'mindset-prod',
+    memexSlug: 'memex-building-itself',
+    name: 'Memex building itself',
+    memexName: 'Memex building itself',
+    kind: 'team',
+    role: 'member',
+    source: 'featured',
     accessLevel: 'read',
   };
 }
@@ -136,5 +152,60 @@ describe('MemexSwitcher — Your Memexes + Visited (spec-111 t-8)', () => {
 
     await userEvent.click(screen.getByTitle('Switch Memex'));
     expect(screen.queryByTestId('visited-memexes-header')).not.toBeInTheDocument();
+  });
+});
+
+describe('MemexSwitcher — Explore (featured demo, spec-500)', () => {
+  it('renders an "Explore" group with the featured Memex, read-only', async () => {
+    tagAc(AC_EXPLORE);
+    setSession([personalRow(), featuredRow()]);
+
+    render(
+      <MemoryRouter>
+        <MemexSwitcher />
+      </MemoryRouter>,
+    );
+
+    await userEvent.click(screen.getByTitle('Switch Memex'));
+
+    // The featured Memex is grouped under "Explore", labelled by its name and
+    // marked read-only — the "Explore: Memex building itself" entry (ac-2).
+    expect(screen.getByTestId('featured-memexes-header')).toHaveTextContent(/Explore/);
+    expect(screen.getByText('Memex building itself')).toBeInTheDocument();
+    expect(screen.getByText('Read-only')).toBeInTheDocument();
+  });
+
+  it('keeps the featured Memex OUT of the "Your orgs" and "Visited" groups', async () => {
+    tagAc(AC_EXPLORE);
+    setSession([personalRow(), orgRow(), visitedRow(), featuredRow()]);
+
+    render(
+      <MemoryRouter>
+        <MemexSwitcher />
+      </MemoryRouter>,
+    );
+
+    await userEvent.click(screen.getByTitle('Switch Memex'));
+
+    // All three read-only/org groupings coexist without cross-contamination.
+    expect(screen.getByText('Your orgs')).toBeInTheDocument();
+    expect(screen.getByTestId('visited-memexes-header')).toBeInTheDocument();
+    expect(screen.getByTestId('featured-memexes-header')).toBeInTheDocument();
+    // The featured Memex name appears exactly once (only under Explore).
+    expect(screen.getAllByText('Memex building itself')).toHaveLength(1);
+  });
+
+  it('renders no Explore group when the user has no featured memexes', async () => {
+    tagAc(AC_EXPLORE);
+    setSession([personalRow(), orgRow()]);
+
+    render(
+      <MemoryRouter>
+        <MemexSwitcher />
+      </MemoryRouter>,
+    );
+
+    await userEvent.click(screen.getByTitle('Switch Memex'));
+    expect(screen.queryByTestId('featured-memexes-header')).not.toBeInTheDocument();
   });
 });
