@@ -120,6 +120,13 @@ test("a signed-in non-member's direct write to the featured Memex is server-reje
   // mutating tool straight to the in-app agent tool-execution surface. ac-5 requires
   // no non-member can write "through any surface" — the write-capability gate
   // (routes/llm.ts, canWriteMemex) must reject it, not merely a hidden button.
+  //
+  // Why the request reaches the 403 gate at all (not a 404): strict sessionMiddleware
+  // 404s a non-member on a path memex UNLESS listMemberships resolves it — and it
+  // does here only because B is public + is_featured_demo, so the featured channel
+  // (spec-500) synthesizes a read-only membership. That read-only row is exactly what
+  // canWriteMemex then rejects. If the featured-listing behaviour ever narrows, this
+  // flips to a 404 and fails loudly (never a false green).
   const writeRes = await request.post(
     `${API_URL}/api/${b.namespaceSlug}/${b.memexSlug}/llm/tools/execute`,
     {
