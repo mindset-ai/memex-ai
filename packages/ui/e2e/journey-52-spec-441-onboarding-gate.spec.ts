@@ -72,8 +72,18 @@ test(
       timeout: 10_000,
     });
 
-    // Fill in a display name and submit.
-    await page.getByPlaceholder("Your display name").fill("Gate User");
+    // Fill in a display name and submit. The onboarding form can REMOUNT while
+    // boot-time queries settle (full-suite cold runs: the click log shows the
+    // button resolving enabled, the element detaching, and the fresh mount
+    // rendering disabled because the remount wiped the controlled input).
+    // Fill-and-verify inside a retry loop so a remount re-fills instead of
+    // leaving the click waiting forever on a disabled button.
+    await expect(async () => {
+      await page.getByPlaceholder("Your display name").fill("Gate User");
+      await expect(page.getByRole("button", { name: /^Continue$/ })).toBeEnabled({
+        timeout: 2_000,
+      });
+    }).toPass({ timeout: 15_000 });
     await page.getByRole("button", { name: /^Continue$/ }).click();
 
     // spec-444: after name capture, the welcome video gate fires for new users.

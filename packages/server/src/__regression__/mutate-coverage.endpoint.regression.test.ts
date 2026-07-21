@@ -101,6 +101,9 @@ const MUTATING_MCP_TOOLS: Record<string, ToolMutation[]> = {
   // sections.ts
   add_section: [{ entity: "section", action: "created" }],
   update_section: [{ entity: "section", action: "updated" }],
+  // spec-503 — edit_section applies a literal find/replace then writes through
+  // the same updateSection service path, so it emits the same key.
+  edit_section: [{ entity: "section", action: "updated" }],
   retitle_section: [{ entity: "section", action: "updated" }],
   delete_section: [{ entity: "section", action: "deleted" }],
   // qa-reports.ts (spec-260) — appendQaReport rides addSection's mutate() path,

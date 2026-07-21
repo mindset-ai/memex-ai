@@ -1080,6 +1080,19 @@ describe("audit: b-36 D-8 — every terse mutation/list response emits `ref:` an
         },
       ],
       [
+        // spec-503: literal find/replace on the shared section. Runs after
+        // update_section set the body to "new body for probe"; the edit keeps
+        // that text present so later probes are unperturbed.
+        "edit_section",
+        {
+          input: () => ({
+            ref: childRef(slugs, docHandle, "sections", sectionSeq),
+            oldText: "new body for probe",
+            newText: "new body for probe (edited)",
+          }),
+        },
+      ],
+      [
         "retitle_section",
         {
           // Title-only retitle keeps seq/sectionType stable.

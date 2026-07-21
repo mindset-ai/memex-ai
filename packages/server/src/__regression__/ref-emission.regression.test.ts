@@ -481,6 +481,20 @@ describe("regression: every entity-acting MCP tool emits `ref:` and no raw UUID 
         },
       ],
       [
+        // spec-503: literal find/replace on the shared section. Runs after
+        // update_section in catalogue order, so the body is "new body" here;
+        // the edit keeps that text stable ("new body" → "new body probed")
+        // without perturbing seq/sectionType for later cases.
+        "edit_section",
+        {
+          input: () => ({
+            ref: refForChild(slugs, docHandle, "sections", sectionSeq),
+            oldText: "new body",
+            newText: "new body probed",
+          }),
+        },
+      ],
+      [
         "retitle_section",
         {
           // Title-only retitle keeps seq/sectionType stable, so it doesn't

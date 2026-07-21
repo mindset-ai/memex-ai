@@ -124,7 +124,12 @@ test(INSTALL_TEST, async ({ page }) => {
         }),
       });
     } else {
-      await route.continue();
+      // Fulfil the tokens LIST locally instead of forwarding it. The list is
+      // incidental here (test 1 covers the real endpoint end-to-end); forwarded,
+      // it queues behind the page's churning SSE streams on the dev proxy's
+      // per-origin connection pool and can starve past every assert window,
+      // leaving the section stuck without rows.
+      await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
     }
   });
 
@@ -135,8 +140,12 @@ test(INSTALL_TEST, async ({ page }) => {
     page.getByRole("heading", { name: "Install Memex MCP on this device" }),
   ).toBeVisible({ timeout: 15_000 });
 
+  // The rows render only after the tokens fetch resolves, and that GET can be
+  // starved for several seconds behind the page's SSE streams churning against
+  // the dev proxy (browser per-origin connection cap). The heading mounts
+  // immediately; the rows need the same generous window, not the 5s default.
   const codeRow = page.getByTestId("mcp-client-claudeCode");
-  await expect(codeRow).toBeVisible();
+  await expect(codeRow).toBeVisible({ timeout: 15_000 });
 
   // A never-installed client reads "Not installed" with an Install action.
   await expect(page.getByTestId("mcp-status-claudeCode")).toHaveText("Not installed");

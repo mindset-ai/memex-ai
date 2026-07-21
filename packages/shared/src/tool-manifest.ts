@@ -229,8 +229,19 @@ export const toolManifest: ToolManifestEntry[] = [
   {
     name: 'update_section',
     summary:
-      'Update the markdown content of a NON-standard document section (+ optional sectionType key / description). Blocked on standards — edit at the clause grain (add/edit/delete_clause). A sectionType collision fails with a readable error.',
+      'Replace the ENTIRE markdown body of a NON-standard section (+ optional sectionType / description); for a targeted edit prefer edit_section. Blocked on standards: edit at clause grain. A sectionType collision fails with a readable error.',
     args: 'update_section(ref, content, sectionType?, description?)',
+    group: 'planning',
+    readOnlyHint: false,
+    homePhase: null,
+  },
+  // spec-503: the surgical sibling of update_section. A targeted change costs
+  // one oldText/newText pair, never a re-emission of the whole section body.
+  {
+    name: 'edit_section',
+    summary:
+      'Surgical find/replace inside a NON-standard section: ONE literal oldText/newText pair, the cheap way to make a targeted change (no body re-emission). Zero or ambiguous matches fail naming the remedy; replaceAll replaces every hit.',
+    args: 'edit_section(ref, oldText, newText, replaceAll?)',
     group: 'planning',
     readOnlyHint: false,
     homePhase: null,
@@ -430,7 +441,7 @@ export const toolManifest: ToolManifestEntry[] = [
   {
     name: 'facets',
     summary:
-      "Check which parts of your Standards apply to a piece of work. Lists the topics your Standards are tagged by (security, db-migrations, e2e-testing, and so on). Internally these are your Memex's facets: you cast them as the facetBallot argument on create_task / create_decision, and Memex surfaces the governing standard sections.",
+      "Check which parts of your Standards apply to a piece of work: lists the topics they are tagged by (the Memex's facets). Cast these as the facetBallot on create_task / create_decision and Memex surfaces the governing standard sections.",
     args: 'facets(verb, memex?)',
     group: 'read',
     readOnlyHint: true,
@@ -665,7 +676,7 @@ export const toolManifest: ToolManifestEntry[] = [
   {
     name: 'list_skills',
     summary:
-      "List active Skills alphabetically — each carries name, description, capability flags, and ref; never the SKILL.md body or allowed-tools. When a skill is named without a Memex, pass all_memexes:true to find it across every Memex you can access (grouped by Memex), then get_skill by the returned ref; on a name that appears in more than one Memex, ALWAYS ask the user which to use.",
+      "List active Skills alphabetically: name, description, capability flags, ref (never the SKILL.md body). Pass all_memexes:true to find a named skill across your Memexes; if it appears in more than one Memex, ALWAYS ask which to use.",
     args: 'list_skills(memex?, all_memexes?)',
     group: 'read',
     readOnlyHint: true,
