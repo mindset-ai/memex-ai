@@ -108,6 +108,38 @@ test("a non-member sees the featured Memex under 'Explore', opens it read-only, 
   await expect(page.getByRole("button", { name: /new spec/i })).toHaveCount(0);
 });
 
+test("a signed-in non-member's direct write to the featured Memex is server-rejected — read-only holds through any surface, not just hidden controls (ac-5 / ac-13)", async ({
+  request,
+  resources,
+}) => {
+  const b = await seedFeaturedMemex(resources);
+
+  // A = dev@memex.ai, a logged-in NON-member of B (the fixture clears memberships).
+  // The test above proves the UI suppresses write controls; this proves the boundary
+  // holds SERVER-SIDE when a determined non-member bypasses the UI and POSTs a
+  // mutating tool straight to the in-app agent tool-execution surface. ac-5 requires
+  // no non-member can write "through any surface" — the write-capability gate
+  // (routes/llm.ts, canWriteMemex) must reject it, not merely a hidden button.
+  //
+  // Why the request reaches the 403 gate at all (not a 404): strict sessionMiddleware
+  // 404s a non-member on a path memex UNLESS listMemberships resolves it — and it
+  // does here only because B is public + is_featured_demo, so the featured channel
+  // (spec-500) synthesizes a read-only membership. That read-only row is exactly what
+  // canWriteMemex then rejects. If the featured-listing behaviour ever narrows, this
+  // flips to a 404 and fails loudly (never a false green).
+  const writeRes = await request.post(
+    `${API_URL}/api/${b.namespaceSlug}/${b.memexSlug}/llm/tools/execute`,
+    {
+      data: { toolName: "create_task", input: { title: "should be blocked" } },
+      headers: { "Content-Type": "application/json" },
+    },
+  );
+
+  expect(writeRes.status(), "a non-member write must be rejected with 403").toBe(403);
+  const body = (await writeRes.json()) as { error?: string };
+  expect(body.error ?? "").toContain("read-only for non-members");
+});
+
 test("a member of the featured Memex sees it under 'Your orgs' with write — never duplicated under 'Explore'", async ({
   page,
   resources,
