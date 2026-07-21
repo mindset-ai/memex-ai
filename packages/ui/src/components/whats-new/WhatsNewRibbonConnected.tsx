@@ -8,6 +8,7 @@
 
 import { useVoiceSession, isAffordanceDisabled } from '@memex/guide-sdk';
 import { WhatsNewRibbon } from './WhatsNewRibbon';
+import { useVoiceGuideHidden } from '../../voice/flag';
 import type { WhatsNewEntry } from '../../api/whatsNew';
 
 /** The seed text handed to the guide as guideContext for the opening turn. */
@@ -17,9 +18,11 @@ export function formatEntryForGuide(e: WhatsNewEntry): string {
 
 export function WhatsNewRibbonConnected() {
   const session = useVoiceSession();
+  const voiceHidden = useVoiceGuideHidden();
   // ac-14: hide the ear where the guide can't run (no mic / mic_unavailable) —
   // the same gate spec-190 uses for its own voice affordance. No orphaned ear.
-  const guideAvailable = !isAffordanceDisabled(session);
+  // Also drop it when Specky is hidden app-wide by the `voice-guide` kill-switch.
+  const guideAvailable = !voiceHidden && !isAffordanceDisabled(session);
   return (
     <WhatsNewRibbon
       onExplain={guideAvailable ? (e) => void session.start(formatEntryForGuide(e)) : undefined}

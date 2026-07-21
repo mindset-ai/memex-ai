@@ -116,6 +116,43 @@ export const USAGE_EVENT_REGISTRY = [
       "A visitor clicked the primary signup CTA on the signup view (funnel step between form_viewed and account.created). Recorded IDENTIFIER-LESS via the anonymous telemetry ingress (POST /api/telemetry) under legitimate interest — no consent, no visitor_id, no session; pure volume (spec-367). DNT not honoured; settings opt-out applies. props.method is the auth method enum.",
     source: "frontend",
   },
+  // ── Onboarding-wizard funnel (spec-502 t-6, std-35) ─────────────────────────
+  // The value-first Explore → agent-connect wizard, one event per step, so the
+  // whole path reads as a funnel per cohort (spec-205). Its OWN `wizard.*`
+  // namespace, distinct from the parked Home-journey `home_canvas.*`/`onboarding.*`
+  // surfaces (spec-324's guard reserves `onboarding.*` for the Home journey). The
+  // HEADLINE metric is reached-connect → connected (ac-5/ac-10): wizard.reached_connect
+  // here, then the back-end mcp.connected / mcp.tool_called seam. Ids/enums only.
+  {
+    name: "wizard.explore_viewed",
+    description:
+      "The Explore companion was shown over the featured demo Memex (wizard step 0). props.memexId is the featured Memex being explored (opaque UUID). The funnel head for the wizard.",
+    source: "frontend",
+  },
+  {
+    name: "wizard.create_cta_clicked",
+    description:
+      "The standing 'Create your own Memex' CTA in the Explore companion was clicked — the intent to leave the demo and start the wizard.",
+    source: "frontend",
+  },
+  {
+    name: "wizard.memex_named",
+    description:
+      "The user submitted the wizard's name-it step (the single memex-name field; no org step, dec-3). No name text is sent — a bool/enum only signal that the step completed.",
+    source: "frontend",
+  },
+  {
+    name: "wizard.demo_viewed",
+    description:
+      "The wizard's console-demo step (typed 'create a spec for …') was shown — the value beat before the connect ask.",
+    source: "frontend",
+  },
+  {
+    name: "wizard.reached_connect",
+    description:
+      "The user reached the wizard's agent-connect step (the hard gate). The denominator for the headline reached-connect → connected conversion (ac-5); pairs with the back-end mcp.connected / mcp.tool_called seam.",
+    source: "frontend",
+  },
   // ── Front-end engagement interactions (track(), spec-336 follow-on) ──────────
   // Pure UI taps the server never sees — board navigation, search, voice, filters.
   // Server OUTCOMES (spec/decision/task created, phase advanced) stay back-end
