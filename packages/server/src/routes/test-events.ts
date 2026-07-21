@@ -50,6 +50,18 @@
 //
 // Also logs every received event to stdout so observers can watch the
 // stream during deploys and incident triage.
+//
+// ── Batch ingest: POST /api/test-events/batch (spec-489 G1) ────────────────
+// Ingests MANY emissions in ONE authenticated request so a CI suite that tags N
+// tests no longer fires N per-test POSTs (each taking a DB-pool slot) — it sends
+// ~one request per test FILE instead. Body: { events: [ <same shape as above>,
+// … ] } (1..MAX_BATCH_EVENTS). Auth is once per batch (the same Bearer key);
+// each event is still independently memex-matched + spec-scope-gated, so a batch
+// cannot write across a Memex boundary. Partial failure is non-fatal: bad events
+// are reported per-index and the good ones still land. Response: 200 with
+// { accepted, rejected, results: [{ index, ok, id?, status?, error? }] }. The
+// single-event route above is unchanged and remains the documented protocol for
+// hand-rolled emitters.
 
 import { Hono } from "hono";
 import { db } from "../db/connection.js";
@@ -174,23 +186,45 @@ function specHandleFromAcUid(subjectRef: string): string {
   return parts.length >= 4 && parts[2] === "specs" ? parts[3]! : "";
 }
 
-testEventsRouter.post("/", async (c) => {
-  // ── Emission-key auth (spec-129 dec-3) ──────────────────────────
-  // A valid per-Memex key is required for every emission. Authenticate from the
-  // Authorization: Bearer header ONLY (ac-8), BEFORE any payload work (ac-9).
-  // The memex-match (ac-10) runs once ac_uid is known. This key match is the
-  // SOLE identity gate — there is no server-owned-namespace check (spec-90 dec-7).
-  const authHeader = c.req.header("Authorization") ?? "";
+// spec-489 G1: the maximum number of events one POST /batch may carry. Bounds
+// the memory + DB work a single request can trigger so a batch cannot be used
+// to exhaust an instance (std-39 — reason about cost/growth, not just
+// correctness). A green CI file rarely tags more than a few dozen tests; 500 is
+// generous headroom. An oversized batch is a hard 400, never a silent truncation.
+export const MAX_BATCH_EVENTS = 500;
+
+// spec-489 G1: the outcome of ingesting ONE event. Returned as data (not an HTTP
+// response) so the single-event route and the batch route can each shape their
+// own response from the same processing. On success `droppedKeys` names any
+// metadata keys shed by the size caps (surfaced as a header on POST /, and
+// inline per-event on POST /batch).
+type ProcessResult =
+  | { ok: true; id: string; createdAt: Date; status: string; droppedKeys: string[] }
+  | { ok: false; code: 400 | 401; body: { error: string; message?: string } };
+
+type VerifiedEmissionKey = NonNullable<Awaited<ReturnType<typeof verifyEmissionKey>>>;
+
+// spec-489 G1: authenticate the emission key from the Authorization: Bearer
+// header ONLY (spec-129 ac-8), BEFORE any payload work (ac-9). Shared by the
+// single-event and batch routes so both gate identically. Returns the verified
+// key, or the exact 401 body callers should return.
+async function authenticateEmission(
+  authHeader: string,
+): Promise<
+  | { ok: true; key: VerifiedEmissionKey }
+  | { ok: false; body: { error: string; message: string } }
+> {
   const rawKey = authHeader.startsWith("Bearer ")
     ? authHeader.slice("Bearer ".length).trim()
     : "";
-  const emissionKey = rawKey ? await verifyEmissionKey(rawKey) : null;
-  if (!emissionKey) {
+  const key = rawKey ? await verifyEmissionKey(rawKey) : null;
+  if (!key) {
     // spec-333 ac-6: verifyEmissionKey returns null for a missing, invalid, OR expired key
     // alike. Give ONE remedy that fits all three (no expiry oracle, per spec-333's Architecture
     // & Security section): a coding agent re-provisions over MCP; CI uses a human-minted key.
-    return c.json(
-      {
+    return {
+      ok: false,
+      body: {
         error: "unauthorized",
         message:
           "A valid emission key is required (it may be missing, invalid, or expired). " +
@@ -200,16 +234,31 @@ testEventsRouter.post("/", async (c) => {
           "settings (Emission Keys) and stores it as the MEMEX_EMIT_KEY secret; the helper " +
           "attaches it as `Authorization: Bearer <key>`.",
       },
-      401,
-    );
+    };
   }
+  return { ok: true, key };
+}
 
-  let body: TestEventBody;
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json({ error: "Body must be valid JSON" }, 400);
+// spec-489 G1: the per-event ingest pipeline, extracted from POST / so the
+// single-event and the batched routes share ONE code path. A batched event
+// therefore produces a byte-identical stored row to a one-per-POST event (ac-5:
+// batching changes only how events travel, never what they mean).
+//
+// Authentication is NOT performed here — the caller verifies the emission key
+// ONCE (authenticateEmission) and passes the resolved key in. Every event is
+// still independently memex-matched (spec-129 ac-10) and spec-scope-gated
+// (spec-234 ac-11) against that one key, so batching adds NO new way to write
+// across a Memex boundary (ac-5). A per-event failure is returned as data; the
+// batch caller keeps the good events (partial-failure) rather than discarding
+// the whole batch.
+async function processOneEvent(
+  emissionKey: VerifiedEmissionKey,
+  rawBody: unknown,
+): Promise<ProcessResult> {
+  if (typeof rawBody !== "object" || rawBody === null || Array.isArray(rawBody)) {
+    return { ok: false, code: 400, body: { error: "event must be a JSON object" } };
   }
+  const body = rawBody as TestEventBody;
 
   // spec-151 dec-3: dual-accept the neutral `subject_ref` field and the legacy
   // `ac_uid` wire field, mapping BOTH to the subject_ref column. `subject_ref`
@@ -221,28 +270,33 @@ testEventsRouter.post("/", async (c) => {
       ? body.subject_ref
       : body.ac_uid;
   if (typeof subjectRefValue !== "string" || subjectRefValue.length === 0) {
-    return c.json(
-      { error: "subject_ref (or legacy ac_uid) is required (string)" },
-      400,
-    );
+    return {
+      ok: false,
+      code: 400,
+      body: { error: "subject_ref (or legacy ac_uid) is required (string)" },
+    };
   }
   if (typeof body.status !== "string" || !VALID_STATUSES.has(body.status)) {
-    return c.json({ error: "status is required and must be one of pass|fail|error" }, 400);
+    return {
+      ok: false,
+      code: 400,
+      body: { error: "status is required and must be one of pass|fail|error" },
+    };
   }
   if (body.test_identifier !== undefined && typeof body.test_identifier !== "string") {
-    return c.json({ error: "test_identifier must be a string when provided" }, 400);
+    return { ok: false, code: 400, body: { error: "test_identifier must be a string when provided" } };
   }
   if (body.duration_ms !== undefined && typeof body.duration_ms !== "number") {
-    return c.json({ error: "duration_ms must be a number when provided" }, 400);
+    return { ok: false, code: 400, body: { error: "duration_ms must be a number when provided" } };
   }
   if (body.commit_sha !== undefined && typeof body.commit_sha !== "string") {
-    return c.json({ error: "commit_sha must be a string when provided" }, 400);
+    return { ok: false, code: 400, body: { error: "commit_sha must be a string when provided" } };
   }
   if (body.run_id !== undefined && typeof body.run_id !== "string") {
-    return c.json({ error: "run_id must be a string when provided" }, 400);
+    return { ok: false, code: 400, body: { error: "run_id must be a string when provided" } };
   }
   if (body.actor !== undefined && typeof body.actor !== "string") {
-    return c.json({ error: "actor must be a string when provided" }, 400);
+    return { ok: false, code: 400, body: { error: "actor must be a string when provided" } };
   }
   // spec-358 (dec-3, ac-1/ac-11): the inbound `hidden` field is no longer
   // honoured. We still accept it for backward compatibility — an old /
@@ -257,10 +311,7 @@ testEventsRouter.post("/", async (c) => {
       body.metadata === null ||
       Array.isArray(body.metadata))
   ) {
-    return c.json(
-      { error: "metadata must be an object when provided" },
-      400,
-    );
+    return { ok: false, code: 400, body: { error: "metadata must be an object when provided" } };
   }
 
   // spec-90 dec-7 (A1): no server-owned-namespace guard. The ref's namespace is
@@ -278,15 +329,16 @@ testEventsRouter.post("/", async (c) => {
     memexSlugFromAcUid(subjectRefValue),
   );
   if (!targetMemexId || targetMemexId !== emissionKey.memexId) {
-    return c.json(
-      {
+    return {
+      ok: false,
+      code: 401,
+      body: {
         error: "unauthorized",
         message:
           "This emission key does not authorise the Memex named in the subject ref. A key only " +
           "works for the Memex it was generated in.",
       },
-      401,
-    );
+    };
   }
 
   // Spec-scope gate (spec-234 ac-11): an ephemeral / agent key carries a
@@ -303,8 +355,10 @@ testEventsRouter.post("/", async (c) => {
     // emitting for. The route already holds both handles, so the breadcrumb is precise.
     const targetSpecHandle = specHandleFromAcUid(subjectRefValue);
     const targetSpecRef = `${refNamespace}/${memexSlugFromAcUid(subjectRefValue)}/specs/${targetSpecHandle}`;
-    return c.json(
-      {
+    return {
+      ok: false,
+      code: 401,
+      body: {
         error: "unauthorized",
         message:
           `This emission key is scoped to Spec ${emissionKey.scopedSpecHandle} and cannot ` +
@@ -312,8 +366,7 @@ testEventsRouter.post("/", async (c) => {
           `\`provision_ac_emission\` MCP tool with ref ${targetSpecRef} to mint a key for ` +
           `that Spec, set it as MEMEX_EMIT_KEY, and re-run.`,
       },
-      401,
-    );
+    };
   }
 
   // spec-115 dec-2 / dec-3: validate metadata size caps and drop offending
@@ -361,7 +414,8 @@ testEventsRouter.post("/", async (c) => {
   // refetch the instant a run posts — no longer reliant on AcPanel's 3s poll.
   // The bus key is the memex the AC lives under: spec-129's emission-key auth
   // already resolved it (targetMemexId) and proved it matches the key, so by
-  // this point it is always a real, authorized Memex.
+  // this point it is always a real, authorized Memex. Each batched event emits
+  // its own bus frame here, exactly as a one-per-POST event would (ac-5).
   const row = await mutate(
     {},
     {
@@ -382,7 +436,10 @@ testEventsRouter.post("/", async (c) => {
     // summary in one transaction so the two can't diverge on a crash. The
     // upsert skips hidden emissions (ac-6) and keys null test_identifier as ''
     // (ac-9). mutate() is not itself transactional — the db.transaction() here
-    // is what makes the pair atomic.
+    // is what makes the pair atomic. spec-489: in a batch these run
+    // SEQUENTIALLY (one event at a time), so a batch holds ONE pool slot at a
+    // time rather than one-per-event — the connection-pressure relief (std-39:
+    // bound the connections/locks a request can hold).
     async () => {
       return db.transaction(async (tx) => {
         const [inserted] = await tx
@@ -432,27 +489,139 @@ testEventsRouter.post("/", async (c) => {
       (body.run_id ? ` run=${body.run_id}` : ""),
   );
 
-  if (droppedKeys.length > 0) {
-    c.header(
-      "X-Memex-Warning",
-      `metadata keys dropped (size limits exceeded): ${droppedKeys.join(", ")}`,
-    );
-  }
-
   // spec-112 ac-22: an AC may go green AFTER its satisfying Task is already
   // complete. The ingestion path is the second auto-resolve trigger — a passing
   // event for an AC that verifies a converted Issue's Task closes the
-  // bug→failing-AC→green-AC→resolved loop. Best-effort: never fail the 201.
+  // bug→failing-AC→green-AC→resolved loop. Best-effort: never fail the write.
   if (body.status === "pass") {
     await maybeAutoResolveIssuesForAcUid(subjectRefValue).catch(() => {});
     // spec-453 t-2 (dec-1/dec-4/dec-9): fire the "See it verified" milestone email.
     // FIRE-AND-FORGET — never awaited on this CI hot path, so it cannot add latency to
-    // or break the 201. Attributed to the emission key's OWNER (not test_events.actor),
+    // or break the write. Attributed to the emission key's OWNER (not test_events.actor),
     // gated first-ever + flag inside; fully advisory (its own try/catch swallows all).
     void fireVerifiedMilestoneForUser(emissionKey.createdByUserId);
   }
 
-  return c.json({ id: row.id, created_at: row.createdAt }, 201);
+  return {
+    ok: true,
+    id: row.id,
+    createdAt: row.createdAt,
+    status: body.status,
+    droppedKeys,
+  };
+}
+
+// POST /api/test-events — ingest ONE test-event emission (spec-90 dec-7: the
+// per-Memex emission key is the SOLE identity gate). Unchanged contract; the
+// body processing now delegates to processOneEvent so it stays byte-identical
+// to a batched event.
+testEventsRouter.post("/", async (c) => {
+  const auth = await authenticateEmission(c.req.header("Authorization") ?? "");
+  if (!auth.ok) return c.json(auth.body, 401);
+
+  let body: TestEventBody;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Body must be valid JSON" }, 400);
+  }
+
+  const result = await processOneEvent(auth.key, body);
+  if (!result.ok) return c.json(result.body, result.code);
+
+  if (result.droppedKeys.length > 0) {
+    c.header(
+      "X-Memex-Warning",
+      `metadata keys dropped (size limits exceeded): ${result.droppedKeys.join(", ")}`,
+    );
+  }
+  return c.json({ id: result.id, created_at: result.createdAt }, 201);
+});
+
+// spec-489 G1 — POST /api/test-events/batch — ingest MANY emissions in ONE
+// authenticated request. This is the durable relief for the CI-burst problem:
+// a suite that tags N tests sends ~one request per test FILE instead of N
+// per-test POSTs, so it no longer opens one connection-pool slot per test
+// (ac-3). Semantics are identical to N single POSTs because every event runs
+// through the same processOneEvent (ac-5).
+//
+//   Request : { "events": [ <same body as POST />, ... ] }   (1..MAX_BATCH_EVENTS)
+//   Response: 200 { accepted, rejected, results: [{ index, ok, id?, status?, error? }] }
+//
+// Authentication is at the BATCH level (one Bearer key for the whole request);
+// a missing/invalid/expired key 401s the whole batch before any DB work. Each
+// event is still independently memex-matched + spec-scope-gated against that
+// key, so a batch cannot write across a Memex boundary (ac-5). Partial failure
+// is expected and non-fatal: a malformed or unauthorized event is reported in
+// results[] with ok:false, and the good events in the same batch still land —
+// a bad event never discards its neighbours (ac-5).
+testEventsRouter.post("/batch", async (c) => {
+  const auth = await authenticateEmission(c.req.header("Authorization") ?? "");
+  if (!auth.ok) return c.json(auth.body, 401);
+
+  let parsed: unknown;
+  try {
+    parsed = await c.req.json();
+  } catch {
+    return c.json({ error: "Body must be valid JSON" }, 400);
+  }
+
+  const events =
+    typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+      ? (parsed as { events?: unknown }).events
+      : undefined;
+  if (!Array.isArray(events)) {
+    return c.json({ error: "events is required and must be an array" }, 400);
+  }
+  if (events.length === 0) {
+    return c.json({ error: "events must contain at least one event" }, 400);
+  }
+  if (events.length > MAX_BATCH_EVENTS) {
+    return c.json(
+      { error: `events exceeds the maximum batch size of ${MAX_BATCH_EVENTS}` },
+      400,
+    );
+  }
+
+  // Process sequentially so the whole batch occupies ONE pool slot at a time
+  // (std-39: bound the connections/locks a request holds) — the point of
+  // batching is to relieve pool pressure, not to fan N inserts across N slots.
+  const results: Array<{
+    index: number;
+    ok: boolean;
+    id?: string;
+    status?: string;
+    error?: string;
+    warning?: string;
+  }> = [];
+  let accepted = 0;
+  let rejected = 0;
+  for (let index = 0; index < events.length; index++) {
+    const result = await processOneEvent(auth.key, events[index]);
+    if (result.ok) {
+      accepted++;
+      results.push({
+        index,
+        ok: true,
+        id: result.id,
+        status: result.status,
+        ...(result.droppedKeys.length > 0
+          ? {
+              warning: `metadata keys dropped (size limits exceeded): ${result.droppedKeys.join(", ")}`,
+            }
+          : {}),
+      });
+    } else {
+      rejected++;
+      results.push({
+        index,
+        ok: false,
+        error: result.body.message ?? result.body.error,
+      });
+    }
+  }
+
+  return c.json({ accepted, rejected, results }, 200);
 });
 
 export { testEventsRouter };

@@ -3,7 +3,7 @@ import type { TagAcOptions } from "./types.js";
 export type { AcEventPayload, TagAcOptions } from "./types.js";
 export { readAutoActor } from "./actor.js";
 export { deriveEventsUrl } from "./derive-url.js";
-export { isEmissionEnabled, readEmissionKey, buildPayload, emit } from "./emit.js";
+export { isEmissionEnabled, readEmissionKey, buildPayload, emit, emitBatch } from "./emit.js";
 export { buildMetadata } from "./metadata.js";
 
 const META_KEY = "__memex_ac_uids";
