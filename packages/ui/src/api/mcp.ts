@@ -49,9 +49,13 @@ export interface McpTokenSummary {
   createdAt: string;
 }
 
-export async function listMcpTokensApi(token: string | null): Promise<McpTokenSummary[]> {
+export async function listMcpTokensApi(
+  token: string | null,
+  init?: { signal?: AbortSignal },
+): Promise<McpTokenSummary[]> {
   const res = await fetchWithRetry(`${BASE_URL}/mcp/tokens`, {
     headers: authHeaders(token),
+    ...(init?.signal ? { signal: init.signal } : {}),
   });
   if (!res.ok) throw new Error(`List MCP tokens failed: ${res.status}`);
   return res.json();

@@ -1099,6 +1099,8 @@ const TOOL_RATIONALES: Record<string, string> = {
     'Append a new typed section to a document. The (doc, sectionType) pair is unique within a doc.',
   update_section:
     'Update the markdown content of an existing section. The vehicle for reflecting resolved decisions into the narrative.',
+  edit_section:
+    'Surgical literal find/replace inside one section: a targeted change costs one oldText/newText pair instead of re-emitting the whole body. Ambiguous or missing matches fail loudly with the remedy named.',
   retitle_section:
     'Change a section\'s heading (and optionally its machine key) without touching content. Closes the section-CRUD gap for clean recuts — fixing a stale heading the old surface could only tombstone.',
   delete_section:
