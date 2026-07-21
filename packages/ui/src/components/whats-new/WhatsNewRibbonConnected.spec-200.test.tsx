@@ -24,6 +24,14 @@ vi.mock('@memex/guide-sdk', async (orig) => ({
   useVoiceSession: () => ({ start: startMock, micAvailable, status }),
 }));
 
+// The `voice-guide` kill-switch reads the session via useAuth; this test renders
+// the ribbon without an AuthProvider, so stub the flag hook (Specky shown = not
+// hidden). The hide-path is covered in src/voice/flag.test.ts.
+let voiceGuideHidden = false;
+vi.mock('../../voice/flag', () => ({
+  useVoiceGuideHidden: () => voiceGuideHidden,
+}));
+
 // Stub the feed fetch so the ribbon shows.
 const ENTRY: WhatsNewEntry = {
   id: 'spec-200',
@@ -53,6 +61,7 @@ beforeEach(() => {
   startMock.mockReset();
   micAvailable = true;
   status = 'inactive';
+  voiceGuideHidden = false;
 });
 afterEach(() => cleanup());
 
@@ -86,5 +95,14 @@ describe('WhatsNewRibbonConnected (spec-200 t-7)', () => {
 
     expect(screen.queryByTestId('whats-new-ear-spec-200')).toBeNull();
     tagAc(AC(14));
+  });
+
+  it('hides the ear when Specky is turned off by the voice-guide kill-switch', async () => {
+    voiceGuideHidden = true;
+    render(<WhatsNewRibbonConnected />);
+    fireEvent.click(await screen.findByTestId('whats-new-ribbon'));
+    await screen.findByTestId('whats-new-popup');
+
+    expect(screen.queryByTestId('whats-new-ear-spec-200')).toBeNull();
   });
 });

@@ -21,6 +21,7 @@ import { LoginScreen } from './LoginScreen';
 import { MemexReadyGate } from './MemexReadyGate';
 import { isFeatureHidden } from '../utils/featureFlags';
 import { buildBareDomainUrl } from '../utils/tenantUrl';
+import { readLastMemex, clearLastMemex } from '../utils/lastMemex';
 import { useUserChangeStreamWithToken } from '../hooks/useUserChangeStream';
 
 // t-23 of doc-15: the React UI router is path-based now, so every tenant
@@ -126,6 +127,27 @@ export function computeDefaultLanding(session: SessionPayload): string | null {
   return `/${ns}/${mx}/home`;
 }
 
+// Landing for a user RETURNING to the app (bare URL / login / a bounce off an
+// invalid tenant). Prefers the tenant they were last working in — persisted across
+// reloads and sessions — so a reload doesn't dump them back on personal. Falls back
+// to computeDefaultLanding (personal) when there is no remembered tenant, or it is
+// no longer a live, writable membership (lost access, renamed slug, different user),
+// or it is a read-only Explore/visited memex (never auto-land on those).
+export function computeReturnLanding(session: SessionPayload): string | null {
+  const last = readLastMemex();
+  if (last && session.memberships) {
+    const m = session.memberships.find(
+      (mm) =>
+        mm.slug === last.ns &&
+        (mm.memexSlug === last.mx || (!mm.memexSlug && last.mx === 'main')),
+    );
+    if (m && m.source !== 'featured' && m.source !== 'visited' && m.accessLevel !== 'read') {
+      return `/${last.ns}/${last.mx}/home`;
+    }
+  }
+  return computeDefaultLanding(session);
+}
+
 function restoreFromStorage(): { token: string; session: SessionPayload | null } | null {
   try {
     const token = localStorage.getItem('memex-auth-token');
@@ -197,7 +219,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // RootRedirect's read could run). We still send to the default tenant directly only
       // when 'home' is hidden per-env, mirroring RootRedirect's loop-avoidance.
       if (isFeatureHidden(s, 'home')) {
-        const landing = computeDefaultLanding(s);
+        const landing = computeReturnLanding(s);
         if (landing && window.location.pathname === '/') {
           window.location.href = landing;
         }
@@ -211,6 +233,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSession(null);
     localStorage.removeItem('memex-auth-token');
     localStorage.removeItem('memex-session');
+    // Drop the remembered tenant so the next (possibly different) user doesn't
+    // inherit this one's last-visited landing.
+    clearLastMemex();
     // In dev mode the bootstrap useEffect re-auths immediately; drop a sentinel so the
     // next page load skips it and the user sees the login screen.
     if (!getGoogleClientId()) {

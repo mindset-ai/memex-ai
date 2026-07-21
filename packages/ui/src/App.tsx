@@ -39,6 +39,9 @@ const NamespaceSettings = lazy(() =>
 // per-memex Brain (the knowledge-graph landing) replaces it as the default surface.
 // Kept in the tree, commented out, so it can be revived without re-plumbing.
 // const HomeCanvas = lazy(() => import('./pages/HomeCanvas').then((m) => ({ default: m.HomeCanvas })));
+// spec-502: the onboarding wizard (name → console demo → connect the agent →
+// land populated). Reached from the Explore companion's "Create your own Memex".
+const Wizard = lazy(() => import('./onboarding/Wizard').then((m) => ({ default: m.Wizard })));
 const StandardList = lazy(() =>
   import('./pages/StandardList').then((m) => ({ default: m.StandardList })),
 );
@@ -123,14 +126,17 @@ const ResetPassword = lazy(() =>
 // FlatShell, and RootRedirect (not as a routed element), so it sits on the
 // critical path for unverified users and is small.
 import { VerifyEmailGate } from './pages/VerifyEmailGate';
-import { AuthProvider, RequireAuth, useAuth, computeDefaultLanding } from './components/AuthContext';
+import { AuthProvider, RequireAuth, useAuth, computeReturnLanding } from './components/AuthContext';
+import { recordLastMemex } from './utils/lastMemex';
 import { ThemeProvider } from './components/ThemeContext';
 import { ChatProvider } from './components/ChatContext';
 import { AppShell } from './components/AppShell';
+import { ExploreCompanionMount } from './onboarding/ExploreCompanionMount';
 import { DocumentShell } from './components/DocumentShell';
 import { OrgConsentDialog } from './components/OrgConsentDialog';
 import { DesktopMcpStatusSync } from './components/DesktopMcpStatusSync';
-import { parseTenantFromPathname } from './utils/tenantUrl';
+import { parseTenantFromPathname, tenantPathFor } from './utils/tenantUrl';
+import { isOnboardingWizardEnabled } from './onboarding/flag';
 import { isFeatureHidden } from './utils/featureFlags';
 import { probePublicMemex, type PublicMemexProbe } from './api/client';
 import { PublicMemexProvider } from './components/PublicMemexContext';
@@ -140,6 +146,7 @@ import {
   setGuideBackend,
 } from '@memex/guide-sdk';
 import { VoiceLayer } from './voice/session/VoiceLayer';
+import { useVoiceGuideHidden } from './voice/flag';
 import { createReactRouterNavigationAdapter } from './voice/reactRouterNavigationAdapter';
 import { useTrackRouteChange, useTelemetry, trackAnonymous } from './hooks/useTelemetry';
 import { useStaleTenantForward } from './hooks/useStaleTenantForward';
@@ -233,11 +240,30 @@ function TenantLayout() {
 
   // spec-479 dec-5: membership match for the URL's tenant (pure — safe while
   // session is still null). Reused below for the authed bounce.
-  const isMember =
-    !!session &&
-    session.memberships.some(
+  const matchedMembership =
+    session?.memberships.find(
       (m) => m.slug === namespace && (m.memexSlug === memex || (!m.memexSlug && memex === 'main')),
-    );
+    ) ?? null;
+  const isMember = !!matchedMembership;
+
+  // Remember the tenant the user is actively working in, so returning to the app
+  // (bare URL / login) lands them back here instead of defaulting to personal
+  // (computeReturnLanding). Only real, writable workspaces are recorded — never the
+  // read-only Explore/visited memexes, which we should never auto-land on.
+  const matchedSource = matchedMembership?.source;
+  const matchedAccess = matchedMembership?.accessLevel;
+  useEffect(() => {
+    if (
+      isMember &&
+      namespace &&
+      memex &&
+      matchedSource !== 'featured' &&
+      matchedSource !== 'visited' &&
+      matchedAccess !== 'read'
+    ) {
+      recordLastMemex(namespace, memex);
+    }
+  }, [isMember, namespace, memex, matchedSource, matchedAccess]);
   // A stale tenant URL (a memex whose slug was renamed) would otherwise bounce
   // to /login (anonymous) or the default landing (authed non-member). Before
   // bouncing, ask the server whether the path forwards. Fires ONLY on the miss.
@@ -315,7 +341,7 @@ function TenantLayout() {
     // spec-479 dec-5: a renamed memex's old URL forwards here before bouncing.
     if (forward.state === 'loading') return null;
     if (forward.to) return <Navigate to={`${forward.to}${location.search}`} replace />;
-    const fallback = computeDefaultLanding(session);
+    const fallback = computeReturnLanding(session);
     if (fallback) return <Navigate to={fallback} replace />;
     return <Navigate to="/" replace />;
   }
@@ -349,6 +375,10 @@ function TenantLayout() {
               <Outlet />
             </Fragment>
           </AppShell>
+          {/* spec-502 t-5: the context-aware Explore companion overlays the
+              featured (building-itself) demo surface for wizard-eligible users.
+              Renders nothing on the user's own memexes / when the flag is off. */}
+          <ExploreCompanionMount namespace={namespace ?? ''} memex={memex ?? ''} />
         </WhatsNewProvider>
       </VoiceGuideMount>
     </ChatProvider>
@@ -380,6 +410,11 @@ function VoiceGuideMount({
   // orchestrator, dropping the spoken reply (the turn finished with stopped=true).
   const liveRef = useRef({ token, namespace, memex, navigate });
   liveRef.current = { token, namespace, memex, navigate };
+
+  // Specky kill-switch: when `voice-guide` is hidden we keep the provider mounted
+  // (the What's New ribbon's `useVoiceSession` still needs it) but render no
+  // on-screen voice surface — no VoiceLayer pill/icon doorway.
+  const voiceHidden = useVoiceGuideHidden();
 
   const factory = useMemo(
     () => {
@@ -424,7 +459,7 @@ function VoiceGuideMount({
   return (
     <VoiceSessionProvider orchestratorFactory={factory}>
       {children}
-      <VoiceLayer />
+      {!voiceHidden && <VoiceLayer />}
     </VoiceSessionProvider>
   );
 }
@@ -494,8 +529,9 @@ function RootRedirect() {
     return <Navigate to="/welcome" replace />;
   }
   if (homeHidden) {
-    // Loop-avoidance: 'home' hidden ⇒ land on the default tenant, no journey read.
-    const fallback = computeDefaultLanding(session);
+    // Loop-avoidance: 'home' hidden ⇒ land on the last-visited (or default) tenant,
+    // no journey read.
+    const fallback = computeReturnLanding(session);
     return fallback ? <Navigate to={fallback} replace /> : null;
   }
   if (landOnHome === null) return null; // assessing onboarding state — draw nothing yet
@@ -504,13 +540,28 @@ function RootRedirect() {
   if (landOnHome && !sessionStorage.getItem('welcomeVideoDismissed')) {
     return <Navigate to="/welcome" replace />;
   }
+  // spec-502 (ac-1): value-first onboarding. A spec-less new signup lands on the
+  // featured demo Memex (building-itself) FIRST — where the context-aware Explore
+  // companion invites them to "Create your own Memex" — instead of their own empty
+  // board. Gated on the onboarding-wizard kill-switch (dec-5), and only fires when
+  // the server has surfaced a featured demo membership (spec-500) AND the user has
+  // not yet authored a spec (landOnHome = !hasSpec). Established users (has a spec)
+  // and the flag-off cohort fall through to their normal default landing.
+  if (landOnHome && isOnboardingWizardEnabled(session)) {
+    const featured = session.memberships.find((m) => m.source === 'featured');
+    if (featured) {
+      const mx = featured.memexSlug ?? 'main';
+      return <Navigate to={tenantPathFor(featured.slug, mx, '/home')} replace />;
+    }
+  }
   // The global /home (build-prompt hero) is PARKED — the per-memex Brain replaces it as
   // the default surface. The spec-470 dec-9 confirmedSpecLess → /home auto-land is
-  // therefore retired: everyone now falls through to their default tenant landing
-  // (computeDefaultLanding), which lands on the memex whose index is now the Brain.
+  // therefore retired: everyone now falls through to their tenant landing. This is the
+  // returning-user landing, so it prefers the tenant they were last in
+  // (computeReturnLanding), falling back to personal — instead of always personal.
   // The spec-444 welcome-video gate above still fires first for first-timers. Revive
   // the confirmedSpecLess → /home branch here if the Home Canvas comes back.
-  const target = computeDefaultLanding(session);
+  const target = computeReturnLanding(session);
   if (target) return <Navigate to={target} replace />;
   return null;
 }
@@ -550,6 +601,10 @@ export function PostLoginRouter() {
       <Route path="/onboarding" element={<Onboarding />} />
       {/* spec-444: full-page welcome video. Standalone (no AppShell) — no FlatShell wrapper. */}
       <Route path="/welcome" element={<WelcomePage />} />
+      {/* spec-502: the onboarding wizard. The Explore companion's CTA opens it as a
+          large closeable modal (WizardModal) over the live Memex; this standalone
+          full-page route stays for direct/resume deep-links (no AppShell). */}
+      <Route path="/wizard" element={<div className="min-h-screen flex flex-col justify-center"><Wizard /></div>} />
       <Route path="/invite/:token" element={<InviteAccept />} />
       {/* spec-141 dec-3: install instructions + MCP tokens folded into the one
           Integrations page. Old routes redirect (the /account→/org pattern).

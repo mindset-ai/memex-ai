@@ -14,6 +14,7 @@ import { MemexSwitcher } from './MemexSwitcher';
 import { InviteMembersDialog } from './InviteMembersDialog';
 import { PublicAuthButtons, ReadOnlyBadge } from './PublicAccessControls';
 import { GettingStartedCard } from './GettingStartedCard';
+import { useOnboardingWizardEnabled } from '../onboarding/flag';
 import { useMemexAccess } from '../hooks/useMemexAccess';
 import { emailPreviewEnabled } from '../utils/devTools';
 import { HeaderSlotProvider, useHeaderSlotContent } from './HeaderSlot';
@@ -888,6 +889,12 @@ export function AppShell({ children }: { children: ReactNode }) {
     : session?.memberships.find((m) => m.memexId === session?.currentMemexId);
   const showOrgConfig =
     currentMembership?.role === 'administrator' && currentMembership?.kind === 'team';
+  // spec-502: while the user is exploring the featured demo Memex, the Explore
+  // companion IS the single onboarding surface — suppress the sidebar Getting
+  // Started card here so two "start here" widgets don't compete. Same signal the
+  // companion mounts on (source==='featured' + the onboarding-wizard flag).
+  const wizardEnabled = useOnboardingWizardEnabled();
+  const exploringFeaturedDemo = wizardEnabled && currentMembership?.source === 'featured';
   // spec-111: gear → per-Memex settings (visibility toggle). Admins only —
   // matching the server-side admin gate on the visibility PATCH and the
   // MemexSettings route guard. Personal-Memex owners come back as
@@ -1041,7 +1048,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             {access.isAuthenticated && access.isVisitedReadOnly && <ReadOnlyBadge />}
             {/* spec-460: Getting Started card — desktop-app + book-a-call, above the
                 user card. Self-retiring; renders null once its rows are done/dismissed. */}
-            {user && <GettingStartedCard userId={user.id} />}
+            {user && !exploringFeaturedDemo && <GettingStartedCard userId={user.id} />}
             {user && (
               <SidebarUserCard
                 user={user}
