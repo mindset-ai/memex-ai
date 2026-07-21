@@ -60,10 +60,13 @@ import {
   META_MAX_TOTAL_BYTES,
   META_MAX_KEYS,
   META_MAX_VALUE_CHARS,
+  MAX_BATCH_EVENTS,
 } from "./test-events.js";
 // spec-333: the mocked emission-keys module (see vi.mock above) — imported so individual
 // tests can override verifyEmissionKey to exercise the scoped-key / missing-key 401 paths.
-import { verifyEmissionKey } from "../services/emission-keys.js";
+// spec-489: resolveMemexId is imported too so a batch test can force ONE event to resolve to a
+// different Memex than the key authorises (the in-batch auth-boundary case).
+import { verifyEmissionKey, resolveMemexId } from "../services/emission-keys.js";
 
 const AC = "mindset-prod/memex-building-itself/specs/spec-115/acs";
 const AC333 = "mindset-prod/memex-building-itself/specs/spec-333/acs";
@@ -452,5 +455,143 @@ describe("META_MAX_VALUE_CHARS constant is exported", () => {
 
   it("exports the 4096 byte total cap", () => {
     expect(META_MAX_TOTAL_BYTES).toBe(4096);
+  });
+});
+
+// spec-489 G1 — POST /api/test-events/batch. The durable relief for the CI-burst
+// problem: many emissions ride ONE authenticated request instead of one POST per
+// tagged test (ac-3), with semantics identical to N single POSTs (ac-5). Same
+// mocked DB / auth harness as the single-event tests above.
+const AC489 = "mindset-prod/memex-building-itself/specs/spec-489/acs";
+
+describe("POST /api/test-events/batch — spec-489 G1 (batch the burst)", () => {
+  // Widened past validBody's four keys so a test can add actor / metadata / an
+  // invalid status when exercising a specific in-batch code path.
+  const ev = (over: Record<string, unknown> = {}) => ({ ...validBody, ...over });
+
+  const postBatch = (events: unknown, auth = true) =>
+    app.request("/api/test-events/batch", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(auth ? { Authorization: "Bearer mxk_test" } : {}),
+      },
+      body: JSON.stringify({ events }),
+    });
+
+  it("ingests N events in ONE request → N inserts, accepted=N (ac-3, ac-5)", async () => {
+    tagAc(`${AC489}/ac-3`);
+    tagAc(`${AC489}/ac-5`);
+    const res = await postBatch([
+      ev({ test_identifier: "a" }),
+      ev({ test_identifier: "b" }),
+      ev({ test_identifier: "c" }),
+    ]);
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as {
+      accepted: number;
+      rejected: number;
+      results: Array<{ ok: boolean }>;
+    };
+    expect(json.accepted).toBe(3);
+    expect(json.rejected).toBe(0);
+    expect(json.results).toHaveLength(3);
+    expect(json.results.every((r) => r.ok)).toBe(true);
+    // One request, but one insert PER event — same DB path as a single POST, just
+    // no longer one HTTP round trip (and one pool slot) per tagged test.
+    expect(insertSpy).toHaveBeenCalledTimes(3);
+  });
+
+  it("authenticates ONCE per batch — a missing key 401s the whole batch, zero inserts (ac-5)", async () => {
+    tagAc(`${AC489}/ac-5`);
+    const res = await postBatch([ev(), ev()], /* auth */ false);
+    expect(res.status).toBe(401);
+    expect(insertSpy).not.toHaveBeenCalled();
+  });
+
+  it("partial failure — a malformed event is rejected but its neighbours still land (ac-5)", async () => {
+    tagAc(`${AC489}/ac-5`);
+    const res = await postBatch([
+      ev({ test_identifier: "good1" }),
+      ev({ status: "bogus" }), // invalid status → rejected in-batch
+      ev({ test_identifier: "good2" }),
+    ]);
+    // The batch as a whole succeeds (200) even though one event failed — a bad
+    // event does NOT 400 the request or discard the good events.
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as {
+      accepted: number;
+      rejected: number;
+      results: Array<{ index: number; ok: boolean; error?: string }>;
+    };
+    expect(json.accepted).toBe(2);
+    expect(json.rejected).toBe(1);
+    expect(json.results[1]!.ok).toBe(false);
+    expect(json.results[1]!.error).toContain("status");
+    expect(insertSpy).toHaveBeenCalledTimes(2); // only the two good events inserted
+  });
+
+  it("preserves the Memex auth boundary — a cross-Memex event is rejected in-batch, neighbours unaffected (ac-5)", async () => {
+    tagAc(`${AC489}/ac-5`);
+    // Force the FIRST event to resolve to a Memex the key does not authorise.
+    vi.mocked(resolveMemexId).mockResolvedValueOnce("some-other-memex");
+    const res = await postBatch([
+      ev({ test_identifier: "cross" }),
+      ev({ test_identifier: "ok1" }),
+      ev({ test_identifier: "ok2" }),
+    ]);
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as {
+      accepted: number;
+      rejected: number;
+      results: Array<{ index: number; ok: boolean; error?: string }>;
+    };
+    expect(json.accepted).toBe(2);
+    expect(json.rejected).toBe(1);
+    expect(json.results[0]!.ok).toBe(false);
+    expect(json.results[0]!.error).toContain("does not authorise");
+    // Batching added no new cross-boundary write path: the rejected event never inserted.
+    expect(insertSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects a non-array events body and an oversized batch with 400, inserting nothing (ac-5 boundary)", async () => {
+    tagAc(`${AC489}/ac-5`);
+    const notArray = await postBatch("nope");
+    expect(notArray.status).toBe(400);
+
+    const oversized = await postBatch(
+      Array.from({ length: MAX_BATCH_EVENTS + 1 }, () => ev()),
+    );
+    expect(oversized.status).toBe(400);
+    expect(insertSpy).not.toHaveBeenCalled();
+  });
+
+  it("a batched event stores a row identical to a single POST (ac-5 — same meaning)", async () => {
+    tagAc(`${AC489}/ac-5`);
+    const captured: Array<Record<string, unknown>> = [];
+    insertSpy.mockReturnValue({
+      values: (v: Record<string, unknown>) => {
+        captured.push(v);
+        return {
+          returning: vi
+            .fn()
+            .mockResolvedValue([{ id: "fake-uuid", createdAt: new Date() }]),
+        };
+      },
+    });
+    const one = ev({
+      test_identifier: "same.ts::t",
+      actor: "wic@mindset.ai",
+      metadata: { branch: "main" },
+    });
+    const res = await postBatch([one]);
+    expect(res.status).toBe(200);
+    const row = captured[0]!;
+    expect(row.subjectRef).toBe(one.ac_uid);
+    expect(row.status).toBe("pass");
+    expect(row.testIdentifier).toBe("same.ts::t");
+    expect(row.actor).toBe("wic@mindset.ai");
+    expect(row.hidden).toBe(false);
+    expect(row.metadata).toEqual({ branch: "main" });
   });
 });
