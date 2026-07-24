@@ -524,6 +524,46 @@
   }
 }
 
+/* spec-502 — the Explore companion's arrival. The panel slides up into the
+   corner after the page has painted, then announces itself with two expanding
+   violet outline rings (outline, not box-shadow, so the panel's elevation
+   shadow is untouched while the ring runs). Users were missing the panel
+   entirely when it rendered statically — the delayed motion is the point. */
+@keyframes companion-in {
+  from {
+    opacity: 0;
+    transform: translateY(1.5rem) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes companion-ping {
+  0% {
+    outline-color: rgb(var(--ch-agent) / 0.7);
+    outline-offset: 0px;
+  }
+  100% {
+    outline-color: rgb(var(--ch-agent) / 0);
+    outline-offset: 14px;
+  }
+}
+
+.animate-companion-in {
+  outline: 2px solid transparent;
+  animation:
+    companion-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) 0.35s backwards,
+    companion-ping 1.4s ease-out 1s 2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-companion-in {
+    animation: none;
+  }
+}
+
 /* spec-123 (Option C): the opening-turn status indicator's three bouncing dots.
    A subtle "live" affordance under the cycling honest status lines while the
    agent's greeting streams. Pure CSS — no deps. Each dot is staggered so the
