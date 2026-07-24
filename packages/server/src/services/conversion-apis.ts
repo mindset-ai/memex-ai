@@ -5,6 +5,13 @@
 import type { AttributionData } from "./attribution.js";
 import { extractEmailDomain } from "./mixpanel-profile.js";
 
+// Pinned Google Ads API major version. Google sunsets versions on a rolling
+// ~14-month cadence — bump this when the current one nears its date on
+// https://developers.google.com/google-ads/api/docs/sunset-dates. v17 sunset
+// 2025-06-04 and v20 on 2026-06-10; v21–v23 are supported as of 2026-07, so
+// this targets the newest for maximum runway (spec-505 issue-3).
+const GOOGLE_ADS_API_VERSION = "v23";
+
 export interface ConversionParams {
   email: string;
   hashedEmail: string;
@@ -55,7 +62,7 @@ export async function fireGoogleAdsConversion(params: ConversionParams): Promise
     return;
   }
 
-  const url = `https://googleads.googleapis.com/v17/customers/${customerId}:uploadClickConversions`;
+  const url = `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}/customers/${customerId}:uploadClickConversions`;
   await fetch(url, {
     method: "POST",
     headers: {
@@ -68,7 +75,13 @@ export async function fireGoogleAdsConversion(params: ConversionParams): Promise
         gclid: params.attribution.gclid,
         conversionAction: `customers/${customerId}/conversionActions/${actionId}`,
         conversionDateTime: params.conversionDateTime,
-        hashedEmailAddress: params.hashedEmail,
+        // Enhanced Conversions: the hashed email is a first-party UserIdentifier,
+        // not a top-level field. `hashedEmailAddress` is not a valid ClickConversion
+        // member and is silently ignored by the API (spec-505 issue-3).
+        userIdentifiers: [{
+          hashedEmail: params.hashedEmail,
+          userIdentifierSource: "FIRST_PARTY",
+        }],
       }],
       partialFailure: true,
     }),

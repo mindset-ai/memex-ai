@@ -3,7 +3,7 @@
 // (spec-297 dec-7, std-35 cl-31: email_domain === 'mindset.ai').
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { tagAc } from '@memex-ai-ac/vitest';
-import { fireAllConversions, type ConversionParams } from './conversion-apis.js';
+import { fireAllConversions, fireGoogleAdsConversion, type ConversionParams } from './conversion-apis.js';
 
 const AC4 = 'mindset-prod/memex-building-itself/specs/spec-505/acs/ac-4';
 
@@ -76,5 +76,39 @@ describe('fireAllConversions — internal account exclusion (spec-505 ac-4)', ()
     fireAllConversions(paramsFor('person@example.com'));
     await flush();
     expect(fetchSpy).toHaveBeenCalled();
+  });
+});
+
+describe('fireGoogleAdsConversion — Enhanced Conversions request contract (spec-505 issue-3)', () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    for (const [key, value] of Object.entries(REQUIRED_ENV)) vi.stubEnv(key, value);
+    // First fetch = OAuth token exchange; second = the click-conversion upload.
+    fetchSpy = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({ access_token: 'at' }), { status: 200 }))
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    fetchSpy.mockRestore();
+  });
+
+  it('uploads to a currently-supported API version, not the sunset v17', async () => {
+    await fireGoogleAdsConversion(paramsFor('person@example.com'));
+    const uploadUrl = String(fetchSpy.mock.calls[1][0]);
+    expect(uploadUrl).toContain('/v23/');
+    expect(uploadUrl).not.toContain('/v17/');
+  });
+
+  it('sends the hashed email as a first-party userIdentifier, not a top-level hashedEmailAddress', async () => {
+    await fireGoogleAdsConversion(paramsFor('person@example.com'));
+    const body = JSON.parse(String((fetchSpy.mock.calls[1][1] as RequestInit).body));
+    const conversion = body.conversions[0];
+    expect(conversion.userIdentifiers).toEqual([
+      { hashedEmail: 'hashed-email', userIdentifierSource: 'FIRST_PARTY' },
+    ]);
+    expect(conversion).not.toHaveProperty('hashedEmailAddress');
   });
 });
