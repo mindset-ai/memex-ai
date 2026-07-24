@@ -788,7 +788,9 @@ export function PostLoginRouter() {
 // routes; flat routes that want chrome get them here.
 function FlatShell({ children }: { children: React.ReactNode }) {
   const { session } = useAuth();
-  const location = useLocation();
+  // spec-507: `useLocation()` used to feed the welcome-video gate's
+  // `!location.pathname.startsWith('/welcome')` guard. That gate is gone, and
+  // nothing else here reads the location.
   if (session && !session.user.emailVerified) return <VerifyEmailGate />;
   if (session && !session.user.name) return <Navigate to="/onboarding" replace />; // spec-441
   // spec-507: the fourth and quietest spec-444 gate lived here — it walled deep links
