@@ -36,16 +36,6 @@ const COLLECT_ONLY_THRESHOLDS = Object.fromEntries(
 
 export default defineConfig({
   plugins: [react()],
-  resolve: {
-    alias: {
-      // spec-222 (KEYSTONE): tests consume @memex/guide-sdk FROM SOURCE (same as
-      // vite.config) so Vitest compiles its tsx + svg imports — no pre-built bundle.
-      '@memex/guide-sdk': resolve(
-        dirname(fileURLToPath(import.meta.url)),
-        '../guide-sdk/src/index.ts',
-      ),
-    },
-  },
   test: {
     include: ['src/**/*.test.{ts,tsx}'],
     environment: 'jsdom',

@@ -28,7 +28,6 @@ import {
   upsertUserByEmail,
   updateUserProfile,
   markEmailVerified,
-  markOnboardingGreeted,
   createUserWithPassword,
 } from "../services/users.js";
 import {
@@ -208,41 +207,9 @@ testOnlyRouter.post("/user-name", async (c) => {
   return c.json({ ok: true });
 });
 
-// spec-206 t-5: set/clear a user's first-run greeting flag. The onboarding journey
-// un-greets the dev user to drive the auto-greeting deterministically; the per-test
-// fixture + globalSetup pre-stamp it greeted so the auto-greeting never surprises
-// OTHER journeys (it would otherwise fire on the shared dev user's first board load
-// wherever a mic is available). greeted=true uses the real service; greeted=false
-// is a direct nulling (un-greeting exists only for tests).
-const onboardingGreetedSchema = z.object({
-  email: z.string().email(),
-  greeted: z.boolean(),
-});
-testOnlyRouter.post("/onboarding-greeted", async (c) => {
-  const body = await c.req.json().catch(() => null);
-  const parsed = onboardingGreetedSchema.safeParse(body);
-  if (!parsed.success) {
-    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
-  }
-  const { email, greeted } = parsed.data;
-  const user = await getUserByEmail(email);
-  if (!user) return c.json({ error: `User ${email} not found` }, 404);
-
-  if (greeted) {
-    await markOnboardingGreeted(user.id);
-  } else {
-    await db
-      .update(users)
-      .set({ onboardingGreetedAt: null, updatedAt: new Date() })
-      .where(eq(users.id, user.id));
-  }
-  return c.json({ ok: true });
-});
-
-// spec-507: the /video-welcomed test surface is gone. It existed so e2e fixtures could
-// pre-stamp the dev user and dodge the welcome-video gate; with the gate retired there
-// is nothing to suppress, and a helper that silently suppresses nothing is worse than
-// no helper at all.
+// spec-507 + spec-508: the /video-welcomed and /onboarding-greeted test surfaces are
+// gone along with the first-run gates (welcome video, voice greeting) they suppressed.
+// A helper that silently suppresses nothing is worse than no helper, so neither is kept.
 
 // spec-305/307 — set/clear a user's identity state. needsOnboarding keys off
 // identity_confirmed_at; the journey identity MILESTONE keys off role_coords (spec-307:

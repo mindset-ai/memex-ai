@@ -5,10 +5,9 @@ import {
   useState,
   useEffect,
   useRef,
-  useMemo,
   type ReactNode,
 } from 'react';
-import { Routes, Route, useLocation, useParams, useNavigate, Navigate, Outlet } from 'react-router-dom';
+import { Routes, Route, useLocation, useParams, Navigate, Outlet } from 'react-router-dom';
 import { emailPreviewEnabled } from './utils/devTools';
 // spec-351: route-level code-splitting. Every top-level routed page is loaded
 // as its own lazy chunk so the entry bundle no longer eagerly pulls all ~35
@@ -16,7 +15,7 @@ import { emailPreviewEnabled } from './utils/devTools';
 // markdown stack, the LangGraph runtime). The pages export named symbols, so
 // each lazy import re-maps the named export onto `default` (what React.lazy
 // expects). Non-route building blocks (AppShell, DocumentShell, the providers,
-// the voice layer, and the VerifyEmailGate that several layouts render inline)
+// and the VerifyEmailGate that several layouts render inline)
 // stay eagerly imported below — splitting them would only add Suspense
 // boundaries on the critical path with no payload win.
 const Pulse = lazy(() => import('./pages/Pulse').then((m) => ({ default: m.Pulse })));
@@ -140,14 +139,6 @@ import { isOnboardingWizardEnabled } from './onboarding/flag';
 import { isFeatureHidden } from './utils/featureFlags';
 import { probePublicMemex, type PublicMemexProbe } from './api/client';
 import { PublicMemexProvider } from './components/PublicMemexContext';
-import {
-  VoiceSessionProvider,
-  createVoiceOrchestratorFactory,
-  setGuideBackend,
-} from '@memex/guide-sdk';
-import { VoiceLayer } from './voice/session/VoiceLayer';
-import { useVoiceGuideHidden } from './voice/flag';
-import { createReactRouterNavigationAdapter } from './voice/reactRouterNavigationAdapter';
 import { useTrackRouteChange, useTelemetry, trackAnonymous } from './hooks/useTelemetry';
 import { useStaleTenantForward } from './hooks/useStaleTenantForward';
 import { useShouldLandOnHome } from './journeys/landing';
@@ -338,114 +329,24 @@ function TenantLayout() {
   // callback; useDocChangeStream captures tenantBase() once on connect).
   return (
     <ChatProvider>
-      {/* spec-190 t-8/t-3: the voice guide is available on authed tenant routes
-          (the guide-chat SSE leg needs a session). VoiceGuideMount supplies the
-          real mic→STT→graph→TTS orchestrator factory + renders VoiceLayer beside
-          AppShell, so the shell needs no edit and the public branch — which never
-          mounts VoiceGuideMount — has no voice surface. */}
-      <VoiceGuideMount namespace={namespace ?? ''} memex={memex ?? ''}>
-        {/* spec-200: WhatsNewProvider lets the sidebar user menu re-open the
-            popup and gives the ribbon the menu anchor to animate "into" on
-            dismiss — so it wraps BOTH the ribbon and AppShell. */}
-        <WhatsNewProvider>
-          <OrgConsentDialog />
-          {/* spec-200: global What's New ribbon — authed shell only (inside
-              VoiceGuideMount so t-7's ear can reach the voice session). */}
-          <WhatsNewRibbonConnected />
-          {/* spec-305 dec-2: the Specky first-run greeting (FirstRunGreeting,
-              spec-206/242) is retired — onboarding is now the Home Canvas journey.
-              spec-312: it's a recede-able layer on /home, no longer a routing wall. */}
-          <AppShell>
-            <Fragment key={`${namespace}/${memex}`}>
-              <Outlet />
-            </Fragment>
-          </AppShell>
-          {/* spec-502 t-5: the context-aware Explore companion overlays the
-              featured (building-itself) demo surface for wizard-eligible users.
-              Renders nothing on the user's own memexes / when the flag is off. */}
-          <ExploreCompanionMount namespace={namespace ?? ''} memex={memex ?? ''} />
-        </WhatsNewProvider>
-      </VoiceGuideMount>
+      {/* spec-200: WhatsNewProvider lets the sidebar user menu re-open the
+          popup and gives the ribbon the menu anchor to animate "into" on
+          dismiss — so it wraps BOTH the ribbon and AppShell. */}
+      <WhatsNewProvider>
+        <OrgConsentDialog />
+        {/* spec-200: global What's New ribbon — authed shell only. */}
+        <WhatsNewRibbonConnected />
+        <AppShell>
+          <Fragment key={`${namespace}/${memex}`}>
+            <Outlet />
+          </Fragment>
+        </AppShell>
+        {/* spec-502 t-5: the context-aware Explore companion overlays the
+            featured (building-itself) demo surface for wizard-eligible users.
+            Renders nothing on the user's own memexes / when the flag is off. */}
+        <ExploreCompanionMount namespace={namespace ?? ''} memex={memex ?? ''} />
+      </WhatsNewProvider>
     </ChatProvider>
-  );
-}
-
-/**
- * spec-190 t-3 — mounts the voice session provider with the REAL orchestrator
- * factory (the mic→STT→graph→TTS loop) and the VoiceLayer overlay. Lives inside
- * the router tree so navigate / route context resolve. The factory is stable
- * (built once); live values (token, tenant, screen) are read through refs/helpers
- * each turn so a session is never swapped out from under itself.
- */
-function VoiceGuideMount({
-  namespace,
-  memex,
-  children,
-}: {
-  namespace: string;
-  memex: string;
-  children: ReactNode;
-}) {
-  const { token } = useAuth();
-  const navigate = useNavigate();
-  // All live values flow through this ref so the factory can be created ONCE and
-  // never change identity. `navigate` in particular gets a new identity on router
-  // re-renders; if the factory depended on it, the provider's memoized orchestrator
-  // would be recreated mid-turn — and its cleanup effect would stop() the in-flight
-  // orchestrator, dropping the spoken reply (the turn finished with stopped=true).
-  const liveRef = useRef({ token, namespace, memex, navigate });
-  liveRef.current = { token, namespace, memex, navigate };
-
-  // Specky kill-switch: when `voice-guide` is hidden we keep the provider mounted
-  // (the What's New ribbon's `useVoiceSession` still needs it) but render no
-  // on-screen voice surface — no VoiceLayer pill/icon doorway.
-  const voiceHidden = useVoiceGuideHidden();
-
-  const factory = useMemo(
-    () => {
-      // spec-222 (ac-9): the engine navigates ONLY through the injected adapter.
-      // The app supplies its react-router + @memex/shared backed implementation;
-      // it reads live values via liveRef so the factory stays stable for the
-      // component's lifetime. The token-carrying guide-chat leg + the retrying
-      // fetch are injected via setGuideBackend (replaces the engine's old reach
-      // into ./api/http + ./api/client).
-      setGuideBackend({ baseUrl: tenantBase() ?? BASE_URL, fetchImpl: fetchWithRetry });
-      const adapter = createReactRouterNavigationAdapter({
-        navigate: (path: string) => liveRef.current.navigate(path),
-        namespace: liveRef.current.namespace,
-        memex: liveRef.current.memex,
-      });
-      return createVoiceOrchestratorFactory({
-        adapter,
-        // spec-474: the demo-walkthrough surface is gone. The guide-sdk orchestrator
-        // still types `advanceDemo`/`startWalkthrough` as required deps, so we pass
-        // inert no-ops — with the `walkthrough` capability no longer enabled, the
-        // advance_demo / start_walkthrough tools never reach these anyway.
-        advanceDemo: () => {},
-        startWalkthrough: () => {},
-        authToken: () => liveRef.current.token,
-        tenantBase: () => tenantBase(),
-        origin: typeof window !== 'undefined' ? window.location.origin : '',
-        getScreenContext: () => {
-          const screenKey = adapter.currentScreenKey();
-          return {
-            screenKey,
-            screenRegistry: adapter.elementsForScreen?.(screenKey) ?? [],
-            namespace: liveRef.current.namespace,
-            memex: liveRef.current.memex,
-          };
-        },
-      });
-    },
-    // Stable for the component's lifetime — live values are read via liveRef.
-    [],
-  );
-
-  return (
-    <VoiceSessionProvider orchestratorFactory={factory}>
-      {children}
-      {!voiceHidden && <VoiceLayer />}
-    </VoiceSessionProvider>
   );
 }
 

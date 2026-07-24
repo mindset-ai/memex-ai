@@ -31,8 +31,6 @@ versa.
 - `nav.route_changed` — The in-app route template changed. props.route is the route TEMPLATE only — never the query string or concrete ids.
 - `speccy.opened` — The Speccy companion panel was opened.
 - `speccy.message_sent` — A message was sent to the Speccy companion. props.wordCount only — never the message text.
-- `voice.session_started` — The voice agent session started.
-- `voice.session_ended` — The voice agent session ended. props.durationMs only.
 - `home_canvas.step_shown` — A Home Canvas onboarding journey step became the active card (spec-303/305). props.step is the step id. Recorded via POST /api/me/journey-event.
 - `home_canvas.cta_clicked` — A Home Canvas journey step's CTA was clicked. props.step is the step id; props.cta names the CTA target. The intent signal; the step's outcome stays its own event (std-35 cl-12).
 - `home_canvas.persona_selected` — The user confirmed their persona on the Home onboarding identity step (spec-372 dec-6). props.persona is the RESOLVED persona label/enum — never the raw triangle coordinates; props.step is 'identity'. Recorded via POST /api/me/journey-event.
@@ -55,8 +53,6 @@ versa.
 - `comments.filter_changed` — A comments filter changed. props.authorFilter / props.statusFilter are the selected filter enums.
 - `whatsnew.opened` — The What's New feed was opened. props.unreadCount (count only).
 - `workspace.switched` — The active Memex was switched via the workspace switcher. props.memexId (target Memex UUID).
-- `voice.mic_permission_result` — The mic permission prompt resolved during a voice attempt. props.result (granted | denied | dismissed).
-- `voice.icon_shown` — The voice entry point was presented (adoption denominator). Fired once per mount. props.surface (icon | pill).
 - `home.landing_routed` — The app router decided a user's first-load landing from a read-only onboarding-state check (spec-421 dec-5). props.destination (home | specs), props.graduated (bool). Measures whether routing graduated users straight to Specs lifts engagement. Advisory.
 - `home.build_prompt_shown` — The new-home build-prompt hero was rendered for a spec-less user (spec-470). Fires at most once per mount (the activation-funnel denominator). No content props — counts only.
 - `home.build_prompt_submitted` — The user submitted a sentence from the new-home build-prompt hero (spec-470), handing off to the create-spec dialog. Fires on submit. No content props — never the typed text; counts only.

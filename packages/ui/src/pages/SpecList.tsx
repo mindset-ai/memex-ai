@@ -467,9 +467,8 @@ export function SpecList() {
               />
               Code-grounded only
             </label>
-            {/* spec-190 t-4 (dec-3): voice-guide highlight target — see guide-registry 'specs-list'. */}
             {canWrite && (
-              <Button data-guide-id="new-spec-button" onClick={() => setModalOpen(true)}>
+              <Button onClick={() => setModalOpen(true)}>
                 + New Spec
               </Button>
             )}

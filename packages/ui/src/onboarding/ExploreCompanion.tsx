@@ -50,9 +50,7 @@ export function ExploreCompanion({ onCreate, memexId, className }: ExploreCompan
       aria-label="Explore companion"
       data-testid="explore-companion"
       className={
-        // bottom-24, not bottom-6: the voice mic (VoiceLayer ANCHOR) owns the
-        // bottom-right corner at z-50 and would sit on top of the CTA corner.
-        'fixed bottom-24 right-6 z-40 w-[26rem] max-w-[calc(100vw-3rem)] rounded-xl border ' +
+        'fixed bottom-6 right-6 z-40 w-[26rem] max-w-[calc(100vw-3rem)] rounded-xl border ' +
         'border-agent/40 bg-card-hover shadow-2xl shadow-agent/25 p-5 flex flex-col gap-4 ' +
         'animate-companion-in' +
         (className ? ` ${className}` : '')

@@ -77,16 +77,6 @@ export const USAGE_EVENT_REGISTRY = [
     source: "frontend",
   },
   {
-    name: "voice.session_started",
-    description: "The voice agent session started.",
-    source: "frontend",
-  },
-  {
-    name: "voice.session_ended",
-    description: "The voice agent session ended. props.durationMs only.",
-    source: "frontend",
-  },
-  {
     name: "home_canvas.step_shown",
     description:
       "A Home Canvas onboarding journey step became the active card (spec-303/305). props.step is the step id (low-cardinality enum). Recorded via POST /api/me/journey-event, not /telemetry.",
@@ -227,18 +217,6 @@ export const USAGE_EVENT_REGISTRY = [
     name: "workspace.switched",
     description:
       "The user switched the active Memex via the workspace switcher. props.memexId is the target Memex UUID (id only).",
-    source: "frontend",
-  },
-  {
-    name: "voice.mic_permission_result",
-    description:
-      "The browser microphone permission prompt resolved during a voice session attempt. props.result is the outcome enum (granted | denied | dismissed).",
-    source: "frontend",
-  },
-  {
-    name: "voice.icon_shown",
-    description:
-      "The voice entry point was presented to the user (the adoption denominator). Fired once per mount, not per render. props.surface is where it appeared (icon | pill).",
     source: "frontend",
   },
   {

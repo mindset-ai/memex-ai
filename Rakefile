@@ -257,7 +257,7 @@ namespace :db do
       oauth_refresh_tokens cli_auth_requests user_slack_tokens slack_user_cache
       domain_verification_tokens namespace_slug_reservations redirects
       waitlist_entries whats_new_entries whats_new_skips invite_tokens
-      verified_domains org_discord_webhooks guide_content
+      verified_domains org_discord_webhooks
     ]
     code_intel_tables = %w[
       repos repo_scope files symbols dependencies calls embeddings repo_endpoints

@@ -14,8 +14,7 @@ import { seedWhatsNewEntry, clearWhatsNewEntries } from "./helpers/seed.js";
 // NOTE: the ribbon also auto-dismisses after 6s; the test acts well within that
 // window (clicking the ribbon stops the countdown).
 //
-// The ear → live Specky narration is NOT driven here (real mic + ElevenLabs,
-// same as journey-21). This is the std-28 gate; it emits the user-facing scope
+// This is the std-28 gate; it emits the user-facing scope
 // ACs ac-2 (ribbon→popup) and ac-3 (dismiss persists).
 //
 // The feed is GLOBAL, so we clear it before and after so a seeded entry can't

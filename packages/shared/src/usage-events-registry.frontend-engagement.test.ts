@@ -25,8 +25,6 @@ const NEW_FRONTEND_EVENTS: RegisteredEventName[] = [
   "comments.filter_changed",
   "whatsnew.opened",
   "workspace.switched",
-  "voice.mic_permission_result",
-  "voice.icon_shown",
 ];
 
 describe("front-end engagement events (spec-336 follow-on)", () => {

@@ -22,7 +22,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "prebuild": "pnpm --filter @memex/shared build",
-    "build": "tsc -p tsconfig.build.json && mkdir -p dist/agent/skills && cp src/agent/skills/*.md dist/agent/skills/ && mkdir -p dist/agent/phases && cp -R src/agent/phases/. dist/agent/phases/ && find dist/agent/phases -name '*.ORPHAN' -delete && mkdir -p dist/agent/voice && cp src/agent/voice/*.md dist/agent/voice/ && mkdir -p dist/guidance && cp src/guidance/*.json dist/guidance/",
+    "build": "tsc -p tsconfig.build.json && mkdir -p dist/agent/skills && cp src/agent/skills/*.md dist/agent/skills/ && mkdir -p dist/agent/phases && cp -R src/agent/phases/. dist/agent/phases/ && find dist/agent/phases -name '*.ORPHAN' -delete && mkdir -p dist/guidance && cp src/guidance/*.json dist/guidance/",
     "start": "node dist/index.js",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate && node scripts/apply-hand-migrations.mjs",
@@ -34,7 +34,6 @@
     "db:seed-smoke": "tsx src/db/seed-smoke.ts",
     "db:backfill-default-standards": "tsx scripts/backfill-default-standards.ts",
     "db:backfill-mixpanel-profiles": "tsx scripts/backfill-mixpanel-profiles.ts",
-    "db:import-guide-content": "tsx scripts/import-guide-content.ts",
     "db:generate-whats-new": "tsx scripts/generate-whats-new.ts",
     "db:sweep-demo-to-starter": "tsx scripts/sweep-demo-to-starter.ts",
     "activation:backlog": "tsx scripts/activation-backlog.ts",

@@ -19,7 +19,6 @@ export {
   ensureUser,
   setUserName,
   clearUserName,
-  setOnboardingGreeted,
   setIdentityConfirmed,
   clearUserSpecs,
   seedSpecInMemex,

@@ -131,6 +131,7 @@ describe("migration-smoke [t-9]", () => {
         AND email NOT LIKE '%.invalid'
         AND email NOT LIKE '%.local'
         AND email NOT LIKE 'doc-move-%@memex.ai'
+        AND email NOT LIKE 'qa-report-%@memex.ai'
         AND email NOT LIKE '%@acme.com'
         AND email NOT LIKE '%@anydomain.io'
         AND email NOT LIKE '%@a.com'

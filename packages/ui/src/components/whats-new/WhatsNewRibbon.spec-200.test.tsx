@@ -62,7 +62,7 @@ afterEach(() => cleanup());
 describe('WhatsNewRibbon (spec-200 t-5)', () => {
   it('renders the ribbon for an unseen entry, fires confetti, and opens the popup newest-first (ac-11)', async () => {
     // autoDismissMs=0 keeps the ribbon up for the assertions (no countdown timer).
-    render(<WhatsNewRibbon fetcher={async () => ({ entries: ENTRIES, suppressBefore: undefined })} onExplain={() => {}} autoDismissMs={0} />);
+    render(<WhatsNewRibbon fetcher={async () => ({ entries: ENTRIES, suppressBefore: undefined })} autoDismissMs={0} />);
 
     const ribbon = await screen.findByTestId('whats-new-ribbon');
     expect(ribbon).toBeTruthy();
