@@ -1584,9 +1584,11 @@ export const users = pgTable("users", {
   // blocked/denied audio start does NOT stamp it). True once-per-user across
   // devices, so the auto-greeting never re-fires.
   onboardingGreetedAt: timestamp("onboarding_greeted_at", { withTimezone: true }),
-  // spec-444: the welcome-video gate flag. Null = never permanently dismissed;
-  // a timestamp = the user clicked "Get started" or the skip link (permanent).
-  // Session-only × (close button) does NOT stamp this — it writes sessionStorage only.
+  // spec-444: recorded whether a user had dismissed the first-run welcome-video gate.
+  // spec-507 RETIRED that gate and its write path — nothing stamps this column now, and
+  // no routing reads it. It survives as history (who was shown the video, pre-2026-07-24)
+  // and to keep a Spec revert lossless; a future cleanup Spec may drop it. Null = the
+  // column was never stamped for this user.
   videoWelcomedAt: timestamp("video_welcomed_at", { withTimezone: true }),
   // spec-305 dec-4/dec-5: the captured onboarding profile. roleCoords holds the
   // developer/designer/PM triangle as barycentric weights (sum 1); identityConfirmedAt

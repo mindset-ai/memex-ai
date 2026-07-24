@@ -93,16 +93,6 @@ export async function setOnboardingGreeted(email: string, greeted: boolean): Pro
 }
 
 /**
- * spec-444: set/clear video_welcomed_at for a user. `welcomed: true` stamps now;
- * `welcomed: false` clears so the gate re-fires — used by spec-444's own journey.
- * The per-test fixture pre-stamps the dev user so existing journeys don't redirect
- * to /welcome unexpectedly.
- */
-export async function setVideoWelcomed(email: string, welcomed: boolean): Promise<void> {
-  await call("POST", "/video-welcomed", { email, welcomed });
-}
-
-/**
  * Set/clear a user's identity_confirmed_at (spec-305). `confirmed: false` un-confirms
  * so the user lands on the Home Canvas welcome step (needsOnboarding now keys off this);
  * the per-test fixture re-confirms afterwards so a cleared flag can't leak into other

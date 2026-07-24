@@ -283,41 +283,44 @@ export const USAGE_EVENT_REGISTRY = [
       "The user handed a document to the new-home import hero (spec-473), handing off to the create-spec dialog. Fires on submit. props.method ('paste' | 'file') — how the document was provided; a low-cardinality enum, never the document text.",
     source: "frontend",
   },
-  // ── Onboarding welcome video (spec-444) ─────────────────────────────────────
-  // The first-run welcome video (WelcomePage). Front-end lifecycle signals fired
-  // via useTelemetry().track() from the tenant-scoped /telemetry ingress, so they
-  // carry the real actor_user_id and join the activation funnel. Each fires AT
-  // MOST ONCE per view (ref-guarded — replay/seek/pause never re-fire). Props are
-  // IDs + counts only (std-35 cl-5): a stable video_id plus playback position /
-  // duration / percent (all NaN-guarded numbers, never content).
+  // ── Intro video (spec-444, retired as a gate by spec-507) ───────────────────
+  // The intro video (WelcomePage). spec-507 removed the first-run gate, so these
+  // now measure DELIBERATE watches: the only way onto the page is the "Watch intro
+  // video" entry in the account menu. Volume dropped sharply at that deploy — that
+  // is the gate going away, not a broken pipe (std-35 cl-21). Front-end lifecycle
+  // signals fired via useTelemetry().track() from the tenant-scoped /telemetry
+  // ingress, so they carry the real actor_user_id. Each fires AT MOST ONCE per view
+  // (ref-guarded — replay/seek/pause never re-fire). Props are IDs + counts only
+  // (std-35 cl-5): a stable video_id plus playback position / duration / percent
+  // (all NaN-guarded numbers, never content).
   {
     name: "onboarding.video_started",
     description:
-      "The first-run welcome video began playing (WelcomePage, spec-444). Fires at most once per view on the first play/playing event. props.video_id (stable video slug), props.position_seconds, props.duration_seconds, props.percent_watched (0–100, NaN-guarded) — counts only.",
+      "The intro video began playing (WelcomePage, opt-in from the account menu since spec-507). Fires at most once per view on the first play/playing event. props.video_id (stable video slug), props.position_seconds, props.duration_seconds, props.percent_watched (0–100, NaN-guarded) — counts only.",
     source: "frontend",
   },
   {
     name: "onboarding.video_completed",
     description:
-      "The first-run welcome video reached its end (WelcomePage 'ended', spec-444). Fires at most once per view. props.video_id, props.position_seconds, props.duration_seconds, props.percent_watched (0–100, NaN-guarded) — counts only. The activation-funnel success signal for the video step.",
+      "The intro video reached its end (WelcomePage 'ended'). Fires at most once per view. props.video_id, props.position_seconds, props.duration_seconds, props.percent_watched (0–100, NaN-guarded) — counts only. The success signal for a watch.",
     source: "frontend",
   },
   {
     name: "onboarding.video_skipped",
     description:
-      "The user dismissed/skipped the first-run welcome video BEFORE completion (WelcomePage Get-started / Skip / × close, spec-444). Fires at most once per view and only when the video has not already completed. props.video_id, props.position_seconds, props.duration_seconds, props.percent_watched (0–100, NaN-guarded) — counts only.",
+      "The viewer started the intro video and left the page before it ended (WelcomePage 'Back to Memex' or unmount). Since spec-507 there is no skip link or dismiss button, so this means abandonment mid-watch, not a declined interstitial. Fires at most once per view, only after playback started and only when the video has not completed. props.video_id, props.position_seconds, props.duration_seconds, props.percent_watched (0–100, NaN-guarded) — counts only.",
     source: "frontend",
   },
   {
     name: "onboarding.video_call_cta_shown",
     description:
-      "The 'book a call' line on the welcome video revealed once the viewer crossed ~85% of the v4 video, or it ended (WelcomePage, spec-460). Fires at most once per view. props.video_id, props.position_seconds, props.duration_seconds, props.percent_watched — counts only.",
+      "The 'book a call' line on the intro video revealed once the viewer crossed 75% of the video, or it ended (WelcomePage, spec-460 dec-7). Fires at most once per view. props.video_id, props.position_seconds, props.duration_seconds, props.percent_watched — counts only.",
     source: "frontend",
   },
   {
     name: "onboarding.video_call_cta_clicked",
     description:
-      "The viewer clicked the revealed 'book a 30-minute call' link on the welcome video (WelcomePage, spec-460), opening the /book-a-call alias in a new tab. props.video_id + playback counts only.",
+      "The viewer clicked the revealed 'book a 30-minute call' link on the intro video (WelcomePage, spec-460), opening the /book-a-call alias in a new tab. props.video_id + playback counts only.",
     source: "frontend",
   },
   {

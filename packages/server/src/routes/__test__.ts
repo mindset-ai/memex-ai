@@ -29,7 +29,6 @@ import {
   updateUserProfile,
   markEmailVerified,
   markOnboardingGreeted,
-  markVideoWelcomed,
   createUserWithPassword,
 } from "../services/users.js";
 import {
@@ -240,33 +239,10 @@ testOnlyRouter.post("/onboarding-greeted", async (c) => {
   return c.json({ ok: true });
 });
 
-// spec-444 — set/clear a user's video_welcomed_at. Used by the e2e fixture to
-// pre-stamp the dev user as already welcomed (so existing journeys don't hit the
-// new video gate), and by spec-444's own journey to clear and re-set the flag.
-const videoWelcomedSchema = z.object({
-  email: z.string().email(),
-  welcomed: z.boolean(),
-});
-testOnlyRouter.post("/video-welcomed", async (c) => {
-  const body = await c.req.json().catch(() => null);
-  const parsed = videoWelcomedSchema.safeParse(body);
-  if (!parsed.success) {
-    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
-  }
-  const { email, welcomed } = parsed.data;
-  const user = await getUserByEmail(email);
-  if (!user) return c.json({ error: `User ${email} not found` }, 404);
-
-  if (welcomed) {
-    await markVideoWelcomed(user.id);
-  } else {
-    await db
-      .update(users)
-      .set({ videoWelcomedAt: null, updatedAt: new Date() })
-      .where(eq(users.id, user.id));
-  }
-  return c.json({ ok: true });
-});
+// spec-507: the /video-welcomed test surface is gone. It existed so e2e fixtures could
+// pre-stamp the dev user and dodge the welcome-video gate; with the gate retired there
+// is nothing to suppress, and a helper that silently suppresses nothing is worse than
+// no helper at all.
 
 // spec-305/307 — set/clear a user's identity state. needsOnboarding keys off
 // identity_confirmed_at; the journey identity MILESTONE keys off role_coords (spec-307:

@@ -614,8 +614,16 @@ function SidebarUserCard({
               Email preview
             </UserMenuLink>
           )}
-          {/* spec-444: always-visible rewatch entry — present regardless of dismissal state. */}
-          <UserMenuLink to="/welcome?rewatch=1" icon={<PlayCircleIcon />} onClick={() => setOpen(false)}>
+          {/* spec-507: since the first-run gate was retired this is the ONLY way into the
+              intro video from inside the app — so it must keep resolving (std-34: no menu
+              entry promising a surface the app can't show). The old `?rewatch=1` parameter
+              is dropped; the page has one mode now. */}
+          <UserMenuLink
+            to="/welcome"
+            icon={<PlayCircleIcon />}
+            testId="user-menu-watch-video"
+            onClick={() => setOpen(false)}
+          >
             Watch intro video
           </UserMenuLink>
           {/* spec-460: long-tail fallbacks for the two CTAs — always present so

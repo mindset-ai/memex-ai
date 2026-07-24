@@ -34,7 +34,7 @@ function makeSession(opts: {
       name: opts.name ?? 'Alice',
       status: 'active',
       emailVerified: opts.emailVerified ?? true,
-      videoWelcomedAt: new Date(), // spec-444: suppress welcome-video gate so tests isolate name gate
+      videoWelcomedAt: null,
     },
     memberships: [
       {
@@ -140,12 +140,10 @@ function renderAt(path: string) {
 
 beforeEach(() => {
   vi.stubEnv('VITE_GOOGLE_CLIENT_ID', 'test-client-id');
-  sessionStorage.setItem('welcomeVideoDismissed', '1'); // spec-444: suppress gate so tests isolate name gate
   fetchJourneyStateSpy.mockClear();
 });
 afterEach(() => {
   vi.unstubAllEnvs();
-  sessionStorage.removeItem('welcomeVideoDismissed');
 });
 
 describe('spec-441: RootRedirect name gate', () => {

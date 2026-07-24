@@ -37,7 +37,6 @@ import {
   gotoSpecsBoard,
   signupWithToken,
   setIdentityConfirmed,
-  dismissWelcomeVideo,
   emitAcEvents,
 } from "./helpers/index.js";
 
@@ -109,8 +108,6 @@ test(TITLE, async ({ page, resources }) => {
   await expect(readyBlocker).toHaveCount(0, { timeout: 30_000 });
   await page.getByPlaceholder("Your display name").fill("Starter Spec User");
   await page.getByRole("button", { name: /^Continue$/ }).click();
-  // spec-444: dismiss welcome video gate that fires for new users after name capture.
-  await dismissWelcomeVideo(page);
   // ── 1. spec-498: a fresh user lands on their personal-memex Trails (the /home
   //       canonical redirect forwards to /:ns/:mx/trails). ─────────────────────
   await expect(page).toHaveURL(/\/trails(\?|#|$)/, { timeout: 15_000 });
