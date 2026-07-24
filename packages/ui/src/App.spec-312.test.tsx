@@ -38,7 +38,7 @@ function makeSession(opts: {
       name: 'Alice',
       status: 'active',
       emailVerified: opts.emailVerified ?? true,
-      videoWelcomedAt: new Date(), // spec-444: suppress welcome-video gate so tests isolate routing logic
+      videoWelcomedAt: null,
     },
     memberships: [
       {
@@ -154,11 +154,9 @@ function renderAt(path: string) {
 
 beforeEach(() => {
   vi.stubEnv('VITE_GOOGLE_CLIENT_ID', 'test-client-id');
-  sessionStorage.setItem('welcomeVideoDismissed', '1'); // spec-444: suppress gate so tests isolate routing
 });
 afterEach(() => {
   vi.unstubAllEnvs();
-  sessionStorage.removeItem('welcomeVideoDismissed');
 });
 
 // spec-312's universal /home onboarding landing was retired (ac-1, ac-7, ac-8): the

@@ -155,9 +155,12 @@ describe('spec-456: account menu grouping + icons + micro-interaction', () => {
       'href',
       '/settings/integrations'
     );
+    // spec-507: the entry survives the gate's retirement — it is now the only way
+    // into the intro video from inside the app, so it must keep resolving (std-34).
+    // The `?rewatch=1` parameter is gone; the page has a single mode.
     expect(screen.getByRole('link', { name: 'Watch intro video' })).toHaveAttribute(
       'href',
-      '/welcome?rewatch=1'
+      '/welcome'
     );
   });
 

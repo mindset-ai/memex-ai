@@ -24,7 +24,6 @@ import {
   bareUrl,
   emitAcEvents,
   signupWithToken,
-  dismissWelcomeVideo,
 } from "./helpers/index.js";
 
 const ACS = [
@@ -86,11 +85,7 @@ test(
     }).toPass({ timeout: 15_000 });
     await page.getByRole("button", { name: /^Continue$/ }).click();
 
-    // spec-444: after name capture, the welcome video gate fires for new users.
-    // Dismiss it so we can verify the downstream landing (ac-2).
-    await dismissWelcomeVideo(page);
-
-    // ac-2: after submitting the name (and dismissing the welcome video), the name gate
+    // ac-2: after submitting the name, the name gate
     // is satisfied and the user reaches the real app. spec-498: the universal landing is
     // the personal-memex Trails (the /home canonical redirect forwards to /:ns/:mx/trails).
     await expect(page).toHaveURL(/\/trails(\?|#|$)/, { timeout: 15_000 });

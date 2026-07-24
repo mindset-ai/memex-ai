@@ -33,7 +33,7 @@ function makeSession(opts: { hiddenFeatures: string[]; withFeatured: boolean }):
       name: 'Alice',
       status: 'active',
       emailVerified: true,
-      videoWelcomedAt: new Date(),
+      videoWelcomedAt: null,
     },
     memberships: [
       {
@@ -130,14 +130,12 @@ function renderAt(path: string) {
 describe('spec-502 ac-1: value-first landing on the featured demo Memex', () => {
   beforeEach(() => {
     vi.stubEnv('VITE_GOOGLE_CLIENT_ID', 'test-client-id');
-    sessionStorage.setItem('welcomeVideoDismissed', '1');
     resetCachedJourneyState();
     fetchJourneyStateApi.mockClear();
     journeyFetch = () => new Promise(() => {});
   });
   afterEach(() => {
     vi.unstubAllEnvs();
-    sessionStorage.removeItem('welcomeVideoDismissed');
   });
 
   it('a spec-less new signup lands on building-itself first', async () => {

@@ -6,8 +6,8 @@
 //
 //   ac-13 — spec-less → /home after the welcome gate; has-spec → Specs board.
 //   ac-14 — 'home' feature-hidden → spec-less falls back to the board (rollback).
-//   ac-10 — upstream gates (welcome-video, isFeatureHidden 'home') fire AHEAD of
-//           the /home landing.
+//   ac-10 — upstream gates fire AHEAD of the /home landing. (The welcome-video half
+//           of this was removed by spec-507; the isFeatureHidden 'home' ordering stands.)
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
@@ -28,7 +28,7 @@ function makeSession(opts: { hiddenFeatures?: string[] }): SessionPayload {
       name: 'Alice',
       status: 'active',
       emailVerified: true,
-      videoWelcomedAt: new Date(), // suppress the spec-444 first-run welcome fast-path
+      videoWelcomedAt: null,
     },
     memberships: [
       {
@@ -146,7 +146,6 @@ function renderAt(path: string) {
 describe.skip('spec-470 t-3: RootRedirect auto-lands spec-less users on /home (dec-9)', () => {
   beforeEach(() => {
     vi.stubEnv('VITE_GOOGLE_CLIENT_ID', 'test-client-id');
-    sessionStorage.setItem('welcomeVideoDismissed', '1'); // past the welcome-video gate
     resetCachedJourneyState(); // isolate the confirmedSpecLess cache read between tests
     fetchJourneyStateApi.mockClear();
     trackMock.mockClear();
@@ -155,7 +154,6 @@ describe.skip('spec-470 t-3: RootRedirect auto-lands spec-less users on /home (d
   });
   afterEach(() => {
     vi.unstubAllEnvs();
-    sessionStorage.removeItem('welcomeVideoDismissed');
   });
 
   it('ac-13: a spec-less user (past the welcome gate) auto-lands on /home', async () => {
@@ -209,15 +207,7 @@ describe.skip('spec-470 t-3: RootRedirect auto-lands spec-less users on /home (d
     expect(screen.queryByTestId('home-canvas-page')).not.toBeInTheDocument();
   });
 
-  it('ac-10: the welcome-video gate fires AHEAD of the /home landing (spec-less + not-dismissed → /welcome)', async () => {
-    tagAc(AC(10));
-    sessionStorage.removeItem('welcomeVideoDismissed'); // not dismissed this session
-    mockSession = makeSession({ hiddenFeatures: [] });
-    journeyFetch = () => Promise.resolve(journeyState(false));
-    renderAt('/');
-    await waitFor(() =>
-      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/welcome'),
-    );
-    expect(screen.queryByTestId('home-canvas-page')).not.toBeInTheDocument();
-  });
+  // spec-470 ac-10 ("the welcome-video gate fires ahead of the /home landing") is
+  // SUPERSEDED by spec-507: there is no gate to order any more. The assertion was
+  // deleted rather than inverted — App.spec-507.test.tsx owns the no-gate claim.
 });

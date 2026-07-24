@@ -151,7 +151,6 @@ import { createReactRouterNavigationAdapter } from './voice/reactRouterNavigatio
 import { useTrackRouteChange, useTelemetry, trackAnonymous } from './hooks/useTelemetry';
 import { useStaleTenantForward } from './hooks/useStaleTenantForward';
 import { useShouldLandOnHome } from './journeys/landing';
-import { getCachedJourneyState } from './journeys/journeyStateCache';
 import { tenantBase, BASE_URL, fetchWithRetry } from './api/http';
 import { SearchProvider } from './components/SearchContext';
 import { WhatsNewRibbonConnected } from './components/whats-new/WhatsNewRibbonConnected';
@@ -315,23 +314,9 @@ function TenantLayout() {
     return <VerifyEmailGate />;
   }
   if (!session.user.name) return <Navigate to="/onboarding" replace />; // spec-441
-  // spec-444: welcome-video gate — after name capture, before the app.
-  // Extended scope (ac-17): also re-shows for returning users who haven't created
-  // a spec yet. Uses the cached journey state (populated by RootRedirect's one-shot
-  // read) so direct-URL navigation into a tenant doesn't skip the gate — if the
-  // cache is empty (first direct load, no prior / visit), fall back to the
-  // videoWelcomedAt check only so we never block with an uncached stale read.
-  {
-    const cached = getCachedJourneyState();
-    const noSpec = !!cached && !cached.milestones?.hasSpec;
-    if (
-      (!session.user.videoWelcomedAt || noSpec) &&
-      !sessionStorage.getItem('welcomeVideoDismissed') &&
-      !location.pathname.startsWith('/welcome')
-    ) {
-      return <Navigate to="/welcome" replace />;
-    }
-  }
+  // spec-507: the spec-444 welcome-video gate that used to sit here is GONE. Nothing
+  // routes a user to /welcome any more — the page survives only as an opt-in rewatch
+  // reached from the account menu. Do not reintroduce a redirect here.
 
   // Membership check: redirect to the user's default tenant when they aren't
   // a member of the URL's namespace/memex. This replaces the host-based
@@ -520,14 +505,10 @@ function RootRedirect() {
   if (!session) return null; // session bootstrap still pending
   if (!emailVerified) return <VerifyEmailGate />;
   if (!session.user.name) return <Navigate to="/onboarding" replace />; // spec-441
-  // spec-444: welcome-video gate — / and /login always redirect here.
-  // Fast path: first-timers (no videoWelcomedAt) redirect immediately.
-  if (
-    !session.user.videoWelcomedAt &&
-    !sessionStorage.getItem('welcomeVideoDismissed')
-  ) {
-    return <Navigate to="/welcome" replace />;
-  }
+  // spec-507: the spec-444 first-timer video redirect used to fire HERE, ahead of the
+  // spec-502 value-first landing below — so every new signup met a 4:43 explainer
+  // before the wizard's first surface. Removed; the featured-demo branch is now the
+  // first thing a spec-less user sees.
   if (homeHidden) {
     // Loop-avoidance: 'home' hidden ⇒ land on the last-visited (or default) tenant,
     // no journey read.
@@ -535,11 +516,9 @@ function RootRedirect() {
     return fallback ? <Navigate to={fallback} replace /> : null;
   }
   if (landOnHome === null) return null; // assessing onboarding state — draw nothing yet
-  // spec-444 extended scope (ac-17): returning users who have not yet created a
-  // spec re-see the video on each new session until they do. landOnHome = !hasSpec.
-  if (landOnHome && !sessionStorage.getItem('welcomeVideoDismissed')) {
-    return <Navigate to="/welcome" replace />;
-  }
+  // spec-507: the spec-444 ac-17 re-show ("show the video every session until you
+  // create a spec") lived here. It re-walled precisely the cohort that had already
+  // bounced, every session. Gone.
   // spec-502 (ac-1): value-first onboarding. A spec-less new signup lands on the
   // featured demo Memex (building-itself) FIRST — where the context-aware Explore
   // companion invites them to "Create your own Memex" — instead of their own empty
@@ -559,8 +538,7 @@ function RootRedirect() {
   // therefore retired: everyone now falls through to their tenant landing. This is the
   // returning-user landing, so it prefers the tenant they were last in
   // (computeReturnLanding), falling back to personal — instead of always personal.
-  // The spec-444 welcome-video gate above still fires first for first-timers. Revive
-  // the confirmedSpecLess → /home branch here if the Home Canvas comes back.
+  // Revive the confirmedSpecLess → /home branch here if the Home Canvas comes back.
   const target = computeReturnLanding(session);
   if (target) return <Navigate to={target} replace />;
   return null;
@@ -810,21 +788,13 @@ export function PostLoginRouter() {
 // routes; flat routes that want chrome get them here.
 function FlatShell({ children }: { children: React.ReactNode }) {
   const { session } = useAuth();
-  const location = useLocation();
+  // spec-507: `useLocation()` used to feed the welcome-video gate's
+  // `!location.pathname.startsWith('/welcome')` guard. That gate is gone, and
+  // nothing else here reads the location.
   if (session && !session.user.emailVerified) return <VerifyEmailGate />;
   if (session && !session.user.name) return <Navigate to="/onboarding" replace />; // spec-441
-  // spec-444: welcome-video gate — deep-link users on flat routes also see the video.
-  // Extended scope (ac-17): also fires when the cached journey state shows !hasSpec.
-  if (session && !location.pathname.startsWith('/welcome')) {
-    const cached = getCachedJourneyState();
-    const noSpec = !!cached && !cached.milestones?.hasSpec;
-    if (
-      (!session.user.videoWelcomedAt || noSpec) &&
-      !sessionStorage.getItem('welcomeVideoDismissed')
-    ) {
-      return <Navigate to="/welcome" replace />;
-    }
-  }
+  // spec-507: the fourth and quietest spec-444 gate lived here — it walled deep links
+  // to flat routes (/settings/*, /org) too. Removed with the other three.
   return (
     <ChatProvider>
       <OrgConsentDialog />

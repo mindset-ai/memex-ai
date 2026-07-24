@@ -31,7 +31,7 @@ function makeSession(opts: { hiddenFeatures: string[]; emailVerified?: boolean }
       name: 'Alice',
       status: 'active',
       emailVerified: opts.emailVerified ?? true,
-      videoWelcomedAt: new Date(), // spec-444: suppress welcome-video gate so tests isolate routing logic
+      videoWelcomedAt: null,
     },
     memberships: [
       {
@@ -152,7 +152,6 @@ function renderAt(path: string) {
 describe('RootRedirect lands users by a read-only onboarding-state check (spec-421 dec-5)', () => {
   beforeEach(() => {
     vi.stubEnv('VITE_GOOGLE_CLIENT_ID', 'test-client-id');
-    sessionStorage.setItem('welcomeVideoDismissed', '1'); // spec-444: suppress gate so tests isolate routing
     resetCachedJourneyState(); // spec-470: isolate the confirmedSpecLess cache read between tests
     fetchJourneyStateApi.mockClear();
     trackMock.mockClear();
@@ -161,7 +160,6 @@ describe('RootRedirect lands users by a read-only onboarding-state check (spec-4
   });
   afterEach(() => {
     vi.unstubAllEnvs();
-    sessionStorage.removeItem('welcomeVideoDismissed');
   });
 
   // The Home Canvas is PARKED — the per-memex Brain replaces the flat /home surface as

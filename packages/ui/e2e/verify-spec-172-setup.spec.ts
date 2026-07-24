@@ -45,13 +45,6 @@ test("globalSetup leaves dev@memex.ai named so a cold-DB journey reaches the app
   // clearing specs doesn't touch the name.)
   await clearUserSpecs(DEV_EMAIL);
 
-  // spec-444: suppress the welcome-video scope gate (ac-17 re-shows for users with no spec)
-  // so this test can isolate the onboarding naming gate independently. The gate is correct
-  // behaviour, but it's not what ac-10 is testing — suppress it per-session.
-  await page.addInitScript(() => {
-    sessionStorage.setItem('welcomeVideoDismissed', '1');
-  });
-
   // Bare origin → spec-498: a named user lands on their personal-memex Trails (the /home
   // canonical redirect forwards to /:ns/:mx/trails). The point of ac-10 holds unchanged: a
   // cold-DB journey for the named dev user is NOT dropped into a blocking onboarding screen —

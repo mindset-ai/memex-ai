@@ -47,7 +47,6 @@ import {
   seedSpecInMemex,
   seedOpenDecision,
   signupWithToken,
-  dismissWelcomeVideo,
   emitAcEvents,
 } from "./helpers/index.js";
 
@@ -264,8 +263,6 @@ test(
     await expect(page).toHaveURL(/\/onboarding/, { timeout: 15_000 });
     await page.getByPlaceholder("Your display name").fill("Spine User");
     await page.getByRole("button", { name: /^Continue$/ }).click();
-    // spec-444: dismiss welcome video gate that fires for new users after name capture.
-    await dismissWelcomeVideo(page);
 
     // spec-498: every cohort now lands on their personal-memex Trails (the /home
     // canonical redirect forwards to /:ns/:mx/trails). The Specs board stays reachable

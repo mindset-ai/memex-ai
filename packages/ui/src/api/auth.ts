@@ -312,20 +312,9 @@ export async function updateProfileApi(
   return res.json();
 }
 
-// spec-444: permanently dismiss the welcome video — stamps video_welcomed_at on
-// the users row. Returns the fresh session so the caller can call updateSession()
-// before navigating, preventing a same-session gate re-trigger.
-export async function dismissWelcomeVideoApi(token: string | null): Promise<SessionPayload> {
-  const res = await fetchWithRetry(`${BASE_URL}/welcome-video`, {
-    method: 'PATCH',
-    headers: { ...authHeaders(token) },
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.message ?? body.error ?? `Welcome video dismiss failed: ${res.status}`);
-  }
-  return res.json();
-}
+// spec-507: dismissWelcomeVideoApi (spec-444) is gone with the gate it served — the
+// video is opt-in now, so there is no dismissal to record. `videoWelcomedAt` stays on
+// the session payload below as history; nothing routes on it (dec-2).
 
 // ── Org / Memex creation (doc-15 t-14, doc-19 t-7) ──
 // POST /api/orgs creates an Org + its Namespace + an admin membership. Per dec-1
