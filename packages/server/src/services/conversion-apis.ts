@@ -3,6 +3,7 @@
 // required env vars are absent so dev/staging environments don't error.
 
 import type { AttributionData } from "./attribution.js";
+import { extractEmailDomain } from "./mixpanel-profile.js";
 
 export interface ConversionParams {
   email: string;
@@ -153,7 +154,12 @@ export async function fireOpenAiConversion(params: ConversionParams): Promise<vo
 
 // Fires all three conversion APIs for a new account. Non-blocking — does NOT
 // await individual calls; errors are logged but never surfaced to the caller.
+// Skips entirely for internal accounts — same "real users" definition already
+// used to gate the Mixpanel profile sync (spec-297 dec-7, std-35 cl-31:
+// email_domain === 'mindset.ai') — so QA/dogfooding/test sign-ups never
+// inflate ad-platform conversion counts (spec-505 ac-4).
 export function fireAllConversions(params: ConversionParams): void {
+  if (extractEmailDomain(params.email) === "mindset.ai") return;
   fireGoogleAdsConversion(params).catch(() => {});
   fireLinkedInConversion(params).catch(() => {});
   fireOpenAiConversion(params).catch(() => {});
