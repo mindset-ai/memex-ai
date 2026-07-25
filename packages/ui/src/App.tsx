@@ -142,6 +142,7 @@ import { PublicMemexProvider } from './components/PublicMemexContext';
 import { useTrackRouteChange, useTelemetry, trackAnonymous } from './hooks/useTelemetry';
 import { useStaleTenantForward } from './hooks/useStaleTenantForward';
 import { useShouldLandOnHome } from './journeys/landing';
+import { getCachedJourneyState } from './journeys/journeyStateCache';
 import { tenantBase, BASE_URL, fetchWithRetry } from './api/http';
 import { SearchProvider } from './components/SearchContext';
 import { WhatsNewRibbonConnected } from './components/whats-new/WhatsNewRibbonConnected';
@@ -424,10 +425,13 @@ function RootRedirect() {
   // featured demo Memex (building-itself) FIRST — where the context-aware Explore
   // companion invites them to "Create your own Memex" — instead of their own empty
   // board. Gated on the onboarding-wizard kill-switch (dec-5), and only fires when
-  // the server has surfaced a featured demo membership (spec-500) AND the user has
-  // not yet authored a spec (landOnHome = !hasSpec). Established users (has a spec)
-  // and the flag-off cohort fall through to their normal default landing.
-  if (landOnHome && isOnboardingWizardEnabled(session)) {
+  // the server has surfaced a featured demo membership (spec-500) AND the user is
+  // UNACTIVATED — 0 specs AND no MCP (spec-508). landOnHome = !hasSpec; the MCP leg
+  // reads the same journey-state the predicate just cached. The goal is to plant the
+  // wizard's "install an MCP" ask in front of people who haven't yet; a user who has
+  // authored a spec OR already connected an agent falls through to their normal board.
+  const mcpConnected = !!getCachedJourneyState()?.milestones.mcpConnected;
+  if (landOnHome && !mcpConnected && isOnboardingWizardEnabled(session)) {
     const featured = session.memberships.find((m) => m.source === 'featured');
     if (featured) {
       const mx = featured.memexSlug ?? 'main';
