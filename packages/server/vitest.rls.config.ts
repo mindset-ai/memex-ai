@@ -62,7 +62,7 @@ export default defineConfig({
       ...(rootEnv.MEMEX_EMIT ? { MEMEX_EMIT: rootEnv.MEMEX_EMIT } : {}),
       // Signup seed hooks stay OFF suite-wide (as in the main config); the seed
       // regression turns the specific seeder it needs back ON per-test.
-      MEMEX_HANDHOLD_SIGNUP_SEED: "off",
+      // (spec-509 dec-2 removed MEMEX_HANDHOLD_SIGNUP_SEED along with its seeder.)
       MEMEX_DEFAULT_STANDARDS_SIGNUP_SEED: "off",
       MEMEX_DEFAULT_FACETS_SEED: "off",
     },

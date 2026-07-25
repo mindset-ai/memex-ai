@@ -114,12 +114,6 @@ const ALLOWLISTED_PROSE_FILES = new Set(
     // alongside `role`. Logged as expected residue; remove this entry once
     // the migration lands.
     "packages/server/src/mcp/tools.ts",
-    // spec-426: the Variant-B starter-spec fixture embeds the "Understanding Memex"
-    // narrative as multi-line markdown template literals (STARTER_SPEC_SECTIONS) — frozen
-    // DEMO/seed content for a real Spec provisioned into a personal Memex, NOT agent-prompt
-    // prose / a nudge channel, so (exactly like handhold-demo.fixture.ts) it does not belong
-    // in scaffold-data.ts. Exempt from the prose-location guard.
-    "packages/server/src/db/starter-spec.fixture.ts",
     // spec-151: the testability classifier's LLM system prompt (services/
     // testability-classifier.ts) — an INTERNAL classifier prompt for the local
     // operator backfill, the same category as services/facet-classifier.ts's

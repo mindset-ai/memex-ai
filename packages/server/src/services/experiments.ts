@@ -25,65 +25,32 @@ import {
   type ExperimentAssignment,
 } from "../db/schema.js";
 import type { RequestCtx } from "./mutate.js";
-// spec-474 dec-1: the seeded "Understanding Memex" starter Spec is now the SOLE
-// provisioning behaviour and the control. The demo-walkthrough arm (handhold_demo /
-// seedHandholdDemo) was retired and its code deleted when the demo-vs-starter
-// experiment concluded with B (starter_spec) as the winner.
-import { seedStarterSpec } from "./starter-spec.js";
 
 function log(...args: unknown[]): void {
   // eslint-disable-next-line no-console
   console.log("[experiments]", ...args);
 }
 
-// ── Variant behaviour registry (dec-4) ───────────────────────────────────────
-
-/** The known variant behaviours the registry can dispatch. spec-474 dec-1 retired
- * `handhold_demo`; `starter_spec` is the only live behaviour. The DB CHECK on
- * experiment_variants.behaviour is deliberately left permissive (it still lists the
- * legacy `handhold_demo`) so the concluded experiment's historical A variant row
- * stays valid — but no seeder is dispatched for it (see runVariantBehaviour). */
-export type VariantBehaviour = "starter_spec";
-
-/** The control / default behaviour. spec-474 dec-1: an UNKNOWN, missing, or legacy
- * behaviour id (e.g. the retired `handhold_demo` on a historical row) falls back to
- * this — the seeded starter spec — rather than a deleted seeder or a failed signup. */
-export const CONTROL_BEHAVIOUR: VariantBehaviour = "starter_spec";
-
-/** A behaviour seeds the freshly-provisioned personal memex. Same shape as the
- * existing seeders (`seedHandholdDemo`): (memexId, ctx) → Promise<void>. */
-type SeedFn = (memexId: string, ctx: RequestCtx) => Promise<void>;
-
-/** dec-4: the typed behaviour-id → seeding-function map. The single source of
- * truth for what each variant DOES at provisioning. Append-only as new arms are
- * added; the schema CHECK guards the persisted id, this guards the dispatch. */
-const BEHAVIOUR_REGISTRY: Record<VariantBehaviour, SeedFn> = {
-  starter_spec: (memexId, ctx) => seedStarterSpec(memexId, ctx),
-};
-
-/**
- * Run the seeding behaviour for a resolved variant on a freshly-provisioned
- * personal memex. dec-4: an UNKNOWN or missing behaviour id falls back to the
- * control (handhold_demo) — provisioning must never fail because an experiment
- * carried a typo'd or not-yet-deployed behaviour. The seed itself is idempotent
- * (seedHandholdDemo no-ops on an already-seeded memex), so a fallback after a
- * partial run is safe.
- */
-export async function runVariantBehaviour(
-  behaviour: string,
-  memexId: string,
-  ctx: RequestCtx = { channel: "server" },
-): Promise<void> {
-  const fn = BEHAVIOUR_REGISTRY[behaviour as VariantBehaviour];
-  if (!fn) {
-    log(
-      `unknown behaviour '${behaviour}' for memex=${memexId} — falling back to control '${CONTROL_BEHAVIOUR}'`,
-    );
-    await BEHAVIOUR_REGISTRY[CONTROL_BEHAVIOUR](memexId, ctx);
-    return;
-  }
-  await fn(memexId, ctx);
-}
+// ── No provisioning-behaviour registry (spec-509 dec-3) ───────────────────────
+//
+// spec-426 dec-4 shipped a `behaviour id → seeder` registry here (VariantBehaviour /
+// CONTROL_BEHAVIOUR / BEHAVIOUR_REGISTRY / runVariantBehaviour) so a provisioning A/B
+// could dispatch a different seed per arm. spec-474 dec-1 concluded that experiment and
+// wired provisioning to call the winning seeder directly, which left the dispatcher with
+// NO production callers — dead code that kept passing its own tests. spec-509 dec-2 then
+// deleted the last seeder outright, so the registry had nothing to dispatch at all.
+//
+// It is deliberately NOT replaced with an empty registry or a no-op control. Either would
+// keep a switchboard wired to nothing on the signup path, where a silent no-op is the
+// hardest kind of bug to notice, and a `starter_spec: async () => {}` entry would assert
+// in the type system that a starter Spec is seeded when none is — drift authored on
+// purpose (std-20). A future provisioning experiment adds a hook shaped by what it
+// actually needs; it should not inherit this one's shape.
+//
+// What remains here is the general experiments construct: deterministic bucketing,
+// assignment, and verdict computation. The concluded `provisioning_demo_vs_starter`
+// experiment rows — including the legacy `handhold_demo` variant kept valid by the
+// permissive `experiment_variants.behaviour` CHECK — stay readable for Backstage.
 
 // ── Deterministic bucketing (dec-6) ───────────────────────────────────────────
 

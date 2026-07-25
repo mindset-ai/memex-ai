@@ -186,10 +186,11 @@ describe("spec-406 t-8: attribution threaded through the repaired transition pat
 
   // ── ac-26 ─────────────────────────────────────────────────────────────────
   // spec-474: the ac-26 case (seedHandholdDemo threads a server ctx onto its rows) was
-  // removed when the handhold demo seeder was deleted (the demo-vs-starter experiment
-  // concluded with the starter Spec as the winner). The starter Spec seed is
-  // system-attributed by design (starter-spec.ts strips any actor), so there is no
-  // seed-attribution case to assert here any more.
+  // removed when the handhold demo seeder was deleted. spec-509 dec-2 then deleted the
+  // starter-Spec seeder that replaced it, so provisioning has NO Spec seeder left and
+  // there is no seed-attribution case to assert here at all. The remaining provisioning
+  // seeder (default Standards) carries its own coverage in
+  // user-namespaces.default-standards-seed-resilience.test.ts.
 
   // ── ac-27 (regression) ──────────────────────────────────────────────────────
   it("ac-27: NO repaired-path row reaches the activity sink with a null channel", async () => {

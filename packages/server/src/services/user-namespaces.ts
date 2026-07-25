@@ -6,12 +6,6 @@ import { ValidationError } from "../types/errors.js";
 import { mutate, type Mutated } from "./mutate.js";
 import { seedDefaultStandards } from "./default-standards.js";
 import { seedDefaultFacetsForMemexBestEffort } from "./default-facets.js";
-// spec-474 dec-1: the demo-vs-starter provisioning experiment concluded with the
-// seeded starter Spec as the winner, so provisioning now seeds the starter Spec
-// DIRECTLY — no experiment bucketing, no variant registry. The experiment framework
-// tables/service remain (Backstage still reads the concluded experiment's history),
-// but the signup seed no longer routes through them.
-import { seedStarterSpec } from "./starter-spec.js";
 import { DEFAULT_EXPERIMENT_KEY } from "../db/seed-experiments.js";
 
 // spec-426/spec-474: the well-known key for the (now concluded) new-user provisioning
@@ -232,9 +226,19 @@ export async function ensureUserNamespace(
   return created;
 }
 
-// Seed a personal Memex's onboarding content: the default facets, the default
-// Standards, and the "Understanding Memex" starter Spec. The two doc-seeds run
-// concurrently; allSettled guarantees this never rejects.
+// Seed a personal Memex's onboarding content: the default facets and the default
+// Standards. allSettled guarantees this never rejects.
+//
+// spec-509 dec-2: content seeding NO LONGER includes a starter Spec. The seeded
+// "Understanding Memex" Spec was measured on prod (2026-07-25) at 4 opens across 110
+// new external users, with zero owner edits, comments, or version bumps across all 240
+// copies ever seeded — so the seeder, its fixture, and its env-var kill-switch were
+// deleted outright rather than left dormant. A dormant seeder plus a `…=off` env var is
+// exactly how an unwanted seed comes back (a new environment provisioned without the
+// var), and it would make the no-content-seed guard conditional on the environment
+// rather than on the code. A new personal Memex now lands with facets + Standards and an
+// EMPTY Specs board; the worked example a new user needs comes from spec-502's wizard
+// (their own agent authors the first Spec) and spec-500's read-only Explore entry.
 //
 // spec-474 dec-6: this NO LONGER runs on the signup request. It used to be awaited
 // inside ensureUserNamespace's create path, which delayed the signup response and the
@@ -247,9 +251,8 @@ export async function ensureUserNamespace(
 // regression, and nothing seed-heavy sits on signup.
 //
 // Best-effort is preserved by the per-seed try/catch: a seed failure is logged and
-// swallowed. The seeds are individually idempotent (starter: NO-OP once the system
-// starter exists; standards: NO-OP once the Memex holds any standard), so a duplicate
-// fire (a race twin, a re-provision) is harmless.
+// swallowed. The seeds are individually idempotent (standards: NO-OP once the Memex holds
+// any standard), so a duplicate fire (a race twin, a re-provision) is harmless.
 //
 // spec-436: run the seeders inside runWithMemexId(memexId) so the rlsClient proxy emits
 // `set_config('app.memex_id', …)` for every INSERT they issue. The runtime connects as the
@@ -265,43 +268,8 @@ export async function provisionPersonalMemexContent(memexId: string): Promise<vo
     // facet-seed failure degrades gracefully to ballotless default Standards rather than
     // blocking signup.
     await seedDefaultFacetsForMemexBestEffort(memexId);
-    await Promise.allSettled([
-      seedProvisioningBehaviourBestEffort(memexId),
-      seedDefaultStandardsBestEffort(memexId),
-    ]);
+    await Promise.allSettled([seedDefaultStandardsBestEffort(memexId)]);
   });
-}
-
-// spec-474 dec-1: seed the new personal Memex with the "Understanding Memex" starter
-// Spec, awaited + isolated — see seedNewPersonalMemex. A rejection is caught and logged
-// so it never propagates out of ensureUserNamespace (a seed failure must never block
-// signup). This is the only seeding path; the demo-vs-starter experiment concluded with
-// the starter Spec as the winner, so provisioning now seeds it DIRECTLY rather than
-// dispatching through the experiment registry.
-//
-// NET-NEW only: this hook fires solely on the personal-namespace CREATE path, so by
-// construction it only ever seeds users created after the cutover — there is no backfill
-// and none is needed.
-//
-// System-attributed by design (spec-426 dec-3 / ac-3): the starter Spec and its children
-// MUST NOT advance the new user's onboarding milestones, so we pass a bare server ctx with
-// NO actorUserId. seedStarterSpec strips any actor defensively, but we don't thread one to
-// begin with — the rows land system-owned (created_by_user_id / actor_user_id NULL).
-//
-// spec-186 kill-switch: MEMEX_HANDHOLD_SIGNUP_SEED=off disables provisioning seeding. The
-// vitest config sets it suite-wide: under vitest every test that creates a user would
-// otherwise run a multi-insert seed it then has to clean up (FK violations, rotating
-// deadlocks). The hook's OWN suites stub the var back on — the env is read at CALL time,
-// never cached, precisely so they can. Prod/dev/e2e behaviour is unchanged (var unset ⇒
-// hook fires).
-async function seedProvisioningBehaviourBestEffort(memexId: string): Promise<void> {
-  if (process.env.MEMEX_HANDHOLD_SIGNUP_SEED === "off") return;
-
-  try {
-    await seedStarterSpec(memexId, { channel: "server" });
-  } catch (err) {
-    console.error("[provisioning seed]", err);
-  }
 }
 
 // Seed the six default Standards (spec-184 t-3 / dec-2), awaited + isolated — see
@@ -309,7 +277,12 @@ async function seedProvisioningBehaviourBestEffort(memexId: string): Promise<voi
 // ensureUserNamespace. Only reached on the personal-namespace create path (kind='user'),
 // so seeding is inherently personal-only (dec-6).
 //
-// spec-186 gate (mirrors seedHandholdDemoBestEffort): vitest disables it suite-wide via
+// spec-509: this is now the ONLY doc-seeding hook on the provisioning path — the starter
+// Spec seeder that used to sit beside it was deleted (dec-2). It keeps the allSettled
+// wrapper (rather than being awaited bare) so adding a second content seeder later does
+// not have to re-derive the best-effort contract.
+//
+// spec-186 gate: vitest disables it suite-wide via
 // MEMEX_DEFAULT_STANDARDS_SIGNUP_SEED=off; the seed's OWN suites stub it back on (read at
 // CALL time, never cached). Prod/dev/e2e are unchanged (var unset ⇒ hook fires).
 async function seedDefaultStandardsBestEffort(memexId: string): Promise<void> {
@@ -331,8 +304,8 @@ export async function ensureUserMemex(userId: string): Promise<Memex> {
 }
 
 // spec-474 dec-6: the first-load readiness step. Idempotently content-seeds the
-// caller's personal Memex (default facets + Standards + the "Understanding Memex"
-// starter Spec) and stamps memexes.provisioned_at. Called by POST /api/me/provision
+// caller's personal Memex (default facets + Standards; no starter Spec since spec-509
+// dec-2) and stamps memexes.provisioned_at. Called by POST /api/me/provision
 // on first load behind the "Getting your Memex ready…" blocker — NOT on signup.
 //
 // Owner-scoped by construction: the route passes the SESSION user's own id, so a

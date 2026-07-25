@@ -36,7 +36,7 @@
     "db:backfill-mixpanel-profiles": "tsx scripts/backfill-mixpanel-profiles.ts",
     "db:import-guide-content": "tsx scripts/import-guide-content.ts",
     "db:generate-whats-new": "tsx scripts/generate-whats-new.ts",
-    "db:sweep-demo-to-starter": "tsx scripts/sweep-demo-to-starter.ts",
+    "db:purge-starter-specs": "tsx scripts/purge-starter-specs.ts",
     "activation:backlog": "tsx scripts/activation-backlog.ts",
     "oauth:smoke": "node scripts/oauth-smoke.mjs",
     "docker:build": "docker build -t memex-server .",
