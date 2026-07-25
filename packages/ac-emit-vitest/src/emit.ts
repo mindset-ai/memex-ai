@@ -192,3 +192,127 @@ export async function emit(
     );
   }
 }
+
+/**
+ * POST MANY emissions to the Memex BATCH endpoint in ONE request (spec-489 G1).
+ *
+ * This is the durable relief for the CI-burst problem: instead of one POST per
+ * tagged test (setup.ts previously awaited `emit()` in an `afterEach`), the
+ * setup module buffers a file's emissions and flushes them here as a single
+ * request. A suite that tags N tests then makes ~one request per test FILE, so
+ * it no longer opens one server connection-pool slot per test.
+ *
+ * Honours the SAME fail-safe contract as `emit()`: it swallows a non-2xx
+ * response AND any network / timeout error (a failed emission must never fail a
+ * test run), bounds the request with a 5s `AbortSignal.timeout` (a hung server
+ * must not stall the suite), and surfaces the server's response body on a
+ * non-2xx. It also surfaces per-event rejections the batch endpoint reports in a
+ * 200 body (e.g. a scoped-key mismatch), so the actionable 401 guidance still
+ * reaches the developer (spec-333) even when batched.
+ *
+ * Events are grouped by their derived destination (`deriveEventsUrl`), so a file
+ * that happens to tag refs in more than one namespace sends one batch per
+ * destination. An entry whose ref can't be routed (malformed, no namespace) is
+ * dropped, exactly as `emit()` drops it.
+ *
+ * `transport` defaults to the live `globalThis.fetch` for unit tests; production
+ * (setup.ts) passes `capturedFetch` for spec-302 immunity.
+ */
+export async function emitBatch(
+  entries: EmitArgs[],
+  transport: typeof fetch = globalThis.fetch,
+): Promise<void> {
+  if (!isEmissionEnabled()) return;
+  if (entries.length === 0) return;
+
+  // Group ENTRIES by destination base URL (deriveEventsUrl applies the namespace
+  // routing table + MEMEX_TEST_EVENTS_URL override). Entries in one test file
+  // normally share a namespace, so this is usually a single bucket. We keep the
+  // original entries (not just payloads) so a batch that lands on a server
+  // without the /batch route can fall back to per-event single POSTs.
+  const byUrl = new Map<string, EmitArgs[]>();
+  for (const entry of entries) {
+    const url = deriveEventsUrl(entry.ac_uid);
+    if (url === null) continue; // malformed ref → nothing to route, drop it
+    const bucket = byUrl.get(url);
+    if (bucket) bucket.push(entry);
+    else byUrl.set(url, [entry]);
+  }
+
+  // spec-129: attach the emission key as a Bearer token when MEMEX_EMIT_KEY is
+  // set (one key authenticates the whole batch, server-side). When unset, no
+  // Authorization header — the batch is rejected once the server enforces keys,
+  // which is swallowed like any other failed emission.
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const emissionKey = readEmissionKey();
+  if (emissionKey) {
+    headers.Authorization = `Bearer ${emissionKey}`;
+  }
+
+  for (const [eventsUrl, bucket] of byUrl) {
+    // The batch endpoint sits alongside the single-event route: `…/api/test-events/batch`.
+    const batchUrl = `${eventsUrl}/batch`;
+    const events = bucket.map((entry) => buildPayload(entry));
+    try {
+      const res = await transport(batchUrl, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ events }),
+        // Bound the request client-side for the same reason emit() does: a hung
+        // server must abort into the catch below rather than ride past vitest's
+        // hook timeout and fail the run.
+        signal: AbortSignal.timeout(5000),
+      });
+
+      // ROLLOUT SAFETY (spec-489, std-22): a 404/405 means this server has no
+      // /batch route yet (an older deploy, or a self-hosted install on a prior
+      // version). Fall back to the single-event endpoint so emissions still land
+      // — the batch endpoint is an optimisation, never a hard dependency. The
+      // /batch route itself only ever returns 200/400/401, so 404/405 is an
+      // unambiguous "route absent" signal, not a per-request error.
+      if (res.status === 404 || res.status === 405) {
+        await Promise.all(
+          bucket.map((entry) => emit(entry, transport)),
+        );
+        continue;
+      }
+
+      if (!res.ok) {
+        const responseBody = await Promise.resolve()
+          .then(() => res.text())
+          .catch(() => "");
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[ac-emit] batch POST ${batchUrl} returned ${res.status} for ${events.length} event(s)` +
+            (responseBody ? `: ${responseBody}` : ""),
+        );
+      } else {
+        // A 200 batch can still carry per-event rejections (partial failure).
+        // Surface them so a scoped-key / boundary rejection stays loud (spec-333),
+        // guarded so a body-read failure never breaks the fail-safe contract.
+        const summary = (await Promise.resolve()
+          .then(() => res.json())
+          .catch(() => null)) as {
+          rejected?: number;
+          results?: Array<{ index: number; ok: boolean; error?: string }>;
+        } | null;
+        if (summary?.rejected && summary.rejected > 0) {
+          const failures = (summary.results ?? []).filter((r) => !r.ok);
+          // eslint-disable-next-line no-console
+          console.warn(
+            `[ac-emit] batch POST ${batchUrl}: ${summary.rejected} of ${events.length} event(s) rejected` +
+              (failures.length
+                ? `: ${failures.map((f) => `#${f.index} ${f.error ?? ""}`.trim()).join("; ")}`
+                : ""),
+          );
+        }
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[ac-emit] batch POST ${batchUrl} failed for ${events.length} event(s):`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+}

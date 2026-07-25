@@ -191,7 +191,9 @@ export const tasksTools: ToolSpec[] = [
       const ballot = parseBallotArg(input.facetBallot);
       const vocab = await requireBallotForMemex(
         memexId,
-        { provided: hasBallot, ballot },
+        // spec-499 dec-2 — see the matching call in handlers/decisions.ts: argument
+        // NAMES only, so an absent ballot can be diagnosed rather than merely reported.
+        { provided: hasBallot, ballot, receivedArgNames: Object.keys(input) },
         { noun: "task", channel: ctx.channel },
       );
       const task = await createTask(

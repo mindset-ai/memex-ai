@@ -37,7 +37,7 @@ function makeSession(hiddenFeatures: string[]): SessionPayload {
       name: 'Alice',
       status: 'active',
       emailVerified: true,
-      videoWelcomedAt: new Date(), // spec-444: suppress welcome-video gate so tests isolate routing logic
+      videoWelcomedAt: null,
     },
     memberships: [
       {
@@ -167,11 +167,9 @@ function renderShell(initialEntries: string[]) {
 describe('spec-148 t-1: Pulse feature-hide', () => {
   beforeEach(() => {
     vi.stubEnv('VITE_GOOGLE_CLIENT_ID', 'test-client-id');
-    sessionStorage.setItem('welcomeVideoDismissed', '1'); // spec-444: suppress gate so tests isolate routing
   });
   afterEach(() => {
     vi.unstubAllEnvs();
-    sessionStorage.removeItem('welcomeVideoDismissed');
   });
 
   it('ac-6: hidden → the Pulse nav link is absent', () => {

@@ -1,7 +1,7 @@
 // Load .env as early as possible so downstream module-load code sees the vars.
 import "dotenv/config";
 import { serve } from "@hono/node-server";
-import { app, injectWebSocket } from "./app.js";
+import { app } from "./app.js";
 import { cleanupExpiredDomainVerificationTokens } from "./services/domain-verification.js";
 import { warnIfLlmNotConfigured } from "./agent/anthropic-client.js";
 import { startBusObservability } from "./services/bus-observability.js";
@@ -65,11 +65,6 @@ const server = serve({ fetch: app.fetch, port }, (info) => {
   // instrumentation is wired separately at the db/connection.ts seam.
   startDbTelemetry({ sqlClient });
 });
-
-// spec-190 t-1 / dec-9: attach the WebSocket upgrade handler to the live server
-// so the voice route (/api/<ns>/<mx>/voice/session) can accept WS connections.
-// Must run after serve() returns the Node http.Server.
-injectWebSocket(server);
 
 // Hourly cleanup of expired domain-verification tokens (t-6).
 //

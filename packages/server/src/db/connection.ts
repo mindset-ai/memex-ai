@@ -18,16 +18,19 @@ if (!connectionString) {
 // Cloud SQL socket path (e.g. /cloudsql/project:region:instance)
 const socketPath = process.env.CLOUD_SQL_SOCKET;
 
-// Connection budget (2026-06-04 prod incident): prod Cloud SQL is db-f1-micro
-// with max_connections=25 (~22 usable after superuser-reserved slots). The
-// postgres-js DEFAULTS are max:10 per pool and idle_timeout:0 (idle
-// connections are NEVER closed), so three Cloud Run instances at full pool +
-// one relay LISTEN each (spec-156) is 33 — over budget before deploy overlap
-// even starts, and revision churn (old instances pinned by long-lived SSE
-// streams) made it worse. Cap the pool and reap idles so the steady-state
-// budget is 3 × (5 + 1 LISTEN) = 18, and deploy-overlap pressure self-heals
-// as idle connections close. Overridable per-env via DB_POOL_MAX (e.g. local
-// dev and tests, where a single process wants more parallelism).
+// Connection budget. Originally sized against the 2026-06-04 prod incident,
+// when prod Cloud SQL was db-f1-micro with max_connections=25 (~22 usable). The
+// instance has since been upgraded: prod is now db-custom-1-3840 with
+// max_connections=50 (doc-13; verified live 2026-07-21). The postgres-js
+// DEFAULTS are max:10 per pool and idle_timeout:0 (idle connections are NEVER
+// closed), so three Cloud Run instances at full pool + one relay LISTEN each
+// (spec-156) must stay under that ceiling, with slack for deploy overlap and
+// revision churn (old instances pinned by long-lived SSE streams). Cap the pool
+// and reap idles so the steady-state budget is 3 × (5 + 1 LISTEN) = 18 — now
+// well under 50, so this default is conservative and there is real headroom to
+// raise it. Sizing the pool up (via DB_POOL_MAX) is spec-332's decision surface
+// — don't bump it silently here. Overridable per-env via DB_POOL_MAX (e.g.
+// local dev and tests, where a single process wants more parallelism).
 const poolMax = Number(process.env.DB_POOL_MAX ?? 5);
 const poolOptions = {
   max: poolMax,

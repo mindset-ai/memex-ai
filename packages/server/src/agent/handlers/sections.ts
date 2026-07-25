@@ -19,6 +19,7 @@ import {
 import {
   appendQaReport,
 } from "../../services/qa-reports.js";
+import { applyLiteralEdit } from "../../services/section-edit.js";
 import {
   addClausesToSection,
   createClause,
@@ -237,6 +238,83 @@ export const sectionsTools: ToolSpec[] = [
       }
       const sectionRef = buildChildRef(slugs, doc, { type: "sections", seq: section.seq });
       return `Section updated (ref: ${sectionRef}).`;
+    },
+  },
+  // spec-503: the surgical sibling of update_section. Exact-match find/replace
+  // doubles as optimistic concurrency: if the section changed since the caller
+  // read it, oldText stops matching and the call fails loudly instead of
+  // clobbering the concurrent edit.
+  {
+    name: "edit_section",
+    annotations: { title: "Edit section (find/replace)", readOnlyHint: false, destructiveHint: false },
+    description:
+      "Surgically edit a NON-standard document section by literal find/replace: ONE oldText/newText pair per call, so a targeted change never costs re-emitting the whole body. Matching is exact (case, whitespace, markdown syntax; no regex). With replaceAll false (the default) oldText must match exactly once; zero or multiple hits fail with the remedy named and nothing written. replaceAll: true applies the edit to every match. Standards are edited at the clause grain instead (add/edit/delete_clause). For a deliberate full recut of a section body, use update_section.",
+    schema: {
+      ref: z
+        .string()
+        .describe(
+          "Canonical ref to the section, e.g. `mindset/main/specs/spec-3/sections/s-3`.",
+        ),
+      oldText: z
+        .string()
+        .describe(
+          "Exact literal text to find: case- and whitespace-sensitive, regex metacharacters are plain text. Copy it verbatim from get_doc output. Must not be empty.",
+        ),
+      newText: z
+        .string()
+        .describe("Replacement text. May be empty (deletes oldText). Must differ from oldText."),
+      replaceAll: z
+        .boolean()
+        .optional()
+        .describe("Replace every occurrence. Default false: exactly one match required."),
+      verbose: VERBOSE_FIELD,
+    },
+    async handler(input, ctx) {
+      const ref = input.ref as string;
+      const oldText = input.oldText as string;
+      const newText = input.newText as string;
+      const replaceAll = (input.replaceAll as boolean | undefined) ?? false;
+
+      const resolved = await resolveRefArg(ctx, ref);
+      if (resolved.entity.kind !== "section") {
+        throw new ValidationError(
+          `edit_section expects a section ref; got ${resolved.entity.kind}.`,
+        );
+      }
+      const { memexId, doc, slugs, entity } = resolved;
+      if (doc.docType === "standard") {
+        throw new ValidationError(
+          "Standards are edited at the clause grain. Use add_clause / edit_clause / delete_clause, not edit_section.",
+        );
+      }
+      const sectionRef = buildChildRef(slugs, doc, { type: "sections", seq: entity.row.seq });
+
+      const result = applyLiteralEdit(entity.row.content, oldText, newText, replaceAll);
+      if (result.kind === "invalid") {
+        throw new ValidationError(
+          result.reason === "empty-old"
+            ? "oldText must not be empty. To replace the whole section body, use update_section."
+            : "oldText and newText are identical; nothing to change.",
+        );
+      }
+      if (result.kind === "zero") {
+        throw new ValidationError(
+          `oldText not found in ${sectionRef}. Matching is exact, including whitespace and markdown syntax; re-read the section with get_doc and copy the text verbatim.`,
+        );
+      }
+      if (result.kind === "ambiguous") {
+        throw new ValidationError(
+          `oldText matches ${result.count} places in ${sectionRef}. Widen oldText with surrounding context until it is unique, or pass replaceAll: true to replace all ${result.count}.`,
+        );
+      }
+
+      const section = await updateSection(memexId, entity.row.id, result.content, {}, reqCtx(ctx));
+      if (ctx.verbose) {
+        const state = await fullDocState(memexId, section.docId);
+        const url = await ctx.workspaceUrl(memexId);
+        return await formatState(url, state, ctx);
+      }
+      return `Section edited: ${result.count} occurrence(s) replaced (ref: ${sectionRef}).`;
     },
   },
   // ── Clause CRUD (standards only) ──────────────────────────

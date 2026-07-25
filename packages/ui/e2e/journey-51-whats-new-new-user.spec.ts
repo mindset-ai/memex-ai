@@ -5,7 +5,6 @@ import {
   bareUrl,
   gotoSpecsBoard,
   setIdentityConfirmed,
-  dismissWelcomeVideo,
 } from "./helpers/index.js";
 import {
   signupWithToken,
@@ -90,8 +89,6 @@ test(
     await expect(page).toHaveURL(/\/onboarding/, { timeout: 15_000 });
     await page.getByPlaceholder("Your display name").fill("WhatsNew Test User");
     await page.getByRole("button", { name: /^Continue$/ }).click();
-    // spec-444: dismiss welcome video gate that fires for new users after name capture.
-    await dismissWelcomeVideo(page);
     // spec-498: a fresh user lands on their personal-memex Trails (via the /home
     // canonical redirect). Just a checkpoint before the What's New assertions below
     // (which navigate to the Specs board explicitly); the arm content is landing-agnostic.

@@ -66,36 +66,11 @@ else
   echo "  ⚠ slack-client-secret not found — Slack integration disabled (see b-23)"
   HAS_SLACK=0
 fi
-# ELEVENLABS_API_KEY is optional (spec-190 voice guide). Wired ONLY if the secret
-# exists, so a deploy never breaks before it's provisioned — voice simply stays
-# disabled (isVoiceConfigured() is false) until the secret lands. To light voice
-# up in an env, provisioning the secret is TWO steps (no code change needed):
-# create it, AND grant the Cloud Run runtime SA read access. The runtime SA reads
-# secrets PER-SECRET here (resource-level binding), not project-wide — so a
-# freshly-created secret is unreadable until bound, and the next deploy would
-# fail to mount ELEVENLABS_API_KEY without the grant. The deploy preflight below
-# (run by the github-deployer SA, which DOES have project-level access) detects
-# the secret either way; it's the runtime mount that needs the binding.
-#   printf %s "<key>" | gcloud secrets create elevenlabs-api-key --data-file=- \
-#     --project "${GCP_PROJECT}" --replication-policy=user-managed --locations=us-east4
-#   gcloud secrets add-iam-policy-binding elevenlabs-api-key --project "${GCP_PROJECT}" \
-#     --member="serviceAccount:<cloud-run-runtime-SA>" \
-#     --role="roles/secretmanager.secretAccessor"
-# Runtime SA: int = default compute SA (…-compute@developer); prod =
-# memex-api-runtime@memex-ai-prod.iam.gserviceaccount.com. (Mirrors how every
-# other Cloud Run secret — anthropic/openai/postmark — is already bound.)
-if gcloud secrets describe elevenlabs-api-key --project "${GCP_PROJECT}" >/dev/null 2>&1; then
-  echo "  ✓ elevenlabs-api-key present — voice guide enabled"
-  HAS_ELEVENLABS=1
-else
-  echo "  ⚠ elevenlabs-api-key not found — voice guide disabled (spec-190)"
-  HAS_ELEVENLABS=0
-fi
 # MIXPANEL_TOKEN is optional (spec-244 analytics forwarder, dec-2/dec-9). Wired ONLY
 # if the secret exists, so a deploy never breaks before it's provisioned — the
 # forwarder simply stays in capture-only mode (events land in usage_events and are
 # queryable in SQL; nothing forwards) until the secret lands. Same two-step
-# provisioning as ELEVENLABS above (NO further code change): create the per-env
+# provisioning as the other optional secrets (NO further code change): create the per-env
 # secret AND grant the Cloud Run runtime SA read access. The per-env separation
 # (dec-9) is the VALUE — the int secret holds the memex-int Mixpanel project token,
 # prod holds memex-prod's — so int events never reach the prod project.
@@ -356,9 +331,6 @@ fi
 if [ "$HAS_COHERE" = "1" ]; then
   SECRETS_WIRING+=",COHERE_API_KEY=cohere-api-key:latest"
 fi
-if [ "$HAS_ELEVENLABS" = "1" ]; then
-  SECRETS_WIRING+=",ELEVENLABS_API_KEY=elevenlabs-api-key:latest"
-fi
 if [ "$HAS_MIXPANEL" = "1" ]; then
   SECRETS_WIRING+=",MIXPANEL_TOKEN=memex-mixpanel-token:latest"
 fi
@@ -403,6 +375,13 @@ REMOVE_CONVERSION_SECRETS="${REMOVE_CONVERSION_SECRETS#,}"  # strip leading comm
 # MERGE leaves the live setting intact rather than blanking it — a deploy from a
 # checkout that never set the value can't silently un-hide features (spec-168
 # dec-4). The ${var+...} form is safe under `set -u`.
+# Resource/scaling flags (--memory/--min-instances/--max-instances/--concurrency/--cpu-boost)
+# are PINNED here, never left to the console: gcloud reverts anything a deploy doesn't
+# re-assert, so a console-set value silently disappears on the next deploy (std-26 §6 cl-136,
+# spec-489). --concurrency 80 / --cpu-boost restate the current live values so they survive.
+# DB_POOL_MAX is an optional per-env override of the db/connection.ts pool cap (prod=10, sized
+# against Cloud SQL max_connections=50 — spec-489/spec-332); omitted when unset, so a deploy
+# never blanks a live value.
 gcloud run deploy "${SERVICE}" \
   --image "${IMAGE}" \
   --platform managed \
@@ -414,8 +393,10 @@ gcloud run deploy "${SERVICE}" \
   --memory 512Mi \
   --min-instances 0 \
   --max-instances 3 \
+  --concurrency 80 \
+  --cpu-boost \
   --add-cloudsql-instances "${CLOUD_SQL_INSTANCE_CONN}" \
-  --update-env-vars "^|^NODE_ENV=production|DATABASE_URL=postgresql://${RUNTIME_DB_USER}:${RUNTIME_DB_PASS_ENC}@localhost:${DB_PORT}/${DB_NAME}|CLOUD_SQL_SOCKET=/cloudsql/${CLOUD_SQL_INSTANCE_CONN}|GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}|EMAIL_FROM=${EMAIL_FROM}|APP_BASE_URL=${APP_BASE_URL}|OAUTH_ENABLED=1|MEMEX_RLS_GUARD_THROW=1|SLACK_CLIENT_ID=${SLACK_CLIENT_ID}|SLACK_OAUTH_REDIRECT_URI=${API_BASE_URL}/api/auth/slack/callback|KMS_KEY_NAME=projects/${GCP_PROJECT}/locations/${REGION}/keyRings/memex/cryptoKeys/slack-tokens${HIDDEN_FEATURES+|HIDDEN_FEATURES=${HIDDEN_FEATURES}}${SIGNUP_DOMAIN_ALLOWLIST+|SIGNUP_DOMAIN_ALLOWLIST=${SIGNUP_DOMAIN_ALLOWLIST}}${STRIPE_PREMIUM_MONTHLY_PRICE_ID+|STRIPE_PREMIUM_MONTHLY_PRICE_ID=${STRIPE_PREMIUM_MONTHLY_PRICE_ID}}${STRIPE_PREMIUM_ANNUAL_PRICE_ID+|STRIPE_PREMIUM_ANNUAL_PRICE_ID=${STRIPE_PREMIUM_ANNUAL_PRICE_ID}}${STRIPE_ENTERPRISE_MONTHLY_PRICE_ID+|STRIPE_ENTERPRISE_MONTHLY_PRICE_ID=${STRIPE_ENTERPRISE_MONTHLY_PRICE_ID}}${STRIPE_ENTERPRISE_ANNUAL_PRICE_ID+|STRIPE_ENTERPRISE_ANNUAL_PRICE_ID=${STRIPE_ENTERPRISE_ANNUAL_PRICE_ID}}${OTEL_EXPORTER_OTLP_ENDPOINT+|OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT}}${MEMEX_OTEL_EXPORT_INTERVAL_MS+|MEMEX_OTEL_EXPORT_INTERVAL_MS=${MEMEX_OTEL_EXPORT_INTERVAL_MS}}${EMAIL_ACTIVATION_FROM+|EMAIL_ACTIVATION_FROM=${EMAIL_ACTIVATION_FROM}}${EMAIL_ACTIVATION_REPLY_TO+|EMAIL_ACTIVATION_REPLY_TO=${EMAIL_ACTIVATION_REPLY_TO}}${EMAIL_SENDER_NAME+|EMAIL_SENDER_NAME=${EMAIL_SENDER_NAME}}${ACTIVATION_EMAILS_ENABLED+|ACTIVATION_EMAILS_ENABLED=${ACTIVATION_EMAILS_ENABLED}}${ACTIVATION_CONNECT_GO_LIVE+|ACTIVATION_CONNECT_GO_LIVE=${ACTIVATION_CONNECT_GO_LIVE}}${STORAGE_PROVIDER+|STORAGE_PROVIDER=${STORAGE_PROVIDER}}${STORAGE_GCS_BUCKET+|STORAGE_GCS_BUCKET=${STORAGE_GCS_BUCKET}}" \
+  --update-env-vars "^|^NODE_ENV=production|DATABASE_URL=postgresql://${RUNTIME_DB_USER}:${RUNTIME_DB_PASS_ENC}@localhost:${DB_PORT}/${DB_NAME}|CLOUD_SQL_SOCKET=/cloudsql/${CLOUD_SQL_INSTANCE_CONN}|GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}|EMAIL_FROM=${EMAIL_FROM}|APP_BASE_URL=${APP_BASE_URL}|OAUTH_ENABLED=1|MEMEX_RLS_GUARD_THROW=1|SLACK_CLIENT_ID=${SLACK_CLIENT_ID}|SLACK_OAUTH_REDIRECT_URI=${API_BASE_URL}/api/auth/slack/callback|KMS_KEY_NAME=projects/${GCP_PROJECT}/locations/${REGION}/keyRings/memex/cryptoKeys/slack-tokens${DB_POOL_MAX+|DB_POOL_MAX=${DB_POOL_MAX}}${HIDDEN_FEATURES+|HIDDEN_FEATURES=${HIDDEN_FEATURES}}${SIGNUP_DOMAIN_ALLOWLIST+|SIGNUP_DOMAIN_ALLOWLIST=${SIGNUP_DOMAIN_ALLOWLIST}}${STRIPE_PREMIUM_MONTHLY_PRICE_ID+|STRIPE_PREMIUM_MONTHLY_PRICE_ID=${STRIPE_PREMIUM_MONTHLY_PRICE_ID}}${STRIPE_PREMIUM_ANNUAL_PRICE_ID+|STRIPE_PREMIUM_ANNUAL_PRICE_ID=${STRIPE_PREMIUM_ANNUAL_PRICE_ID}}${STRIPE_ENTERPRISE_MONTHLY_PRICE_ID+|STRIPE_ENTERPRISE_MONTHLY_PRICE_ID=${STRIPE_ENTERPRISE_MONTHLY_PRICE_ID}}${STRIPE_ENTERPRISE_ANNUAL_PRICE_ID+|STRIPE_ENTERPRISE_ANNUAL_PRICE_ID=${STRIPE_ENTERPRISE_ANNUAL_PRICE_ID}}${OTEL_EXPORTER_OTLP_ENDPOINT+|OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT}}${MEMEX_OTEL_EXPORT_INTERVAL_MS+|MEMEX_OTEL_EXPORT_INTERVAL_MS=${MEMEX_OTEL_EXPORT_INTERVAL_MS}}${EMAIL_ACTIVATION_FROM+|EMAIL_ACTIVATION_FROM=${EMAIL_ACTIVATION_FROM}}${EMAIL_ACTIVATION_REPLY_TO+|EMAIL_ACTIVATION_REPLY_TO=${EMAIL_ACTIVATION_REPLY_TO}}${EMAIL_SENDER_NAME+|EMAIL_SENDER_NAME=${EMAIL_SENDER_NAME}}${ACTIVATION_EMAILS_ENABLED+|ACTIVATION_EMAILS_ENABLED=${ACTIVATION_EMAILS_ENABLED}}${ACTIVATION_CONNECT_GO_LIVE+|ACTIVATION_CONNECT_GO_LIVE=${ACTIVATION_CONNECT_GO_LIVE}}${STORAGE_PROVIDER+|STORAGE_PROVIDER=${STORAGE_PROVIDER}}${STORAGE_GCS_BUCKET+|STORAGE_GCS_BUCKET=${STORAGE_GCS_BUCKET}}" \
   --update-secrets "${SECRETS_WIRING}" \
   ${REMOVE_CONVERSION_SECRETS:+--remove-secrets="${REMOVE_CONVERSION_SECRETS}"}
 
@@ -453,21 +434,6 @@ echo "  1d. default Standards backfill (spec-184 t-4 / ac-15)..."
 DATABASE_URL="${DB_URL}" timeout 600 pnpm db:backfill-default-standards \
   || echo "  ⚠ default-standards backfill timed out or failed (non-gating, exit $?) — deploy continues; next deploy resumes (idempotent)."
 
-# 1e. spec-190 t-7 / ac-18,ac-20 — import the repo's guide-content/ markdown into
-# the guide_content table (the voice guide's knowledge store). Content is imported
-# from the SAME commit being deployed, per environment, so the guide never describes
-# UI that isn't shipped here (dec-7d). The import is idempotent — upsert by
-# source_path + content_hash, so unchanged chunks are never re-embedded — and prunes
-# rows whose source file is gone, so it's safe to run on every deploy.
-#
-# Bounded + non-gating, exactly like 1c/1d: `timeout` caps the run and `|| echo`
-# swallows a timeout (124) or any error (incl. a frontmatter validation failure) so
-# `set -e` can never abort a live deploy; the next deploy resumes. Embeddings ride on
-# resolveEmbeddingProvider() (Cohere default); with no provider rows land vectorless
-# and FTS covers (spec-64 posture), so a missing embedding key never fails the deploy.
-echo "  1e. guide-content import (spec-190 t-7 / ac-18)..."
-DATABASE_URL="${DB_URL}" timeout 600 pnpm db:import-guide-content \
-  || echo "  ⚠ guide-content import timed out or failed (non-gating, exit $?) — deploy continues; next deploy resumes (idempotent)."
 
 # 1f. spec-200 t-3 / ac-8 — generate "What's New" feed entries for Specs newly
 # shipped to prod. dec-2: this runs at the daily promotion so the feed tracks

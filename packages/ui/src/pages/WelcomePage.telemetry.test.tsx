@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { tagAc } from '@memex-ai-ac/vitest';
 
 // spec-460 acceptance criteria (mindset-prod/memex-building-itself).
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-460/acs/ac-${n}`;
+// spec-507: the page is now opt-in only — one mode, one exit, no dismiss writes.
+const AC_ONE_MODE = 'mindset-prod/memex-building-itself/specs/spec-507/acs/ac-9';
 
 // spec-444 welcome-video instrumentation. The onboarding.video_* events ride the
 // SAME analytics client as every other front-end signal — useTelemetry().track()
@@ -15,16 +17,6 @@ const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-460/acs
 const track = vi.fn();
 vi.mock('../hooks/useTelemetry', () => ({
   useTelemetry: () => ({ track, optedOut: false, setOptOut: vi.fn() }),
-}));
-
-const updateSession = vi.fn();
-vi.mock('../components/AuthContext', () => ({
-  useAuth: () => ({ token: 'tok', updateSession }),
-}));
-
-const dismissWelcomeVideoApi = vi.fn(async () => ({}) as never);
-vi.mock('../api/auth', () => ({
-  dismissWelcomeVideoApi: () => dismissWelcomeVideoApi(),
 }));
 
 import { WelcomePage } from './WelcomePage';
@@ -46,8 +38,6 @@ function stubPlayback(video: HTMLVideoElement, currentTime: number, duration: nu
 describe('WelcomePage — onboarding.video_* telemetry', () => {
   beforeEach(() => {
     track.mockClear();
-    updateSession.mockClear();
-    dismissWelcomeVideoApi.mockClear();
     sessionStorage.clear();
   });
 
@@ -83,45 +73,38 @@ describe('WelcomePage — onboarding.video_* telemetry', () => {
     expect(completed[0][1]).toMatchObject({ video_id: 'welcome-to-memex-v6-1080p', percent_watched: 100 });
   });
 
-  // spec-462: before completion the primary button is "▶ Play now" / "Playing…",
-  // never a dismiss — so the skip-before-completion path is the "Skip" link (and the
-  // × close, covered by the next test). The primary button only dismisses once it
-  // has become "Get started →" (post-ended), and that path is NOT a skip.
-  it('fires onboarding.video_skipped ONCE when the Skip link dismisses before completion', async () => {
+  // spec-507: "skipped" no longer means "clicked the skip link" (there isn't one) —
+  // it means the viewer started the video and left before it ended.
+  it('fires onboarding.video_skipped ONCE when the viewer leaves mid-video', async () => {
     renderPage();
     const video = screen.getByTestId('welcome-video-player') as HTMLVideoElement;
     stubPlayback(video, 10, 120);
     fireEvent.play(video);
 
-    await userEvent.click(screen.getByTestId('welcome-video-skip'));
+    await userEvent.click(screen.getByTestId('welcome-video-back'));
 
     const skipped = track.mock.calls.filter((c) => c[0] === 'onboarding.video_skipped');
     expect(skipped).toHaveLength(1);
     expect(skipped[0][1]).toMatchObject({ video_id: 'welcome-to-memex-v6-1080p', position_seconds: 10 });
-    await waitFor(() => expect(dismissWelcomeVideoApi).toHaveBeenCalled());
-  });
-
-  it('fires onboarding.video_skipped when the × close (session dismiss) fires before completion', async () => {
-    renderPage();
-    const video = screen.getByTestId('welcome-video-player') as HTMLVideoElement;
-    stubPlayback(video, 5, 120);
-    fireEvent.play(video);
-
-    await userEvent.click(screen.getByTestId('welcome-video-close'));
-
-    expect(track.mock.calls.filter((c) => c[0] === 'onboarding.video_skipped')).toHaveLength(1);
   });
 
   it('does NOT fire onboarding.video_skipped once the video has completed', async () => {
     renderPage();
     const video = screen.getByTestId('welcome-video-player') as HTMLVideoElement;
     stubPlayback(video, 120, 120);
+    fireEvent.play(video);
     fireEvent.ended(video);
 
-    await userEvent.click(screen.getByTestId('welcome-video-cta'));
+    await userEvent.click(screen.getByTestId('welcome-video-back'));
 
     expect(track.mock.calls.filter((c) => c[0] === 'onboarding.video_skipped')).toHaveLength(0);
     expect(track.mock.calls.filter((c) => c[0] === 'onboarding.video_completed')).toHaveLength(1);
+  });
+
+  it('does NOT fire onboarding.video_skipped for a visitor who never pressed play', async () => {
+    renderPage();
+    await userEvent.click(screen.getByTestId('welcome-video-back'));
+    expect(track.mock.calls.filter((c) => c[0] === 'onboarding.video_skipped')).toHaveLength(0);
   });
 
   it('guards percent_watched against NaN/zero duration (metadata not yet loaded)', () => {
@@ -137,12 +120,10 @@ describe('WelcomePage — onboarding.video_* telemetry', () => {
 
 // spec-460 dec-1/dec-7: the "book a call" line is hidden during playback, revealed
 // once the viewer is ≥75% through (or the video ends), links to the neutral booking
-// alias in a new tab, and never gates the path to /specs.
+// alias in a new tab, and never gates the path back to /specs.
 describe('WelcomePage — spec-460 book-a-call reveal', () => {
   beforeEach(() => {
     track.mockClear();
-    updateSession.mockClear();
-    dismissWelcomeVideoApi.mockClear();
     sessionStorage.clear();
   });
 
@@ -168,8 +149,8 @@ describe('WelcomePage — spec-460 book-a-call reveal', () => {
     expect(link).toHaveAttribute('href', 'https://www.memex.ai/book-a-call?src=welcome-video');
     expect(link).toHaveAttribute('target', '_blank');
     expect(link).toHaveAttribute('rel', 'noopener noreferrer');
-    // Primary CTA (dec-1: no interstitial, path to /specs unchanged) still present.
-    expect(screen.getByTestId('welcome-video-cta')).toBeInTheDocument();
+    // The single exit (spec-507) is still present alongside the revealed CTA.
+    expect(screen.getByTestId('welcome-video-back')).toBeInTheDocument();
   });
 
   it('reveals at ≥75% via playback/seek, and via ended, and stays shown once revealed (fires once) (ac-9)', () => {
@@ -222,7 +203,7 @@ describe('WelcomePage — spec-460 book-a-call reveal', () => {
     expect(track.mock.calls.filter((c) => c[0] === 'onboarding.video_call_cta_clicked')).toHaveLength(1);
   });
 
-  it('points the video at the v4 CDN asset (ac-19)', () => {
+  it('points the video at the v6 CDN asset (ac-19)', () => {
     tagAc(AC(19));
     renderPage();
     const src = screen.getByTestId('welcome-video-player').getAttribute('src');
@@ -242,12 +223,19 @@ describe('WelcomePage — spec-460 book-a-call reveal', () => {
   });
 });
 
-// Rewatch-mode exit ("Back to Memex" / ×) lands on the specs board, not wherever
-// the user opened rewatch from (INT feedback: it dropped users on Home).
-describe('WelcomePage — rewatch exit destination', () => {
-  function renderRewatch() {
+// spec-507 ac-9: one mode, one exit. The gate is gone, so every affordance that
+// existed to soften a compulsory interstitial is gone with it — and the page must
+// no longer write the dismiss flag or the sessionStorage suppression key, because
+// nothing reads either for routing any more.
+describe('WelcomePage — spec-507: single opt-in mode', () => {
+  beforeEach(() => {
+    track.mockClear();
+    sessionStorage.clear();
+  });
+
+  function renderWithSpecs(route = '/welcome') {
     return render(
-      <MemoryRouter initialEntries={['/welcome?rewatch=1']}>
+      <MemoryRouter initialEntries={[route]}>
         <Routes>
           <Route path="/welcome" element={<WelcomePage />} />
           <Route path="/specs" element={<div data-testid="specs-board">specs</div>} />
@@ -256,15 +244,35 @@ describe('WelcomePage — rewatch exit destination', () => {
     );
   }
 
-  it('"Back to Memex" navigates to /specs', async () => {
-    renderRewatch();
+  it('renders no skip link, no × close, and no three-state play button', () => {
+    tagAc(AC_ONE_MODE);
+    renderPage();
+    expect(screen.queryByTestId('welcome-video-skip')).toBeNull();
+    expect(screen.queryByTestId('welcome-video-close')).toBeNull();
+    expect(screen.queryByTestId('welcome-video-cta')).toBeNull();
+    expect(screen.queryByText(/Skip, I'm already familiar/)).toBeNull();
+    expect(screen.getByTestId('welcome-video-back')).toBeInTheDocument();
+  });
+
+  it('"Back to Memex" is the single exit and lands on /specs', async () => {
+    tagAc(AC_ONE_MODE);
+    renderWithSpecs();
     await userEvent.click(screen.getByTestId('welcome-video-back'));
     expect(screen.getByTestId('specs-board')).toBeInTheDocument();
   });
 
-  it('× close in rewatch mode also navigates to /specs', async () => {
-    renderRewatch();
-    await userEvent.click(screen.getByTestId('welcome-video-close'));
-    expect(screen.getByTestId('specs-board')).toBeInTheDocument();
+  it('writes no sessionStorage suppression flag on exit', async () => {
+    tagAc(AC_ONE_MODE);
+    renderWithSpecs();
+    await userEvent.click(screen.getByTestId('welcome-video-back'));
+    expect(sessionStorage.getItem('welcomeVideoDismissed')).toBeNull();
+  });
+
+  it('behaves identically with the retired ?rewatch=1 parameter (one mode only)', () => {
+    tagAc(AC_ONE_MODE);
+    renderPage('/welcome?rewatch=1');
+    expect(screen.getByTestId('welcome-video-back')).toBeInTheDocument();
+    expect(screen.queryByTestId('welcome-video-cta')).toBeNull();
+    expect(screen.queryByTestId('welcome-video-close')).toBeNull();
   });
 });

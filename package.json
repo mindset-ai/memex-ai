@@ -9,7 +9,6 @@
     "build": "pnpm --filter @memex/server build && pnpm --filter @memex/ui build",
     "build:server": "pnpm --filter @memex/server build",
     "build:ui": "pnpm --filter @memex/ui build",
-    "release:sdk": "node scripts/release-sdk.mjs",
     "prepare": "husky",
     "lint": "biome ci",
     "lint:fix": "biome check --write",

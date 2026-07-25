@@ -99,12 +99,16 @@ describe('spec-167: on-accent foreground token', () => {
     // primary button renders text on a bg-accent fill (the token's intended case).
     // spec-493 t-2: EmailPreview.tsx added — the email-preview timeline's SELECTED
     // email chip is a bg-accent fill (the token's intended contrast case).
+    // spec-502: the onboarding wizard's primary buttons — NameStep "Continue" and
+    // ConsoleDemo "Connect my agent" — are bg-accent fills (the token's intended case).
     expect(consumers).toEqual(
       [
         'components/DesktopMcpSection.tsx',
         'components/home/CreateFirstSpecStep.tsx',
         'components/home/IdentityStep.tsx',
         'components/upgrade/PricingCard.tsx',
+        'onboarding/ConsoleDemo.tsx',
+        'onboarding/NameStep.tsx',
         'pages/EmailPreview.tsx',
         'pages/OauthAuthorize.tsx',
       ].sort(),

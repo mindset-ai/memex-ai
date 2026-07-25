@@ -124,8 +124,8 @@ meRouter.get("/", async (c) => {
 });
 
 // POST /api/me/provision — spec-474 dec-6: the first-load readiness step. Idempotently
-// content-seeds the CALLER's own personal Memex (default facets + Standards + the
-// "Understanding Memex" starter Spec) and stamps provisioned_at. Owner-scoped by
+// content-seeds the CALLER's own personal Memex (default facets + Standards; the starter
+// Spec seed was removed by spec-509 dec-2) and stamps provisioned_at. Owner-scoped by
 // construction (uses the session user's id — a caller can only provision their own
 // Memex), and safe to call repeatedly (a second call seeds nothing). The SPA calls
 // this once on first load, behind the "Getting your Memex ready…" blocker; running it

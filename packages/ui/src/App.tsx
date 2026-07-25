@@ -5,10 +5,8 @@ import {
   useState,
   useEffect,
   useRef,
-  useMemo,
-  type ReactNode,
 } from 'react';
-import { Routes, Route, useLocation, useParams, useNavigate, Navigate, Outlet } from 'react-router-dom';
+import { Routes, Route, useLocation, useParams, Navigate, Outlet } from 'react-router-dom';
 import { emailPreviewEnabled } from './utils/devTools';
 // spec-351: route-level code-splitting. Every top-level routed page is loaded
 // as its own lazy chunk so the entry bundle no longer eagerly pulls all ~35
@@ -16,7 +14,7 @@ import { emailPreviewEnabled } from './utils/devTools';
 // markdown stack, the LangGraph runtime). The pages export named symbols, so
 // each lazy import re-maps the named export onto `default` (what React.lazy
 // expects). Non-route building blocks (AppShell, DocumentShell, the providers,
-// the voice layer, and the VerifyEmailGate that several layouts render inline)
+// and the VerifyEmailGate that several layouts render inline)
 // stay eagerly imported below — splitting them would only add Suspense
 // boundaries on the critical path with no payload win.
 const Pulse = lazy(() => import('./pages/Pulse').then((m) => ({ default: m.Pulse })));
@@ -39,6 +37,9 @@ const NamespaceSettings = lazy(() =>
 // per-memex Brain (the knowledge-graph landing) replaces it as the default surface.
 // Kept in the tree, commented out, so it can be revived without re-plumbing.
 // const HomeCanvas = lazy(() => import('./pages/HomeCanvas').then((m) => ({ default: m.HomeCanvas })));
+// spec-502: the onboarding wizard (name → console demo → connect the agent →
+// land populated). Reached from the Explore companion's "Create your own Memex".
+const Wizard = lazy(() => import('./onboarding/Wizard').then((m) => ({ default: m.Wizard })));
 const StandardList = lazy(() =>
   import('./pages/StandardList').then((m) => ({ default: m.StandardList })),
 );
@@ -123,29 +124,24 @@ const ResetPassword = lazy(() =>
 // FlatShell, and RootRedirect (not as a routed element), so it sits on the
 // critical path for unverified users and is small.
 import { VerifyEmailGate } from './pages/VerifyEmailGate';
-import { AuthProvider, RequireAuth, useAuth, computeDefaultLanding } from './components/AuthContext';
+import { AuthProvider, RequireAuth, useAuth, computeReturnLanding } from './components/AuthContext';
+import { recordLastMemex } from './utils/lastMemex';
 import { ThemeProvider } from './components/ThemeContext';
 import { ChatProvider } from './components/ChatContext';
 import { AppShell } from './components/AppShell';
+import { ExploreCompanionMount } from './onboarding/ExploreCompanionMount';
 import { DocumentShell } from './components/DocumentShell';
 import { OrgConsentDialog } from './components/OrgConsentDialog';
 import { DesktopMcpStatusSync } from './components/DesktopMcpStatusSync';
-import { parseTenantFromPathname } from './utils/tenantUrl';
+import { parseTenantFromPathname, tenantPathFor } from './utils/tenantUrl';
+import { isOnboardingWizardEnabled } from './onboarding/flag';
 import { isFeatureHidden } from './utils/featureFlags';
 import { probePublicMemex, type PublicMemexProbe } from './api/client';
 import { PublicMemexProvider } from './components/PublicMemexContext';
-import {
-  VoiceSessionProvider,
-  createVoiceOrchestratorFactory,
-  setGuideBackend,
-} from '@memex/guide-sdk';
-import { VoiceLayer } from './voice/session/VoiceLayer';
-import { createReactRouterNavigationAdapter } from './voice/reactRouterNavigationAdapter';
 import { useTrackRouteChange, useTelemetry, trackAnonymous } from './hooks/useTelemetry';
 import { useStaleTenantForward } from './hooks/useStaleTenantForward';
-import { useShouldLandOnHome } from './journeys/landing';
-import { getCachedJourneyState } from './journeys/journeyStateCache';
-import { tenantBase, BASE_URL, fetchWithRetry } from './api/http';
+import { useShouldLandOnHome, isMcpConnectedCached } from './journeys/landing';
+import { tenantBase } from './api/http';
 import { SearchProvider } from './components/SearchContext';
 import { WhatsNewRibbonConnected } from './components/whats-new/WhatsNewRibbonConnected';
 import { WhatsNewProvider } from './components/whats-new/WhatsNewContext';
@@ -233,11 +229,30 @@ function TenantLayout() {
 
   // spec-479 dec-5: membership match for the URL's tenant (pure — safe while
   // session is still null). Reused below for the authed bounce.
-  const isMember =
-    !!session &&
-    session.memberships.some(
+  const matchedMembership =
+    session?.memberships.find(
       (m) => m.slug === namespace && (m.memexSlug === memex || (!m.memexSlug && memex === 'main')),
-    );
+    ) ?? null;
+  const isMember = !!matchedMembership;
+
+  // Remember the tenant the user is actively working in, so returning to the app
+  // (bare URL / login) lands them back here instead of defaulting to personal
+  // (computeReturnLanding). Only real, writable workspaces are recorded — never the
+  // read-only Explore/visited memexes, which we should never auto-land on.
+  const matchedSource = matchedMembership?.source;
+  const matchedAccess = matchedMembership?.accessLevel;
+  useEffect(() => {
+    if (
+      isMember &&
+      namespace &&
+      memex &&
+      matchedSource !== 'featured' &&
+      matchedSource !== 'visited' &&
+      matchedAccess !== 'read'
+    ) {
+      recordLastMemex(namespace, memex);
+    }
+  }, [isMember, namespace, memex, matchedSource, matchedAccess]);
   // A stale tenant URL (a memex whose slug was renamed) would otherwise bounce
   // to /login (anonymous) or the default landing (authed non-member). Before
   // bouncing, ask the server whether the path forwards. Fires ONLY on the miss.
@@ -289,23 +304,9 @@ function TenantLayout() {
     return <VerifyEmailGate />;
   }
   if (!session.user.name) return <Navigate to="/onboarding" replace />; // spec-441
-  // spec-444: welcome-video gate — after name capture, before the app.
-  // Extended scope (ac-17): also re-shows for returning users who haven't created
-  // a spec yet. Uses the cached journey state (populated by RootRedirect's one-shot
-  // read) so direct-URL navigation into a tenant doesn't skip the gate — if the
-  // cache is empty (first direct load, no prior / visit), fall back to the
-  // videoWelcomedAt check only so we never block with an uncached stale read.
-  {
-    const cached = getCachedJourneyState();
-    const noSpec = !!cached && !cached.milestones?.hasSpec;
-    if (
-      (!session.user.videoWelcomedAt || noSpec) &&
-      !sessionStorage.getItem('welcomeVideoDismissed') &&
-      !location.pathname.startsWith('/welcome')
-    ) {
-      return <Navigate to="/welcome" replace />;
-    }
-  }
+  // spec-507: the spec-444 welcome-video gate that used to sit here is GONE. Nothing
+  // routes a user to /welcome any more — the page survives only as an opt-in rewatch
+  // reached from the account menu. Do not reintroduce a redirect here.
 
   // Membership check: redirect to the user's default tenant when they aren't
   // a member of the URL's namespace/memex. This replaces the host-based
@@ -315,7 +316,7 @@ function TenantLayout() {
     // spec-479 dec-5: a renamed memex's old URL forwards here before bouncing.
     if (forward.state === 'loading') return null;
     if (forward.to) return <Navigate to={`${forward.to}${location.search}`} replace />;
-    const fallback = computeDefaultLanding(session);
+    const fallback = computeReturnLanding(session);
     if (fallback) return <Navigate to={fallback} replace />;
     return <Navigate to="/" replace />;
   }
@@ -327,105 +328,24 @@ function TenantLayout() {
   // callback; useDocChangeStream captures tenantBase() once on connect).
   return (
     <ChatProvider>
-      {/* spec-190 t-8/t-3: the voice guide is available on authed tenant routes
-          (the guide-chat SSE leg needs a session). VoiceGuideMount supplies the
-          real mic→STT→graph→TTS orchestrator factory + renders VoiceLayer beside
-          AppShell, so the shell needs no edit and the public branch — which never
-          mounts VoiceGuideMount — has no voice surface. */}
-      <VoiceGuideMount namespace={namespace ?? ''} memex={memex ?? ''}>
-        {/* spec-200: WhatsNewProvider lets the sidebar user menu re-open the
-            popup and gives the ribbon the menu anchor to animate "into" on
-            dismiss — so it wraps BOTH the ribbon and AppShell. */}
-        <WhatsNewProvider>
-          <OrgConsentDialog />
-          {/* spec-200: global What's New ribbon — authed shell only (inside
-              VoiceGuideMount so t-7's ear can reach the voice session). */}
-          <WhatsNewRibbonConnected />
-          {/* spec-305 dec-2: the Specky first-run greeting (FirstRunGreeting,
-              spec-206/242) is retired — onboarding is now the Home Canvas journey.
-              spec-312: it's a recede-able layer on /home, no longer a routing wall. */}
-          <AppShell>
-            <Fragment key={`${namespace}/${memex}`}>
-              <Outlet />
-            </Fragment>
-          </AppShell>
-        </WhatsNewProvider>
-      </VoiceGuideMount>
+      {/* spec-200: WhatsNewProvider lets the sidebar user menu re-open the
+          popup and gives the ribbon the menu anchor to animate "into" on
+          dismiss — so it wraps BOTH the ribbon and AppShell. */}
+      <WhatsNewProvider>
+        <OrgConsentDialog />
+        {/* spec-200: global What's New ribbon — authed shell only. */}
+        <WhatsNewRibbonConnected />
+        <AppShell>
+          <Fragment key={`${namespace}/${memex}`}>
+            <Outlet />
+          </Fragment>
+        </AppShell>
+        {/* spec-502 t-5: the context-aware Explore companion overlays the
+            featured (building-itself) demo surface for wizard-eligible users.
+            Renders nothing on the user's own memexes / when the flag is off. */}
+        <ExploreCompanionMount namespace={namespace ?? ''} memex={memex ?? ''} />
+      </WhatsNewProvider>
     </ChatProvider>
-  );
-}
-
-/**
- * spec-190 t-3 — mounts the voice session provider with the REAL orchestrator
- * factory (the mic→STT→graph→TTS loop) and the VoiceLayer overlay. Lives inside
- * the router tree so navigate / route context resolve. The factory is stable
- * (built once); live values (token, tenant, screen) are read through refs/helpers
- * each turn so a session is never swapped out from under itself.
- */
-function VoiceGuideMount({
-  namespace,
-  memex,
-  children,
-}: {
-  namespace: string;
-  memex: string;
-  children: ReactNode;
-}) {
-  const { token } = useAuth();
-  const navigate = useNavigate();
-  // All live values flow through this ref so the factory can be created ONCE and
-  // never change identity. `navigate` in particular gets a new identity on router
-  // re-renders; if the factory depended on it, the provider's memoized orchestrator
-  // would be recreated mid-turn — and its cleanup effect would stop() the in-flight
-  // orchestrator, dropping the spoken reply (the turn finished with stopped=true).
-  const liveRef = useRef({ token, namespace, memex, navigate });
-  liveRef.current = { token, namespace, memex, navigate };
-
-  const factory = useMemo(
-    () => {
-      // spec-222 (ac-9): the engine navigates ONLY through the injected adapter.
-      // The app supplies its react-router + @memex/shared backed implementation;
-      // it reads live values via liveRef so the factory stays stable for the
-      // component's lifetime. The token-carrying guide-chat leg + the retrying
-      // fetch are injected via setGuideBackend (replaces the engine's old reach
-      // into ./api/http + ./api/client).
-      setGuideBackend({ baseUrl: tenantBase() ?? BASE_URL, fetchImpl: fetchWithRetry });
-      const adapter = createReactRouterNavigationAdapter({
-        navigate: (path: string) => liveRef.current.navigate(path),
-        namespace: liveRef.current.namespace,
-        memex: liveRef.current.memex,
-      });
-      return createVoiceOrchestratorFactory({
-        adapter,
-        // spec-474: the demo-walkthrough surface is gone. The guide-sdk orchestrator
-        // still types `advanceDemo`/`startWalkthrough` as required deps, so we pass
-        // inert no-ops — with the `walkthrough` capability no longer enabled, the
-        // advance_demo / start_walkthrough tools never reach these anyway.
-        advanceDemo: () => {},
-        startWalkthrough: () => {},
-        authToken: () => liveRef.current.token,
-        tenantBase: () => tenantBase(),
-        origin: typeof window !== 'undefined' ? window.location.origin : '',
-        getScreenContext: () => {
-          const screenKey = adapter.currentScreenKey();
-          return {
-            screenKey,
-            screenRegistry: adapter.elementsForScreen?.(screenKey) ?? [],
-            namespace: liveRef.current.namespace,
-            memex: liveRef.current.memex,
-          };
-        },
-      });
-    },
-    // Stable for the component's lifetime — live values are read via liveRef.
-    [],
-  );
-
-  return (
-    <VoiceSessionProvider orchestratorFactory={factory}>
-      {children}
-      <VoiceLayer />
-    </VoiceSessionProvider>
   );
 }
 
@@ -485,32 +405,44 @@ function RootRedirect() {
   if (!session) return null; // session bootstrap still pending
   if (!emailVerified) return <VerifyEmailGate />;
   if (!session.user.name) return <Navigate to="/onboarding" replace />; // spec-441
-  // spec-444: welcome-video gate — / and /login always redirect here.
-  // Fast path: first-timers (no videoWelcomedAt) redirect immediately.
-  if (
-    !session.user.videoWelcomedAt &&
-    !sessionStorage.getItem('welcomeVideoDismissed')
-  ) {
-    return <Navigate to="/welcome" replace />;
-  }
+  // spec-507: the spec-444 first-timer video redirect used to fire HERE, ahead of the
+  // spec-502 value-first landing below — so every new signup met a 4:43 explainer
+  // before the wizard's first surface. Removed; the featured-demo branch is now the
+  // first thing a spec-less user sees.
   if (homeHidden) {
-    // Loop-avoidance: 'home' hidden ⇒ land on the default tenant, no journey read.
-    const fallback = computeDefaultLanding(session);
+    // Loop-avoidance: 'home' hidden ⇒ land on the last-visited (or default) tenant,
+    // no journey read.
+    const fallback = computeReturnLanding(session);
     return fallback ? <Navigate to={fallback} replace /> : null;
   }
   if (landOnHome === null) return null; // assessing onboarding state — draw nothing yet
-  // spec-444 extended scope (ac-17): returning users who have not yet created a
-  // spec re-see the video on each new session until they do. landOnHome = !hasSpec.
-  if (landOnHome && !sessionStorage.getItem('welcomeVideoDismissed')) {
-    return <Navigate to="/welcome" replace />;
+  // spec-507: the spec-444 ac-17 re-show ("show the video every session until you
+  // create a spec") lived here. It re-walled precisely the cohort that had already
+  // bounced, every session. Gone.
+  // spec-502 (ac-1): value-first onboarding. A spec-less new signup lands on the
+  // featured demo Memex (building-itself) FIRST — where the context-aware Explore
+  // companion invites them to "Create your own Memex" — instead of their own empty
+  // board. Gated on the onboarding-wizard kill-switch (dec-5), and only fires when
+  // the server has surfaced a featured demo membership (spec-500) AND the user is
+  // UNACTIVATED — 0 specs AND no MCP (spec-508). landOnHome = !hasSpec; the MCP leg
+  // reads the same journey-state the predicate just cached. The goal is to plant the
+  // wizard's "install an MCP" ask in front of people who haven't yet; a user who has
+  // authored a spec OR already connected an agent falls through to their normal board.
+  const mcpConnected = isMcpConnectedCached();
+  if (landOnHome && !mcpConnected && isOnboardingWizardEnabled(session)) {
+    const featured = session.memberships.find((m) => m.source === 'featured');
+    if (featured) {
+      const mx = featured.memexSlug ?? 'main';
+      return <Navigate to={tenantPathFor(featured.slug, mx, '/home')} replace />;
+    }
   }
   // The global /home (build-prompt hero) is PARKED — the per-memex Brain replaces it as
   // the default surface. The spec-470 dec-9 confirmedSpecLess → /home auto-land is
-  // therefore retired: everyone now falls through to their default tenant landing
-  // (computeDefaultLanding), which lands on the memex whose index is now the Brain.
-  // The spec-444 welcome-video gate above still fires first for first-timers. Revive
-  // the confirmedSpecLess → /home branch here if the Home Canvas comes back.
-  const target = computeDefaultLanding(session);
+  // therefore retired: everyone now falls through to their tenant landing. This is the
+  // returning-user landing, so it prefers the tenant they were last in
+  // (computeReturnLanding), falling back to personal — instead of always personal.
+  // Revive the confirmedSpecLess → /home branch here if the Home Canvas comes back.
+  const target = computeReturnLanding(session);
   if (target) return <Navigate to={target} replace />;
   return null;
 }
@@ -550,6 +482,10 @@ export function PostLoginRouter() {
       <Route path="/onboarding" element={<Onboarding />} />
       {/* spec-444: full-page welcome video. Standalone (no AppShell) — no FlatShell wrapper. */}
       <Route path="/welcome" element={<WelcomePage />} />
+      {/* spec-502: the onboarding wizard. The Explore companion's CTA opens it as a
+          large closeable modal (WizardModal) over the live Memex; this standalone
+          full-page route stays for direct/resume deep-links (no AppShell). */}
+      <Route path="/wizard" element={<div className="min-h-screen flex flex-col justify-center"><Wizard /></div>} />
       <Route path="/invite/:token" element={<InviteAccept />} />
       {/* spec-141 dec-3: install instructions + MCP tokens folded into the one
           Integrations page. Old routes redirect (the /account→/org pattern).
@@ -755,21 +691,13 @@ export function PostLoginRouter() {
 // routes; flat routes that want chrome get them here.
 function FlatShell({ children }: { children: React.ReactNode }) {
   const { session } = useAuth();
-  const location = useLocation();
+  // spec-507: `useLocation()` used to feed the welcome-video gate's
+  // `!location.pathname.startsWith('/welcome')` guard. That gate is gone, and
+  // nothing else here reads the location.
   if (session && !session.user.emailVerified) return <VerifyEmailGate />;
   if (session && !session.user.name) return <Navigate to="/onboarding" replace />; // spec-441
-  // spec-444: welcome-video gate — deep-link users on flat routes also see the video.
-  // Extended scope (ac-17): also fires when the cached journey state shows !hasSpec.
-  if (session && !location.pathname.startsWith('/welcome')) {
-    const cached = getCachedJourneyState();
-    const noSpec = !!cached && !cached.milestones?.hasSpec;
-    if (
-      (!session.user.videoWelcomedAt || noSpec) &&
-      !sessionStorage.getItem('welcomeVideoDismissed')
-    ) {
-      return <Navigate to="/welcome" replace />;
-    }
-  }
+  // spec-507: the fourth and quietest spec-444 gate lived here — it walled deep links
+  // to flat routes (/settings/*, /org) too. Removed with the other three.
   return (
     <ChatProvider>
       <OrgConsentDialog />

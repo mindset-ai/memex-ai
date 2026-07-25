@@ -3,7 +3,6 @@
 // dec-4: a transient-but-sticky slide-up RIBBON (not a permanent chrome icon).
 // When an undismissed entry newer than the user's last-dismissed marker exists,
 // the ribbon slides up. Clicking it opens a popup of recent entries, newest-first.
-// Each entry carries an ear affordance that asks Specky to explain it (t-7).
 //
 // Follow-up behaviour changes (2026-06-13), per the originator:
 //  1. Confetti fires only the FIRST time a given entry is seen (a localStorage
@@ -21,7 +20,6 @@
 //     earlier dec-4 "popup close ≠ dismiss" rule.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Specky } from '@memex/guide-sdk';
 import { Confetti } from './Confetti';
 import { useWhatsNew } from './WhatsNewContext';
 import { fetchWhatsNew, type WhatsNewEntry, type WhatsNewResponse } from '../../api/whatsNew';
@@ -60,8 +58,6 @@ function prefersReducedMotion(): boolean {
 }
 
 export interface WhatsNewRibbonProps {
-  /** t-7: ask Specky to explain an entry. */
-  onExplain?: (entry: WhatsNewEntry) => void;
   /** Injected for tests; defaults to the real GET /api/whats-new. */
   fetcher?: () => Promise<WhatsNewResponse>;
   /** Auto-dismiss countdown in ms; 0 disables it (tests). Default 6000. */
@@ -69,7 +65,6 @@ export interface WhatsNewRibbonProps {
 }
 
 export function WhatsNewRibbon({
-  onExplain,
   fetcher = fetchWhatsNew,
   autoDismissMs = AUTO_DISMISS_MS,
 }: WhatsNewRibbonProps) {
@@ -377,7 +372,6 @@ export function WhatsNewRibbon({
               {entries.map((e) => (
                 <article
                   key={e.id}
-                  data-guide-id={`whats-new-entry-${e.sourceSpecHandle}`}
                   className="border-b border-edge py-4 last:border-b-0"
                 >
                   <div className="mb-1.5 flex items-center gap-2">
@@ -394,17 +388,6 @@ export function WhatsNewRibbon({
                     <span className="mr-2 text-[10px] uppercase tracking-wide text-muted">Why</span>
                     {e.why}
                   </p>
-                  {onExplain && (
-                    <button
-                      type="button"
-                      data-testid={`whats-new-ear-${e.sourceSpecHandle}`}
-                      onClick={() => onExplain(e)}
-                      className="mt-2.5 inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent/10 px-3 py-1 text-xs text-accent hover:bg-accent/20"
-                    >
-                      <Specky size={16} alt="" animated={false} />
-                      Ask Specky to explain
-                    </button>
-                  )}
                 </article>
               ))}
             </div>

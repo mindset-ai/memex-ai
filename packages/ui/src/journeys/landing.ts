@@ -15,17 +15,31 @@
 // a reassess-and-re-persist per render — the very clunk this replaces.
 import { useEffect, useState } from 'react';
 import { fetchJourneyStateApi, type JourneyStateResponse } from '../api/journey';
-import { setCachedJourneyState } from './journeyStateCache';
+import { getCachedJourneyState, setCachedJourneyState } from './journeyStateCache';
+
+/**
+ * spec-508: is the just-assessed user MCP-connected? Reads the same cached journey
+ * state `useShouldLandOnHome` populates. RootRedirect pairs this with the spec-less
+ * predicate to keep the featured-demo landing to UNACTIVATED users (0 specs AND no
+ * MCP). Kept here (not inline in App.tsx) so the router stays free of the journey-
+ * cache plumbing — the spec-507 cleanup guard asserts App.tsx never touches it.
+ */
+export function isMcpConnectedCached(): boolean {
+  return !!getCachedJourneyState()?.milestones.mcpConnected;
+}
 
 /**
  * Pure predicate: has this user NOT yet created their first spec?
  *
  * NOTE (spec-461 dec-1): this predicate NO LONGER decides a /home landing — the automatic
  * Home landing was retired, so RootRedirect always lands users on their Specs board. The
- * predicate survives because it still keys two behaviours: the spec-444 welcome-video
- * re-show gate (spec-less + not-dismissed → /welcome) and the `graduated` engagement
- * signal on the home.landing_routed telemetry. The name is kept for continuity with
- * spec-421; read it as "spec-less?", not "should land on Home".
+ * predicate survives because it still keys two behaviours: the spec-502 value-first
+ * landing (a spec-less user goes to the featured demo Memex) and the `graduated`
+ * engagement signal on the home.landing_routed telemetry. The name is kept for continuity
+ * with spec-421; read it as "spec-less?", not "should land on Home".
+ *
+ * spec-507: it used to key a third — the spec-444 welcome-video re-show gate. That gate
+ * is gone; nothing routes to /welcome any more.
  *
  * "Not engaged yet" is keyed on the `hasSpec` milestone — the user has created their first
  * (non-demo) spec, the terminal step of the VISIBLE 3-step onboarding (spec-421: About you →
@@ -34,8 +48,9 @@ import { setCachedJourneyState } from './journeyStateCache';
  * and every non-developer — as un-engaged forever.
  *
  * Returns `true` while the user has no spec yet, `false` once they do. A `null` state
- * (still loading, or the read failed) returns `true` so the welcome re-show still fires for
- * a brand-new user rather than being skipped on a transient read failure.
+ * (still loading, or the read failed) returns `true`, so on a transient read failure a
+ * brand-new user is still treated as spec-less (the value-first landing fires) rather
+ * than being mistaken for an established user.
  */
 export function shouldLandOnHome(state: JourneyStateResponse | null): boolean {
   return !state?.milestones?.hasSpec;
@@ -45,10 +60,10 @@ export function shouldLandOnHome(state: JourneyStateResponse | null): boolean {
  * Router hook: resolve the spec-less signal from a one-shot, read-only journey-state
  * read. Returns `boolean | null` — `null` while the read is in flight so the router can
  * render nothing (no stale-state flash / redraw). On a failed read it resolves to
- * `shouldLandOnHome(null)` (= true) so the welcome re-show still fires rather than being
- * skipped on a transient blip. Post spec-461 this drives the welcome gate + engagement
- * telemetry, not a Home landing. `enabled = false` (e.g. when 'home' is hidden) skips the
- * fetch entirely.
+ * `shouldLandOnHome(null)` (= true) so a new user still gets the value-first landing
+ * rather than being skipped past it on a transient blip. Post spec-461 / spec-507 this
+ * drives the spec-502 featured-demo landing + engagement telemetry, not a Home landing.
+ * `enabled = false` (e.g. when 'home' is hidden) skips the fetch entirely.
  */
 export function useShouldLandOnHome(enabled = true): boolean | null {
   const [landOnHome, setLandOnHome] = useState<boolean | null>(null);

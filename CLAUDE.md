@@ -59,11 +59,11 @@ mcp__memex__get_doc({ref: "mindset-prod/memex-building-itself/standards/std-N"})
 | std-26 | Deploying Memex follows one runbook — prerequisites, the int→prod sequence, and the gotchas that bite (the procedural sibling of std-9's topology). |
 | std-27 | Charts & data-viz: one theme-aware palette + glass treatment — `useChartPalette()`/`insightsTheme` from `packages/ui/src/components/insights/theme.ts`, reserved hue semantics, translucent fills with crisp edges, integer count ticks, themed tooltips, noise excluded server-side. |
 | std-28 | PR-gate e2e journeys are mandatory — every change that adds/alters a user-facing flow adds or extends a Playwright journey in `packages/ui/e2e`; journey work is part of EVERY Spec's lifecycle (surfaced in plan, delivered in build, gating verify); run `make e2e-cold` before opening every PR; the suite runs per-PR against a cold DB and is a required check on develop + main; path-based nav, seed via the env-gated test surface (no raw SQL). The merge-side sibling of std-17's post-deploy smoke rule. Authoring a journey + local-run gotchas (cold-DB `PGPASSWORD`, stale `@memex/shared` build, browser install): [`packages/ui/e2e/README.md`](packages/ui/e2e/README.md). |
-| std-29 | Guide content (Specky) stays current with the UI it documents — content changes ride alongside the surfaces they describe. |
+| std-29 | Guide content (Specky) stays current with the UI it documents — drift flagged for retirement (spec-508 removed the voice guide + its content pipeline). |
 | std-30 | All LLM access goes through the metering wrapper (`getAnthropicClient()` singleton) — the only sanctioned path; direct `new Anthropic(...)` construction is forbidden. |
 | std-31 | No real person or customer names in this public Memex (it builds itself in the open). |
 | std-32 | The activity contract — every activity-bearing table (`documents`/`acs`/`tasks`/`decisions`/`doc_sections`/`doc_comments`/`test_events`/`activity_log`) carries WHEN (`at`, the row's own timestamp) + WHO (`actor_user_id` + denormalised `actor_name`, stamped at write so a rename can't rewrite history) + HOW (`channel`) + WHAT-coarse (owning-spec ref); load-bearing fields are first-class columns, only decorative context lives in `metadata`/`payload`. Identity rides the explicit `RequestCtx` through `mutate()` (not AsyncLocalStorage); a missing channel is a visible defect, never a silent 'server'. The attribution sibling of std-8 (spec-122 dec-2). |
-| std-33 | Embedding the guide SDK (Specky) — pluggable navigation + RAG, vendored `dist/`, host-injected backend (`@memex/guide-sdk`). |
+| std-33 | Embedding the guide SDK (Specky) — drift flagged for retirement (spec-508 deleted `packages/guide-sdk` and the /guide/v1 backend). |
 | std-34 | No human-facing surface instructs an MCP-only step — signal the web↔MCP capability boundary in copy (the honest-CTA rule). |
 | std-35 | Usage events / Mixpanel — the metering + product-analytics event recipe. |
 | std-36 | Tenant RLS posture — `ENABLE` row-level security, never `FORCE`; `runWithMemexId` ALS sets `memex_id`; views are `security_invoker`. |
@@ -91,7 +91,6 @@ packages/ui/        React 19 UI (Vite, TailwindCSS) — the "React UI"
 packages/cli/       memex-ai npm package (MCP installer, zero-dep)
 packages/extractor/ Code intelligence ingestion
 packages/shared/    Shared types/utilities (pure — no server deps)
-packages/guide-sdk/    Embeddable guide SDK (Specky) — std-33
 packages/db-schema/    Standalone Drizzle schema, published to the GitHub npm registry (Backstage control plane)
 packages/ac-emit-vitest/  `@memex-ai/vitest` — the AC test-event emitter for Vitest
 scripts/deploy-config.sh    env-keyed deploy values (std-9 documents this)

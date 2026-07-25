@@ -13,8 +13,6 @@
 import {
   ensureUser,
   setUserName,
-  setOnboardingGreeted,
-  setVideoWelcomed,
   setIdentityConfirmed,
   DEV_EMAIL,
   DEV_NAME,
@@ -28,13 +26,6 @@ export default async function globalSetup(): Promise<void> {
   // spec-305: needsOnboarding now keys off identity_confirmed_at (not !name), so stamp
   // the dev user identity-confirmed too — otherwise every journey is redirected to /onboarding.
   await setIdentityConfirmed(DEV_EMAIL, true);
-  // spec-206: pre-stamp the dev user greeted so Specky's first-run auto-greeting
-  // doesn't fire on the first journey to load the board (the per-test fixture
-  // re-asserts this too).
-  await setOnboardingGreeted(DEV_EMAIL, true);
-  // spec-444: pre-stamp the dev user as having watched the welcome video so the
-  // /welcome gate doesn't intercept journeys that don't exercise it. The per-test
-  // fixture also asserts this; globalSetup handles the cold-DB first-test case where
-  // no resources fixture has yet run (e.g. journey-10 is first alphabetically).
-  await setVideoWelcomed(DEV_EMAIL, true);
+  // spec-507 + spec-508: the welcome-video and voice-greeting pre-stamps that used to
+  // close this function are gone along with the first-run gates they defended against.
 }

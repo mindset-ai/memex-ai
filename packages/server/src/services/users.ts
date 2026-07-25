@@ -41,7 +41,13 @@ export interface MembershipSummary {
   // `listMembershipsMatchingDomain` produces sets it explicitly. Treat an
   // absent value as 'org' (full-access) — the read-only path is opt-IN via an
   // explicit 'visited'/'read', never inferred from absence.
-  source?: "org" | "visited";
+  //
+  // `featured` (spec-500): a `visibility='public' AND is_featured_demo=true`
+  // memex surfaced read-only to EVERY authenticated user (the "Explore" group),
+  // regardless of membership or prior visit. Like `visited` it is read-only and
+  // creates no membership; unlike `visited` it needs no pin. The UI renders it
+  // under an "Explore" header.
+  source?: "org" | "visited" | "featured";
   // Effective access level for this row. 'write' for org rows (std-4 members),
   // 'read' for visited public memexes. Distinct from `role` (which is the
   // user's org role, meaningless for non-members). Optional for the same
@@ -227,34 +233,6 @@ export async function isLifecycleEmailUnsubscribed(userId: string): Promise<bool
     .where(eq(users.id, userId))
     .limit(1);
   return !!row?.at;
-}
-
-// spec-206 t-1 (dec-3 / dec-4 / ac-14): stamp the first-run greeting flag.
-// Idempotent — the FIRST greeting wins; a later call is a no-op that preserves
-// the original timestamp, so the auto-greeting never re-fires (on any device).
-// Called by the client only once Specky's opening turn reaches `active` (dec-4).
-export async function markOnboardingGreeted(userId: string): Promise<User> {
-  const existing = await getUserById(userId);
-  if (!existing) throw new ValidationError(`User ${userId} not found`);
-  if (existing.onboardingGreetedAt) return existing;
-
-  const [updated] = await db
-    .update(users)
-    .set({ onboardingGreetedAt: new Date(), updatedAt: new Date() })
-    .where(eq(users.id, userId))
-    .returning();
-  return updated;
-}
-
-// spec-444: stamp the permanent welcome-video dismiss. Idempotent — first dismiss wins.
-export async function markVideoWelcomed(userId: string): Promise<void> {
-  const existing = await getUserById(userId);
-  if (!existing) throw new ValidationError(`User ${userId} not found`);
-  if (existing.videoWelcomedAt) return;
-  await db
-    .update(users)
-    .set({ videoWelcomedAt: new Date(), updatedAt: new Date() })
-    .where(eq(users.id, userId));
 }
 
 export async function setUserPasswordHash(userId: string, passwordHash: string): Promise<User> {
@@ -485,6 +463,59 @@ export async function listMemberships(userId: string): Promise<MembershipSummary
     ...personalMemberships.map((m) => m.memexId),
   ]);
 
+  // Featured demo memexes (spec-500). A `visibility='public' AND
+  // is_featured_demo=true` memex is surfaced read-only to EVERY authenticated
+  // user — no org membership, no prior visit, no pin required. This is the
+  // "Explore: Memex building itself" entry. Like the visited channel it is
+  // strictly read-only (write still requires org membership, std-4) and creates
+  // no membership row.
+  //
+  // Computed BEFORE the visited channel, and visited excludes featured ids, so
+  // "Explore" takes precedence over "Visited": opening the featured entry writes
+  // a user_memex_access pin (recordPublicMemexVisit fires for any signed-in
+  // non-member reading a public memex), and without this precedence the entry
+  // would silently jump from "Explore" to "Visited" after the first click.
+  //
+  // De-dup against org+personal so a Mindset member who is an org member of the
+  // featured memex keeps seeing it ONCE, via the org channel with write access —
+  // never downgraded to a duplicate read-only "Explore" row (spec-500 ac-11/ac-8).
+  const featuredRows = await db
+    .select({
+      memexId: memexes.id,
+      slug: namespaces.slug,
+      memexSlug: memexes.slug,
+      memexName: memexes.name,
+      visibility: memexes.visibility,
+    })
+    .from(memexes)
+    .innerJoin(namespaces, eq(memexes.namespaceId, namespaces.id))
+    .where(
+      and(
+        eq(memexes.isFeaturedDemo, true),
+        eq(memexes.visibility, "public"),
+      ),
+    );
+
+  const featuredMemberships: MembershipSummary[] = featuredRows
+    .filter((r) => !orgReachableIds.has(r.memexId))
+    .map((r) => ({
+      memexId: r.memexId,
+      slug: r.slug,
+      memexSlug: r.memexSlug,
+      name: r.memexName,
+      memexName: r.memexName,
+      kind: "team" as const,
+      // Non-members have no org role; 'member' is the lowest-privilege label.
+      // `source`/`accessLevel` are the load-bearing read-only signal, not `role`.
+      role: "member" as const,
+      source: "featured" as const,
+      // Read-only: there is no write path for a non-member on a public memex
+      // (canWriteMemex stays false); write still requires org membership.
+      accessLevel: "read" as const,
+      visibility: r.visibility as "public" | "private",
+    }));
+  const featuredIds = new Set<string>(featuredMemberships.map((m) => m.memexId));
+
   const visitedRows = await db
     .select({
       memexId: memexes.id,
@@ -499,7 +530,9 @@ export async function listMemberships(userId: string): Promise<MembershipSummary
     .where(eq(userMemexAccess.userId, userId));
 
   const visitedMemberships: MembershipSummary[] = visitedRows
-    .filter((r) => !orgReachableIds.has(r.memexId))
+    // Exclude anything already reachable via org/personal (write) OR surfaced as
+    // a featured "Explore" entry — a stale pin never produces a duplicate row.
+    .filter((r) => !orgReachableIds.has(r.memexId) && !featuredIds.has(r.memexId))
     .map((r) => ({
       memexId: r.memexId,
       slug: r.slug,
@@ -520,7 +553,12 @@ export async function listMemberships(userId: string): Promise<MembershipSummary
       visibility: r.visibility as "public" | "private",
     }));
 
-  return [...personalMemberships, ...orgMembershipSummaries, ...visitedMemberships];
+  return [
+    ...personalMemberships,
+    ...orgMembershipSummaries,
+    ...featuredMemberships,
+    ...visitedMemberships,
+  ];
 }
 
 // Record that a signed-in NON-member has visited a public memex (spec-111 t-6).

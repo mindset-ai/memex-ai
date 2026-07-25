@@ -9,8 +9,8 @@
 // /home" is reframed: RootRedirect routes THROUGH /home to Trails, and the old parked
 // Home Canvas is never the destination. The build-prompt-hero auto-land (spec-470
 // dec-9) was itself retired with the Home Canvas; every cohort now resolves to the
-// default surface. The welcome-video re-show (spec-less + not-dismissed → /welcome)
-// and the /onboarding name gate are unchanged.
+// default surface. (spec-507 later removed the welcome-video re-show this file used to
+// assert; the /onboarding name gate is unchanged.)
 //
 //   ac-1 (scope) — no authenticated user is ever stranded on the parked Home Canvas;
 //                  a has-spec user, and one whose journey read fails/loads, lands on
@@ -45,7 +45,7 @@ function makeSession(opts: {
       name: opts.name === undefined ? 'Alice' : (opts.name as string),
       status: 'active',
       emailVerified: opts.emailVerified ?? true,
-      videoWelcomedAt: new Date(), // spec-444: suppress the first-run welcome fast-path
+      videoWelcomedAt: null,
     },
     memberships: [
       {
@@ -171,7 +171,6 @@ function renderAt(path: string) {
 describe('spec-461 t-1: RootRedirect never strands the user on the parked Home Canvas (dec-1)', () => {
   beforeEach(() => {
     vi.stubEnv('VITE_GOOGLE_CLIENT_ID', 'test-client-id');
-    sessionStorage.setItem('welcomeVideoDismissed', '1'); // spec-444: suppress the re-show gate by default
     resetCachedJourneyState(); // isolate the spec-470 confirmedSpecLess cache read between tests
     fetchJourneyStateApi.mockClear();
     trackMock.mockClear();
@@ -180,7 +179,6 @@ describe('spec-461 t-1: RootRedirect never strands the user on the parked Home C
   });
   afterEach(() => {
     vi.unstubAllEnvs();
-    sessionStorage.removeItem('welcomeVideoDismissed');
   });
 
   // Every cohort now resolves to the default surface (Trails) via the canonical
@@ -232,21 +230,11 @@ describe('spec-461 t-1: RootRedirect never strands the user on the parked Home C
     }
   });
 
-  it('ac-3 / ac-5: the spec-444 welcome re-show still fires (spec-less + not-dismissed → /welcome)', async () => {
-    tagAc(AC(3));
-    tagAc(AC(5));
-    sessionStorage.removeItem('welcomeVideoDismissed'); // NOT dismissed this session
-    mockSession = makeSession({ hiddenFeatures: [] });
-    journeyFetch = () => Promise.resolve(journeyState(false));
-    renderAt('/');
-    await waitFor(() => {
-      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/welcome');
-    });
-  });
+  // spec-507 removed the welcome-video re-show this file used to assert here. The
+  // inverse — nobody is ever routed to /welcome — is now covered by App.spec-507.test.tsx.
 
-  it('ac-5: a has-spec user (not-dismissed) is NOT sent to /welcome — lands on the default surface', async () => {
+  it('ac-5: a spec-having user lands on the default surface', async () => {
     tagAc(AC(5));
-    sessionStorage.removeItem('welcomeVideoDismissed');
     mockSession = makeSession({ hiddenFeatures: [] });
     journeyFetch = () => Promise.resolve(journeyState(true));
     renderAt('/');

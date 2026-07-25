@@ -1,28 +1,12 @@
-// spec-200 t-7: wires the What's New ear to the spec-190 voice session.
+// spec-200: the app-shell mount point for the What's New ribbon.
 //
-// dec-6 (seed-the-guide): clicking an entry's ear starts a voice session seeded
-// with that entry's text, so the guide (Specky) opens by explaining THAT entry.
-// Kept separate from WhatsNewRibbon so the ribbon stays decoupled from the voice
-// provider (and unit-testable without it). Rendered only inside VoiceGuideMount,
-// so useVoiceSession always has its provider here.
+// Historically (spec-200 t-7) this wired the ribbon's "Ask Specky to explain"
+// ear to the spec-190 voice session; spec-508 removed the voice guide, so the
+// ribbon now renders without an explain affordance and this wrapper only keeps
+// the mount seam stable.
 
-import { useVoiceSession, isAffordanceDisabled } from '@memex/guide-sdk';
 import { WhatsNewRibbon } from './WhatsNewRibbon';
-import type { WhatsNewEntry } from '../../api/whatsNew';
-
-/** The seed text handed to the guide as guideContext for the opening turn. */
-export function formatEntryForGuide(e: WhatsNewEntry): string {
-  return `What's New — ${e.title}. What shipped: ${e.what} Why it matters: ${e.why}`;
-}
 
 export function WhatsNewRibbonConnected() {
-  const session = useVoiceSession();
-  // ac-14: hide the ear where the guide can't run (no mic / mic_unavailable) —
-  // the same gate spec-190 uses for its own voice affordance. No orphaned ear.
-  const guideAvailable = !isAffordanceDisabled(session);
-  return (
-    <WhatsNewRibbon
-      onExplain={guideAvailable ? (e) => void session.start(formatEntryForGuide(e)) : undefined}
-    />
-  );
+  return <WhatsNewRibbon />;
 }

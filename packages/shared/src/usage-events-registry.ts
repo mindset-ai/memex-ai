@@ -77,16 +77,6 @@ export const USAGE_EVENT_REGISTRY = [
     source: "frontend",
   },
   {
-    name: "voice.session_started",
-    description: "The voice agent session started.",
-    source: "frontend",
-  },
-  {
-    name: "voice.session_ended",
-    description: "The voice agent session ended. props.durationMs only.",
-    source: "frontend",
-  },
-  {
     name: "home_canvas.step_shown",
     description:
       "A Home Canvas onboarding journey step became the active card (spec-303/305). props.step is the step id (low-cardinality enum). Recorded via POST /api/me/journey-event, not /telemetry.",
@@ -114,6 +104,55 @@ export const USAGE_EVENT_REGISTRY = [
     name: "signup.cta_clicked",
     description:
       "A visitor clicked the primary signup CTA on the signup view (funnel step between form_viewed and account.created). Recorded IDENTIFIER-LESS via the anonymous telemetry ingress (POST /api/telemetry) under legitimate interest — no consent, no visitor_id, no session; pure volume (spec-367). DNT not honoured; settings opt-out applies. props.method is the auth method enum.",
+    source: "frontend",
+  },
+  // ── Onboarding-wizard funnel (spec-502 t-6, std-35) ─────────────────────────
+  // The value-first Explore → agent-connect wizard, one event per step, so the
+  // whole path reads as a funnel per cohort (spec-205). Its OWN `wizard.*`
+  // namespace, distinct from the parked Home-journey `home_canvas.*`/`onboarding.*`
+  // surfaces (spec-324's guard reserves `onboarding.*` for the Home journey). The
+  // HEADLINE metric is reached-connect → connected (ac-5/ac-10): wizard.reached_connect
+  // here, then the back-end mcp.connected / mcp.tool_called seam. Ids/enums only.
+  {
+    name: "wizard.explore_viewed",
+    description:
+      "The Explore companion was shown over the featured demo Memex (wizard step 0). props.memexId is the featured Memex being explored (opaque UUID). The funnel head for the wizard.",
+    source: "frontend",
+  },
+  {
+    name: "wizard.create_cta_clicked",
+    description:
+      "The standing 'Create your own Memex' CTA in the Explore companion was clicked — the intent to leave the demo and start the wizard.",
+    source: "frontend",
+  },
+  {
+    name: "wizard.memex_named",
+    description:
+      "The user submitted the wizard's name-it step (the single memex-name field; no org step, dec-3). No name text is sent — a bool/enum only signal that the step completed.",
+    source: "frontend",
+  },
+  {
+    name: "wizard.demo_viewed",
+    description:
+      "The wizard's console-demo step (typed 'create a spec for …') was shown — the value beat before the connect ask.",
+    source: "frontend",
+  },
+  {
+    name: "wizard.reached_connect",
+    description:
+      "The user reached the wizard's agent-connect step (the hard gate). The denominator for the headline reached-connect → connected conversion (ac-5); pairs with the back-end mcp.connected / mcp.tool_called seam.",
+    source: "frontend",
+  },
+  {
+    name: "wizard.welcome_viewed",
+    description:
+      "The centered first-landing welcome card was shown over the featured demo Memex (spec-508 Part 3). Fired once per mount, ahead of wizard.explore_viewed — it sits before the companion in the funnel. No props.",
+    source: "frontend",
+  },
+  {
+    name: "wizard.welcome_ok",
+    description:
+      "The user dismissed the centered welcome card (OK / Esc / backdrop, spec-508 Part 3), morphing it into the Explore companion. The welcome→companion conversion; a completion signal only, no props.",
     source: "frontend",
   },
   // ── Front-end engagement interactions (track(), spec-336 follow-on) ──────────
@@ -193,18 +232,6 @@ export const USAGE_EVENT_REGISTRY = [
     source: "frontend",
   },
   {
-    name: "voice.mic_permission_result",
-    description:
-      "The browser microphone permission prompt resolved during a voice session attempt. props.result is the outcome enum (granted | denied | dismissed).",
-    source: "frontend",
-  },
-  {
-    name: "voice.icon_shown",
-    description:
-      "The voice entry point was presented to the user (the adoption denominator). Fired once per mount, not per render. props.surface is where it appeared (icon | pill).",
-    source: "frontend",
-  },
-  {
     name: "home.landing_routed",
     description:
       "The app router (RootRedirect) decided a user's first-load landing from a read-only onboarding-state check (spec-421 dec-5). props.destination is where they were sent (home | specs); props.graduated (bool) is whether the onboarding journey was graduated. Lets us measure whether routing graduated users straight to their Specs board lifts engagement. Advisory (never throws into routing).",
@@ -246,41 +273,44 @@ export const USAGE_EVENT_REGISTRY = [
       "The user handed a document to the new-home import hero (spec-473), handing off to the create-spec dialog. Fires on submit. props.method ('paste' | 'file') — how the document was provided; a low-cardinality enum, never the document text.",
     source: "frontend",
   },
-  // ── Onboarding welcome video (spec-444) ─────────────────────────────────────
-  // The first-run welcome video (WelcomePage). Front-end lifecycle signals fired
-  // via useTelemetry().track() from the tenant-scoped /telemetry ingress, so they
-  // carry the real actor_user_id and join the activation funnel. Each fires AT
-  // MOST ONCE per view (ref-guarded — replay/seek/pause never re-fire). Props are
-  // IDs + counts only (std-35 cl-5): a stable video_id plus playback position /
-  // duration / percent (all NaN-guarded numbers, never content).
+  // ── Intro video (spec-444, retired as a gate by spec-507) ───────────────────
+  // The intro video (WelcomePage). spec-507 removed the first-run gate, so these
+  // now measure DELIBERATE watches: the only way onto the page is the "Watch intro
+  // video" entry in the account menu. Volume dropped sharply at that deploy — that
+  // is the gate going away, not a broken pipe (std-35 cl-21). Front-end lifecycle
+  // signals fired via useTelemetry().track() from the tenant-scoped /telemetry
+  // ingress, so they carry the real actor_user_id. Each fires AT MOST ONCE per view
+  // (ref-guarded — replay/seek/pause never re-fire). Props are IDs + counts only
+  // (std-35 cl-5): a stable video_id plus playback position / duration / percent
+  // (all NaN-guarded numbers, never content).
   {
     name: "onboarding.video_started",
     description:
-      "The first-run welcome video began playing (WelcomePage, spec-444). Fires at most once per view on the first play/playing event. props.video_id (stable video slug), props.position_seconds, props.duration_seconds, props.percent_watched (0–100, NaN-guarded) — counts only.",
+      "The intro video began playing (WelcomePage, opt-in from the account menu since spec-507). Fires at most once per view on the first play/playing event. props.video_id (stable video slug), props.position_seconds, props.duration_seconds, props.percent_watched (0–100, NaN-guarded) — counts only.",
     source: "frontend",
   },
   {
     name: "onboarding.video_completed",
     description:
-      "The first-run welcome video reached its end (WelcomePage 'ended', spec-444). Fires at most once per view. props.video_id, props.position_seconds, props.duration_seconds, props.percent_watched (0–100, NaN-guarded) — counts only. The activation-funnel success signal for the video step.",
+      "The intro video reached its end (WelcomePage 'ended'). Fires at most once per view. props.video_id, props.position_seconds, props.duration_seconds, props.percent_watched (0–100, NaN-guarded) — counts only. The success signal for a watch.",
     source: "frontend",
   },
   {
     name: "onboarding.video_skipped",
     description:
-      "The user dismissed/skipped the first-run welcome video BEFORE completion (WelcomePage Get-started / Skip / × close, spec-444). Fires at most once per view and only when the video has not already completed. props.video_id, props.position_seconds, props.duration_seconds, props.percent_watched (0–100, NaN-guarded) — counts only.",
+      "The viewer started the intro video and left the page before it ended (WelcomePage 'Back to Memex' or unmount). Since spec-507 there is no skip link or dismiss button, so this means abandonment mid-watch, not a declined interstitial. Fires at most once per view, only after playback started and only when the video has not completed. props.video_id, props.position_seconds, props.duration_seconds, props.percent_watched (0–100, NaN-guarded) — counts only.",
     source: "frontend",
   },
   {
     name: "onboarding.video_call_cta_shown",
     description:
-      "The 'book a call' line on the welcome video revealed once the viewer crossed ~85% of the v4 video, or it ended (WelcomePage, spec-460). Fires at most once per view. props.video_id, props.position_seconds, props.duration_seconds, props.percent_watched — counts only.",
+      "The 'book a call' line on the intro video revealed once the viewer crossed 75% of the video, or it ended (WelcomePage, spec-460 dec-7). Fires at most once per view. props.video_id, props.position_seconds, props.duration_seconds, props.percent_watched — counts only.",
     source: "frontend",
   },
   {
     name: "onboarding.video_call_cta_clicked",
     description:
-      "The viewer clicked the revealed 'book a 30-minute call' link on the welcome video (WelcomePage, spec-460), opening the /book-a-call alias in a new tab. props.video_id + playback counts only.",
+      "The viewer clicked the revealed 'book a 30-minute call' link on the intro video (WelcomePage, spec-460), opening the /book-a-call alias in a new tab. props.video_id + playback counts only.",
     source: "frontend",
   },
   {

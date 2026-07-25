@@ -53,7 +53,9 @@ interface MemexProvenance {
 export async function listWhereYoureNeededForUser(userId: string): Promise<WhereNeededItem[]> {
   const provByMemex = new Map<string, MemexProvenance>();
   for (const m of await listMemberships(userId)) {
-    if (m.source === "visited") continue; // read-only public pins are not membership
+    // Read-only rows (visited pins, spec-111; featured "Explore" memexes,
+    // spec-500) are public browsing, NOT the user's membership work — skip them.
+    if (m.accessLevel === "read") continue;
     if (!provByMemex.has(m.memexId)) {
       provByMemex.set(m.memexId, {
         namespaceSlug: m.slug,

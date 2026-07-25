@@ -14,6 +14,7 @@ import { MemexSwitcher } from './MemexSwitcher';
 import { InviteMembersDialog } from './InviteMembersDialog';
 import { PublicAuthButtons, ReadOnlyBadge } from './PublicAccessControls';
 import { GettingStartedCard } from './GettingStartedCard';
+import { useOnboardingWizardEnabled } from '../onboarding/flag';
 import { useMemexAccess } from '../hooks/useMemexAccess';
 import { emailPreviewEnabled } from '../utils/devTools';
 import { HeaderSlotProvider, useHeaderSlotContent } from './HeaderSlot';
@@ -613,8 +614,16 @@ function SidebarUserCard({
               Email preview
             </UserMenuLink>
           )}
-          {/* spec-444: always-visible rewatch entry — present regardless of dismissal state. */}
-          <UserMenuLink to="/welcome?rewatch=1" icon={<PlayCircleIcon />} onClick={() => setOpen(false)}>
+          {/* spec-507: since the first-run gate was retired this is the ONLY way into the
+              intro video from inside the app — so it must keep resolving (std-34: no menu
+              entry promising a surface the app can't show). The old `?rewatch=1` parameter
+              is dropped; the page has one mode now. */}
+          <UserMenuLink
+            to="/welcome"
+            icon={<PlayCircleIcon />}
+            testId="user-menu-watch-video"
+            onClick={() => setOpen(false)}
+          >
             Watch intro video
           </UserMenuLink>
           {/* spec-460: long-tail fallbacks for the two CTAs — always present so
@@ -675,17 +684,6 @@ function InvitePersonIcon() {
   );
 }
 
-// Maps a nav link's in-tenant path to its voice-guide element id (the
-// GLOBAL_GUIDE_ELEMENTS in @memex/shared). Only the always-visible links are
-// tagged; soft-launch-hidden ones (Pulse, Scaffold) are intentionally absent.
-const NAV_GUIDE_IDS: Record<string, string> = {
-  '/specs': 'specs-nav',
-  '/issues': 'issues-nav',
-  '/insights': 'insights-nav',
-  '/standards': 'standards-nav',
-  '/drift': 'drift-nav',
-};
-
 function NavItem({
   to,
   label,
@@ -720,14 +718,9 @@ function NavItem({
   const resolvedTo = flat ? to : resolveNavTo(to, pathname, session?.memberships);
   const tenantSuffix = stripTenantPrefix(pathname);
   const matchedAlt = altPaths?.includes(tenantSuffix) ?? false;
-  // spec-190 (dec-4 / t-5): tag the global nav links so the voice guide can
-  // highlight them ("show, don't just tell"). The ids are the GLOBAL_GUIDE_ELEMENTS
-  // in @memex/shared guide-registry; keep the two in sync.
-  const guideId = NAV_GUIDE_IDS[to];
   return (
     <NavLink
       to={resolvedTo}
-      data-guide-id={guideId}
       className={({ isActive }) => {
         const active = isActive || matchedAlt;
         return [
@@ -888,6 +881,12 @@ export function AppShell({ children }: { children: ReactNode }) {
     : session?.memberships.find((m) => m.memexId === session?.currentMemexId);
   const showOrgConfig =
     currentMembership?.role === 'administrator' && currentMembership?.kind === 'team';
+  // spec-502: while the user is exploring the featured demo Memex, the Explore
+  // companion IS the single onboarding surface — suppress the sidebar Getting
+  // Started card here so two "start here" widgets don't compete. Same signal the
+  // companion mounts on (source==='featured' + the onboarding-wizard flag).
+  const wizardEnabled = useOnboardingWizardEnabled();
+  const exploringFeaturedDemo = wizardEnabled && currentMembership?.source === 'featured';
   // spec-111: gear → per-Memex settings (visibility toggle). Admins only —
   // matching the server-side admin gate on the visibility PATCH and the
   // MemexSettings route guard. Personal-Memex owners come back as
@@ -1041,7 +1040,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             {access.isAuthenticated && access.isVisitedReadOnly && <ReadOnlyBadge />}
             {/* spec-460: Getting Started card — desktop-app + book-a-call, above the
                 user card. Self-retiring; renders null once its rows are done/dismissed. */}
-            {user && <GettingStartedCard userId={user.id} />}
+            {user && !exploringFeaturedDemo && <GettingStartedCard userId={user.id} />}
             {user && (
               <SidebarUserCard
                 user={user}

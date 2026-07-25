@@ -23,10 +23,13 @@ const cap = vi.hoisted(() => ({
   calls: 0,
 }));
 
-// Mock the LAST seeder in seedNewPersonalMemex's allSettled. It always runs (the starter-spec +
-// default-Standards seeders are gated OFF suite-wide by the vitest config), so it is a clean
-// probe: whatever ALS context it observes is exactly the context the real seeders' INSERTs run
-// under. The mock does no DB work, so the test stays isolated to the namespace/memex rows.
+// Mock the facets seeder — the FIRST seeder provisioning runs, and the one that always runs
+// (the default-Standards seeder is gated OFF suite-wide by the vitest config; spec-509 dec-2
+// deleted the starter-spec seeder that used to sit beside it). It is a clean probe: whatever
+// ALS context it observes is exactly the context the REMAINING seeders' INSERTs run under, so
+// the spec-436 RLS-context guarantee is still exercised after the starter seeder's removal
+// (spec-509 t-5 requires this coverage survive, re-pointed rather than deleted). The mock does
+// no DB work, so the test stays isolated to the namespace/memex rows.
 vi.mock("./default-facets.js", () => ({
   seedDefaultFacetsForMemexBestEffort: vi.fn(async () => {
     const { memexContext } = await import("../db/connection.js");
@@ -44,9 +47,8 @@ const createdNamespaceIds: string[] = [];
 const createdUserIds: string[] = [];
 
 beforeAll(() => {
-  // Keep the heavy seeders off (the default vitest posture) — only the mocked facets probe
-  // runs, so this test neither writes demo/standards rows nor depends on RLS being enforced.
-  process.env.MEMEX_HANDHOLD_SIGNUP_SEED = "off";
+  // Keep the heavy seeder off (the default vitest posture) — only the mocked facets probe
+  // runs, so this test neither writes standards rows nor depends on RLS being enforced.
   process.env.MEMEX_DEFAULT_STANDARDS_SIGNUP_SEED = "off";
 });
 

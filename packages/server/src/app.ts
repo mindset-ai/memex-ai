@@ -23,9 +23,6 @@ import { docAssigneesRouter } from "./routes/doc-assignees.js";
 import { versionsRouter } from "./routes/versions.js";
 import { executionPlans } from "./routes/execution-plans.js";
 import { llmRouter } from "./routes/llm.js";
-import { createNodeWebSocket } from "@hono/node-ws";
-import { createVoiceRouter } from "./routes/voice.js";
-import { createGuidePublicRouter } from "./routes/guide-public.js";
 import { docEventsRouter } from "./routes/doc-events.js";
 import { activity } from "./routes/activity.js";
 import { qaReports } from "./routes/qa-reports.js";
@@ -48,8 +45,6 @@ import { wellKnown, publicBaseUrl } from "./routes/well-known.js";
 import driftRouter from "./routes/drift.js";
 import { search } from "./routes/search.js";
 import { internalLifecycleRouter } from "./routes/internal-lifecycle.js";
-import { onboarding } from "./routes/onboarding.js";
-import { welcomeVideo } from "./routes/welcome-video.js";
 import { testEventsRouter } from "./routes/test-events.js";
 import { specCheckoutRouter } from "./routes/spec-checkout.js";
 import { hookKeysRouter } from "./routes/hook-keys.js";
@@ -91,12 +86,6 @@ import { dirname, join } from "node:path";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const app = new Hono();
-
-// spec-190 t-1 / dec-9: WebSocket support for the voice loop's audio leg.
-// createNodeWebSocket binds to THIS app instance; index.ts calls
-// injectWebSocket(server) after serve(). upgradeWebSocket registers the voice
-// WS route (mounted below). The LLM text proxy stays on SSE (dec-2).
-const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
 
 // CORS policy lives in middleware/cors-policy.ts so it can be unit-tested without
 // pulling in the DB connection. See that file for the rationale on each entry.
@@ -306,15 +295,6 @@ app.route("/api/orgs", scaffoldRouter);
 app.route("/api/:namespace/:memex/scaffold", personalScaffoldRouter);
 app.use("/api/:namespace/:memex/llm/*", sessionMiddleware);
 app.route("/api/:namespace/:memex/llm", llmRouter);
-// spec-190 t-1: voice WS proxy, tenancy-scoped. Deliberately NO sessionMiddleware
-// on /voice/* broadly — the WS handshake (/voice/session) can't carry an
-// Authorization header, so the router authenticates the connect-query token
-// itself (routes/voice.ts). memexResolver (global) has already resolved c.memex.
-// spec-190 t-3: the guide's LLM text leg (/voice/guide-chat) IS a normal HTTP
-// POST carrying a Bearer token, so it gets sessionMiddleware — scoped to just
-// that path so the WS route stays middleware-free.
-app.use("/api/:namespace/:memex/voice/guide-chat", sessionMiddleware);
-app.route("/api/:namespace/:memex/voice", createVoiceRouter(upgradeWebSocket));
 // Tenancy-scoped membership / admin surfaces — drift fix to t-12. These were
 // previously mounted flat at /api/team, /api/invites, and /api/orgs/current/*
 // but their handlers all read `ctx.currentMemexId`, which memexResolver only
@@ -360,15 +340,6 @@ app.route("/api/spec-checkout", specCheckoutRouter);
 app.use("/api/llm/*", sessionMiddleware);
 app.route("/api/llm", llmRouter);
 
-// spec-222 t-10/t-11/t-12 (dec-4/dec-9): the PUBLIC anonymous voice-guide backend,
-// versioned under /guide/v1. Mounted WITHOUT sessionMiddleware and OUTSIDE the
-// tenant prefix (mirrors the public waitlist mount) — it has no login and no
-// tenant. /session mints a short-lived signed anon token; the WS (/voice) + SSE
-// (/chat) legs verify that token themselves (origin-gated, rate-limited, hard
-// per-session cap). It reuses the SAME ElevenLabs/Anthropic proxy + surface-keyed
-// corpus/persona as routes/voice.ts — only the auth source + abuse controls differ.
-app.route("/guide/v1", createGuidePublicRouter(upgradeWebSocket));
-
 // Caller-scoped + public surfaces — stay flat (no path prefix). These have no
 // per-memex semantics, so prefixing them would be noise.
 // spec-479 dec-5 — public page-path redirect resolution for the CDN-served SPA.
@@ -392,13 +363,10 @@ app.route("/api/auth", auth);
 // non-tenant (global drip + Day-12 pass); self-authenticates a shared bearer secret
 // (LIFECYCLE_TICK_SECRET), NOT the user session. The sole trigger is Cloud Scheduler.
 app.route("/api/internal", internalLifecycleRouter);
-// /api/onboarding — spec-206: the user-level first-run greeting gate for the
-// Specky welcome (greet-eligibility read + once-per-user stamp). User-keyed, no
-// memex semantics, so it stays flat.
-app.route("/api/onboarding", onboarding);
-// /api/welcome-video — spec-444: user-level PATCH to stamp permanent video dismiss.
-// User-keyed, no memex semantics, flat mount.
-app.route("/api/welcome-video", welcomeVideo);
+// spec-507 + spec-508: /api/welcome-video (spec-444's video dismiss) and /api/onboarding
+// (spec-206's voice greeting gate) are both retired with their first-run gates. The
+// users.video_welcomed_at column survives as history (spec-507 dec-2); onboarding_greeted_at
+// was dropped with the voice guide (spec-508, migration 0130).
 // /api/orgs — t-14 + t-16 of doc-15. Single org-creation + admin surface.
 // Replaces the retired /api/accounts and /api/account mounts.
 app.route("/api/orgs", orgsRouter);
@@ -754,4 +722,4 @@ app.all("/mcp", async (c) => {
   });
 });
 
-export { app, injectWebSocket };
+export { app };

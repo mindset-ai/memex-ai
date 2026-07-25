@@ -11,6 +11,17 @@
 //   ac-20 — ensureUserNamespace creates the Memex but seeds NO content (signup doesn't wait).
 //   ac-21 — provisionUserMemex seeds the content + stamps provisioned_at, idempotently.
 //   ac-22 — getPersonalMemexProvisionState reports readiness (the signal the SPA reads).
+//
+// ── spec-509: this suite is now ALSO the no-content-seed guard ─────────────────
+// spec-509 dec-2 deleted the starter-Spec seeder, so "the content" provisioning seeds is
+// facets + Standards and NOTHING ELSE. The ac-21 test below therefore asserts a ZERO spec
+// count where it used to assert exactly one starter Spec (spec-509 ac-13), while still
+// asserting the Standards ARE seeded (ac-15) — the positive control that distinguishes
+// "correctly seeded no Spec" from "provisioning silently failed".
+//
+// The guard is UNCONDITIONAL by construction: dec-2 removed the seeder rather than gating
+// it behind MEMEX_HANDHOLD_SIGNUP_SEED, so this cannot pass merely because an env var
+// happens to be set in the test environment. That is exactly why the flag was rejected.
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
@@ -24,24 +35,24 @@ import {
 } from "./user-namespaces.js";
 import { upsertUserByEmail } from "./users.js";
 import { DEFAULT_STANDARDS_COUNT } from "../db/default-standards.fixture.js";
-import { STARTER_SPEC_TITLE } from "../db/starter-spec.fixture.js";
 
 const AC474 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-474/acs/ac-${n}`;
 const AC_SIGNUP_NONBLOCK = AC474(20);
 const AC_READINESS_ENDPOINT = AC474(21);
 const AC_READINESS_SIGNAL = AC474(22);
+const AC509 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-509/acs/ac-${n}`;
 
 const createdNamespaceIds: string[] = [];
 const createdUserIds: string[] = [];
 
 beforeAll(() => {
   // spec-186: the vitest config disables the signup-seed hooks suite-wide; this suite
-  // verifies provisioning fires, so opt back in (read at CALL time).
-  process.env.MEMEX_HANDHOLD_SIGNUP_SEED = "on";
+  // verifies provisioning fires, so opt back in (read at CALL time). spec-509 dec-2
+  // removed MEMEX_HANDHOLD_SIGNUP_SEED entirely along with the seeder it gated, so the
+  // Standards seed is the only hook left to opt in.
   process.env.MEMEX_DEFAULT_STANDARDS_SIGNUP_SEED = "on";
 });
 afterAll(() => {
-  process.env.MEMEX_HANDHOLD_SIGNUP_SEED = "off";
   process.env.MEMEX_DEFAULT_STANDARDS_SIGNUP_SEED = "off";
 });
 afterAll(async () => {
@@ -78,10 +89,11 @@ type DocRow = {
   status: string;
 };
 
-function starterDocs(docs: DocRow[]) {
-  return docs.filter(
-    (d) => d.docType === "spec" && d.title === STARTER_SPEC_TITLE && d.createdByUserId === null,
-  );
+/** Every Spec in the memex, regardless of title or attribution. spec-509 ac-13 is a
+ *  count-of-ZERO commitment, so the guard must NOT filter by the retired title — a seeder
+ *  reintroduced under a different name has to trip it too. */
+function specDocs(docs: DocRow[]) {
+  return docs.filter((d) => d.docType === "spec");
 }
 
 async function docsIn(memexId: string): Promise<DocRow[]> {
@@ -106,7 +118,7 @@ describe("spec-474 dec-6 — provisioning is off the signup path, on the readine
     await trackNamespace(user.id);
 
     const docs = await docsIn(created.memex.id);
-    expect(starterDocs(docs)).toHaveLength(0);
+    expect(specDocs(docs)).toHaveLength(0);
     expect(docs.filter((d) => d.docType === "standard")).toHaveLength(0);
 
     const state = await getPersonalMemexProvisionState(user.id);
@@ -114,11 +126,15 @@ describe("spec-474 dec-6 — provisioning is off the signup path, on the readine
     expect(state.memexId).toBe(created.memex.id);
   });
 
-  it("provisionUserMemex seeds the starter Spec + all Standards and stamps provisioned_at, idempotently (ac-21)", async () => {
+  it("provisionUserMemex seeds all Standards and NO Spec, and stamps provisioned_at, idempotently (ac-21 / spec-509 ac-13 + ac-15)", async () => {
     tagAc(AC_READINESS_ENDPOINT);
-    tagAc(AC474(1)); // scope: exactly one system-attributed starter spec, no demo, seeded directly
-    tagAc(AC474(10)); // impl: provisioning seeds via a direct seedStarterSpec call (no experiment path)
-    tagAc(AC474(12)); // impl: exactly one spec doc — title/attribution/is_demo/status shape
+    // spec-509 ac-13: the no-content-seed guard. Zero Specs in a freshly provisioned
+    // personal Memex — the whole point of dec-2.
+    tagAc(AC509(13));
+    // spec-509 ac-15: the positive control. Standards + facets are still seeded inside
+    // runWithMemexId, so a zero spec count means "seeded nothing" and NOT "provisioning
+    // failed" — without this, a total seed failure and a correct removal look identical.
+    tagAc(AC509(15));
     const user = await newUser();
     const created = await ensureUserNamespace(user.id);
     await trackNamespace(user.id);
@@ -129,15 +145,12 @@ describe("spec-474 dec-6 — provisioning is off the signup path, on the readine
     expect(first.memexId).toBe(memexId);
 
     const docs = await docsIn(memexId);
-    const starters = starterDocs(docs);
-    expect(starters).toHaveLength(1);
-    // ac-12: the one starter spec is system-attributed, non-demo, and lands in 'specify'.
-    expect(starters[0].createdByUserId).toBeNull();
-    expect(starters[0].isDemo).toBe(false);
-    expect(starters[0].status).toBe("specify");
-    // ac-1 / ac-12: no demo walkthrough content is ever seeded.
-    expect(docs.filter((d) => d.isDemo === true)).toHaveLength(0);
+    // ac-13: NO Spec of any kind is seeded — not the retired starter, not a replacement.
+    expect(specDocs(docs)).toHaveLength(0);
+    // ac-15: the Standards DID land. This is what makes the zero above trustworthy.
     expect(docs.filter((d) => d.docType === "standard")).toHaveLength(DEFAULT_STANDARDS_COUNT);
+    // No demo walkthrough content either (spec-474 ac-1, still true).
+    expect(docs.filter((d) => d.isDemo === true)).toHaveLength(0);
 
     const [m] = await db
       .select({ provisionedAt: memexes.provisionedAt })
@@ -150,7 +163,7 @@ describe("spec-474 dec-6 — provisioning is off the signup path, on the readine
     const second = await provisionUserMemex(user.id);
     expect(second.seeded).toBe(false);
     const docs2 = await docsIn(memexId);
-    expect(starterDocs(docs2)).toHaveLength(1);
+    expect(specDocs(docs2)).toHaveLength(0);
     expect(docs2.filter((d) => d.docType === "standard")).toHaveLength(DEFAULT_STANDARDS_COUNT);
   });
 

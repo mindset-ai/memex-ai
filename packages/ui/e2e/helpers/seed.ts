@@ -81,26 +81,6 @@ export async function clearUserName(email: string): Promise<void> {
   await call("POST", "/user-name", { email, name: null });
 }
 
-/**
- * Set/clear a user's first-run greeting flag (spec-206). `greeted: true` stamps
- * onboarding_greeted_at (so Specky's auto-greeting won't fire); `false` un-greets
- * so it will. The per-test fixture pre-stamps the dev user `true` so the greeting
- * never surprises other journeys; the onboarding journey sets it `false` to drive
- * the auto-greeting deterministically.
- */
-export async function setOnboardingGreeted(email: string, greeted: boolean): Promise<void> {
-  await call("POST", "/onboarding-greeted", { email, greeted });
-}
-
-/**
- * spec-444: set/clear video_welcomed_at for a user. `welcomed: true` stamps now;
- * `welcomed: false` clears so the gate re-fires — used by spec-444's own journey.
- * The per-test fixture pre-stamps the dev user so existing journeys don't redirect
- * to /welcome unexpectedly.
- */
-export async function setVideoWelcomed(email: string, welcomed: boolean): Promise<void> {
-  await call("POST", "/video-welcomed", { email, welcomed });
-}
 
 /**
  * Set/clear a user's identity_confirmed_at (spec-305). `confirmed: false` un-confirms
@@ -441,6 +421,15 @@ export async function setMemexVisibility(opts: {
   visibility: "public" | "private";
 }): Promise<void> {
   await call("POST", "/set-memex-visibility", opts);
+}
+
+/** spec-500: flip a Memex's featured-demo flag. A public + featured Memex is
+ *  surfaced read-only in every authenticated user's switcher ("Explore" group). */
+export async function setFeaturedDemo(opts: {
+  memexId: string;
+  isFeaturedDemo: boolean;
+}): Promise<void> {
+  await call("POST", "/set-featured-demo", opts);
 }
 
 /** Disable an org member and bulk-revoke their share tokens via the real

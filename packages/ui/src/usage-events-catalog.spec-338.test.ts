@@ -23,8 +23,6 @@ const NEW_FRONTEND_EVENTS = [
   'comments.filter_changed',
   'whatsnew.opened',
   'workspace.switched',
-  'voice.mic_permission_result',
-  'voice.icon_shown',
 ] as const;
 
 describe('spec-338 registry contract (UI-side, emits ACs)', () => {

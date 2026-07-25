@@ -40,9 +40,10 @@ export interface MemexAccess {
   /** Convenience inverse of `canWrite`. */
   isReadOnly: boolean;
   /**
-   * True when the current tenant resolves to a `source: 'visited'` row — a
-   * signed-in non-member browsing a public Memex they've pinned. Drives the
-   * read-only sidebar badge and the "Visited" grouping in the switcher.
+   * True when the current tenant resolves to a read-only PUBLIC row — a
+   * signed-in non-member browsing a public Memex either because they pinned it
+   * (`source: 'visited'`, spec-111) or because it is featured to everyone
+   * (`source: 'featured'`, spec-500). Drives the read-only sidebar badge.
    */
   isVisitedReadOnly: boolean;
 }
@@ -52,7 +53,10 @@ export interface MemexAccess {
 // `visited` row is always read-only.
 function membershipGrantsWrite(m: MembershipSummary | null | undefined): boolean {
   if (!m) return false;
-  if (m.source === 'visited') return false;
+  // Read-only provenance never grants write, regardless of accessLevel: a
+  // `visited` (spec-111) or `featured` (spec-500) row is a public Memex the
+  // caller is not a member of — write still requires org membership (std-4).
+  if (m.source === 'visited' || m.source === 'featured') return false;
   return m.accessLevel === undefined || m.accessLevel === 'write';
 }
 
@@ -74,7 +78,8 @@ export function resolveMemexAccess(
     : null;
 
   const canWrite = membershipGrantsWrite(membership);
-  const isVisitedReadOnly = membership?.source === 'visited';
+  const isVisitedReadOnly =
+    membership?.source === 'visited' || membership?.source === 'featured';
 
   return {
     isAuthenticated,

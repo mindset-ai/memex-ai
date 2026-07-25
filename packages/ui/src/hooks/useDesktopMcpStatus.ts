@@ -60,6 +60,38 @@ export interface DesktopMcpStatus {
   refresh: () => Promise<void>;
 }
 
+// The tokens GET must be BOUNDED: under a saturated per-origin connection pool
+// (e.g. SSE streams churning against the dev proxy) the browser can queue the
+// request indefinitely, and an unbounded await here leaves the install surface
+// on "Checking MCP status…" forever. Each attempt is aborted after the timeout
+// (freeing its connection slot); only abort/network failures retry, an HTTP
+// error surfaces immediately.
+export const TOKENS_FETCH_TIMEOUT_MS = 5_000;
+export const TOKENS_FETCH_ATTEMPTS = 3;
+
+function isRetryableFetchError(err: unknown): boolean {
+  return (err instanceof Error && err.name === 'AbortError') || err instanceof TypeError;
+}
+
+async function listTokensBounded(
+  token: string | null,
+): Promise<Awaited<ReturnType<typeof listMcpTokensApi>>> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < TOKENS_FETCH_ATTEMPTS; attempt++) {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), TOKENS_FETCH_TIMEOUT_MS);
+    try {
+      return await listMcpTokensApi(token, { signal: controller.signal });
+    } catch (err) {
+      if (!isRetryableFetchError(err)) throw err;
+      lastError = err;
+    } finally {
+      window.clearTimeout(timer);
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('Could not read MCP tokens');
+}
+
 /**
  * Probe + derive + push the desktop MCP status. Safe to mount more than once
  * (the app-global sync AND the Settings section both call it); each call pushes
@@ -94,7 +126,7 @@ export function useDesktopMcpStatus(): DesktopMcpStatus {
     try {
       const [local, tokens] = await Promise.all([
         mcpStatusBridge(),
-        listMcpTokensApi(token),
+        listTokensBounded(token),
       ]);
       if (!local) {
         // Probe failed — tolerate transient failures before showing an error.
