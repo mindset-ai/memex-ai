@@ -14,6 +14,7 @@
 // tools here without bumping that test's MCP_ONLY whitelist.
 
 import { randomUUID } from "node:crypto";
+import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { listMemberships } from "../services/users.js";
 import { NotFoundError, ValidationError } from "../types/errors.js";
@@ -506,7 +507,38 @@ export function createMcpServer(
       // spec-471 dec-3: the auto-pick disclosure line, if the read path set one.
       () => autoPickNotice,
     );
-    server.tool(spec.name, spec.description, spec.schema, spec.annotations, handler);
+    // spec-499 dec-1: register the shape as a LOOSE object so an argument the
+    // schema doesn't declare SURVIVES validation and reaches the handler.
+    //
+    // Zod objects strip unknown keys by default, and that strip is what made the
+    // forced-facet-ballot failure undiagnosable: a ballot sent as `facet_ballot`
+    // and a ballot never sent at all arrived at the handler as the identical
+    // state (`input.facetBallot === undefined`), so the server could only report
+    // "none was supplied" for both. Preserving the key lets requireLead() name
+    // what actually arrived (services/facet-ballot.ts).
+    //
+    // Safe across every tool: handlers read named fields off `input`, so a
+    // surviving unknown key is inert unless a handler deliberately looks for it.
+    // Not a contract change either — the published JSON Schema still declares
+    // every field and the same `required` set; only `additionalProperties`
+    // becomes permissive, which is now an accurate description of the server.
+    //
+    // Registered via `registerTool` (the config-object API) rather than the
+    // positional `tool(...)` overload: that overload accepts ONLY a raw shape and
+    // rejects a constructed schema outright ("expected a Zod schema or
+    // ToolAnnotations, but received an unrecognized object" — isZodRawShapeCompat
+    // returns false for schema instances). `registerTool` runs the same
+    // `_createRegisteredTool` path with the same `taskSupport: 'forbidden'`, and
+    // passes a schema instance straight through via getZodSchemaObject.
+    server.registerTool(
+      spec.name,
+      {
+        description: spec.description,
+        inputSchema: z.looseObject(spec.schema as z.ZodRawShape),
+        annotations: spec.annotations,
+      },
+      handler,
+    );
   }
 
   return server;

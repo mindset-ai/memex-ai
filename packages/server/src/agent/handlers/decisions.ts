@@ -116,7 +116,10 @@ export const decisionsTools: ToolSpec[] = [
       const ballot = parseBallotArg(input.facetBallot);
       const vocab = await requireBallotForMemex(
         memexId,
-        { provided: hasBallot, ballot },
+        // spec-499 dec-2: hand over the argument NAMES this call actually arrived with
+        // (never their values) so an absent ballot is diagnosed — a near-miss key gets
+        // named, and a genuine drop is evidenced by the names that did make it.
+        { provided: hasBallot, ballot, receivedArgNames: Object.keys(input) },
         { noun: "decision", channel: ctx.channel },
       );
       const queryText = `${title}\n${context ?? ""}`;
