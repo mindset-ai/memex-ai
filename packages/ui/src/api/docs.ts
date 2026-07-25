@@ -16,7 +16,7 @@ import type { AcWithVerification } from './acs';
 import { decodeHtmlEntities } from '../utils/decodeHtmlEntities';
 import { NotFoundError } from './errors';
 import { fetchJson as fetchJsonRaw } from './fetchJson';
-import { BASE_URL, fetchWithRetry } from './http';
+import { fetchWithRetry } from './http';
 import { tBase } from './internal';
 
 export interface FetchDocsOptions {

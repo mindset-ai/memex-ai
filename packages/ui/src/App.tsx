@@ -5,7 +5,6 @@ import {
   useState,
   useEffect,
   useRef,
-  type ReactNode,
 } from 'react';
 import { Routes, Route, useLocation, useParams, Navigate, Outlet } from 'react-router-dom';
 import { emailPreviewEnabled } from './utils/devTools';
@@ -142,7 +141,7 @@ import { PublicMemexProvider } from './components/PublicMemexContext';
 import { useTrackRouteChange, useTelemetry, trackAnonymous } from './hooks/useTelemetry';
 import { useStaleTenantForward } from './hooks/useStaleTenantForward';
 import { useShouldLandOnHome, isMcpConnectedCached } from './journeys/landing';
-import { tenantBase, BASE_URL, fetchWithRetry } from './api/http';
+import { tenantBase } from './api/http';
 import { SearchProvider } from './components/SearchContext';
 import { WhatsNewRibbonConnected } from './components/whats-new/WhatsNewRibbonConnected';
 import { WhatsNewProvider } from './components/whats-new/WhatsNewContext';
