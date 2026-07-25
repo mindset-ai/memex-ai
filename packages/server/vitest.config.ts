@@ -153,15 +153,14 @@ export default defineConfig({
       // above) — the other job the retired vitest.setup.ts used to do.
       ...(rootEnv.MEMEX_EMIT_KEY ? { MEMEX_EMIT_KEY: rootEnv.MEMEX_EMIT_KEY } : {}),
       ...(rootEnv.MEMEX_EMIT ? { MEMEX_EMIT: rootEnv.MEMEX_EMIT } : {}),
-      // spec-186: the spec-178 signup hook fires a DETACHED handhold-demo seed
-      // on every user creation — under vitest those outlive their test, racing
-      // cleanup (FK noise + rotating deadlocks) and logging after worker
-      // teardown (the EnvironmentTeardownError). Off suite-wide; the hook's own
-      // suites stub it back on per-test (the gate reads env at call time).
-      MEMEX_HANDHOLD_SIGNUP_SEED: "off",
-      // spec-184: same treatment for the default-Standards signup seed hook — a second
-      // detached seed on the same ensureUserNamespace path. Off suite-wide; the seed's
-      // own suites stub it back on per-test.
+      // spec-509 dec-2: MEMEX_HANDHOLD_SIGNUP_SEED is gone. It gated the spec-178 demo
+      // seed and then the spec-426 starter-Spec seed; both are deleted, so there is no
+      // provisioning Spec-seed hook left to switch off. Provisioning now seeds facets +
+      // Standards only, and the guard that keeps it that way (provisioning-dec6.test.ts,
+      // spec-509 ac-13) is unconditional precisely because no env var gates it.
+      //
+      // spec-184: the default-Standards signup seed hook — a multi-insert seed on the
+      // ensureUserNamespace path. Off suite-wide; the seed's
       MEMEX_DEFAULT_STANDARDS_SIGNUP_SEED: "off",
       // spec-340: same treatment for the default-facets auto-seed (on org creation AND
       // personal-memex creation). Off suite-wide so org/user-creation tests don't each

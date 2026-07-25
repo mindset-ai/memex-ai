@@ -35,13 +35,6 @@ import {
   ensureUserNamespace,
   ensureUserMemex,
 } from "../services/user-namespaces.js";
-// spec-474: the demo-vs-starter provisioning experiment concluded with the starter
-// Spec as the winner, and the demo-walkthrough arm was deleted. The arm-seed hook now
-// just clears any residual demo docs (defensive) and seeds the starter Spec — the sole
-// remaining behaviour. All through the real services, no raw SQL (std-28).
-import { clearDemoDocsForMemex } from "../services/demo-cleanup.js";
-import { seedStarterSpec } from "../services/starter-spec.js";
-import { STARTER_SPEC_TITLE } from "../db/starter-spec.fixture.js";
 import { createDocDraft, updateDocStatus } from "../services/documents.js";
 import { markNarrativeConsolidated } from "../services/narrative.js";
 import { publishEntry } from "../services/whats-new.js";
@@ -1394,67 +1387,11 @@ testOnlyRouter.post("/disable-member", async (c) => {
   return c.json({ ok: true });
 });
 
-// ── spec-474: provisioning-seed test hook ────────────────────────────────────
-// The demo-vs-starter provisioning experiment concluded with the starter Spec as the
-// winner (spec-474 dec-1); the demo-walkthrough arm and its seeder were deleted, so
-// there is only ONE provisioning behaviour left. This hook ensures `email`'s user has
-// the seeded "Understanding Memex" starter Spec in their personal memex: it clears any
-// residual demo docs a pre-cutover signup left behind (defensive), then seeds the
-// starter Spec through the real service (no raw SQL, std-28). Idempotent — seedStarterSpec
-// no-ops when the starter Spec already exists. Returns the seeded spec's handle so a
-// journey can navigate straight to its canonical path.
-const seedExperimentArmSchema = z.object({
-  email: z.string().email(),
-  // Retained for backward-compat with existing callers; only `starter_spec` remains.
-  behaviour: z.literal("starter_spec").optional(),
-});
-testOnlyRouter.post("/seed-experiment-arm", async (c) => {
-  const body = await c.req.json().catch(() => null);
-  const parsed = seedExperimentArmSchema.safeParse(body);
-  if (!parsed.success) {
-    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
-  }
-  const { email } = parsed.data;
-
-  // 1. Ensure the user + their personal memex exist (idempotent fast path when the
-  //    journey has already signed the user up).
-  const user = await getUserByEmail(email);
-  if (!user) return c.json({ error: `User ${email} not found` }, 404);
-  const { memex } = await ensureUserNamespace(user.id);
-  const memexId = memex.id;
-
-  // 2. Defensive: clear any residual is_demo docs a pre-cutover signup left behind, so
-  //    the demo content can't coexist with the starter Spec.
-  await clearDemoDocsForMemex(memexId);
-
-  // 3. Seed the starter Spec (system-attributed by construction — seedStarterSpec strips
-  //    any actor so its rows can never light the new user's onboarding milestones).
-  //    Idempotent: no-ops if the starter Spec already exists.
-  await seedStarterSpec(memexId, { channel: "server" });
-
-  // 4. Hand back the seeded starter spec's handle so a journey can navigate straight to
-  //    its canonical path.
-  const [row] = await db
-    .select({ handle: documents.handle })
-    .from(documents)
-    .where(
-      and(
-        eq(documents.memexId, memexId),
-        eq(documents.docType, "spec"),
-        eq(documents.title, STARTER_SPEC_TITLE),
-        isNull(documents.createdByUserId),
-      ),
-    )
-    .limit(1);
-  const starterSpecHandle = row?.handle ?? undefined;
-
-  return c.json({
-    userId: user.id,
-    memexId,
-    behaviour: "starter_spec",
-    ...(starterSpecHandle ? { starterSpecHandle } : {}),
-  });
-});
+// spec-509 dec-2/dec-4: the `POST /seed-experiment-arm` hook that seeded the
+// "Understanding Memex" starter Spec for a journey is gone, along with the seeder it
+// called. Provisioning seeds no Spec, so there is no arm to pin and nothing for a journey
+// to navigate to — journey-51 now asserts the EMPTY first board reached through the real
+// signup + POST /api/me/provision path instead of asking this surface to seed one.
 
 // ── spec-448 t-12: versioning + catch-up journey seed ───────────────────────
 

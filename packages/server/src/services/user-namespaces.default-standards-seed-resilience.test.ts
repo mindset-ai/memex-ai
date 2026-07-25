@@ -7,18 +7,18 @@
 // protects. This ALSO guards the wiring: if the hook were dropped the mock would never be
 // called, the seed error would never be logged, and this test would fail.
 //
-// Runs against REAL Postgres (the namespace + memex are really created); only the
-// seeders are mocked. The starter-spec provisioning seed shares the same best-effort
-// hook, so it's stubbed to a no-op to isolate the failure to the default-Standards path.
+// Runs against REAL Postgres (the namespace + memex are really created); only the seeder
+// is mocked. spec-509 dec-2 deleted the starter-spec seeder that used to share this
+// best-effort hook, so there is no second seeder to stub out — the default-Standards seed
+// is now the only content seeder on the provisioning path, which makes this suite the sole
+// remaining proof that a seeder rejection is caught and logged rather than propagating
+// (spec-509 ac-15's best-effort half).
 
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { and, eq, inArray } from "drizzle-orm";
 
 const { seedError } = vi.hoisted(() => ({
   seedError: new Error("default-standards seed boom (spec-184 ac-9 resilience test)"),
-}));
-vi.mock("./starter-spec.js", () => ({
-  seedStarterSpec: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("./default-standards.js", () => ({
   seedDefaultStandards: vi.fn().mockRejectedValue(seedError),

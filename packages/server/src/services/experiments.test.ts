@@ -7,9 +7,6 @@
 //   - resolveOrCreateAssignment — deterministic bucketing, ~50/50 split, idempotent
 //     active-row reuse, single-active-row supersession invariant, assigned_by='auto'
 //     (ac-1 / ac-14).
-//   - runVariantBehaviour — behaviour-id → seed-fn dispatch + unknown→control
-//     fallback (ac-12). The two seeders are mocked so dispatch is observable without
-//     running a full seed.
 //   - computeVerdict — succeeded / failed / pending against the per-experiment
 //     window_days, including the boundary that proves the window (not a constant)
 //     drives the verdict (ac-5 / ac-10).
@@ -18,14 +15,9 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vites
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { tagAc } from "@memex-ai-ac/vitest";
 
-// spec-474 dec-1: the behaviour registry now dispatches to a SINGLE seeder
-// (seedStarterSpec) — the demo-vs-starter experiment concluded with the starter Spec as
-// the winner and seedHandholdDemo was deleted. Mock the seeder so runVariantBehaviour's
-// dispatch is observable without a real DB seed. experiments.ts imports `seedStarterSpec`
-// from this exact path, so the mock lands on its import. The assignment + verdict tests
-// below don't touch the seed.
-vi.mock("./starter-spec.js", () => ({ seedStarterSpec: vi.fn().mockResolvedValue(undefined) }));
-
+// spec-509 dec-3: the behaviour registry and runVariantBehaviour are GONE, along with the
+// last seeder they dispatched to — so there is no seeder to mock here any more. What
+// remains under test is the general construct: bucketing, assignment, and the verdict.
 import { db } from "../db/connection.js";
 import {
   documents,
@@ -39,11 +31,8 @@ import {
 import {
   resolveOrCreateAssignment,
   pinAssignmentByBehaviour,
-  runVariantBehaviour,
   computeVerdict,
-  CONTROL_BEHAVIOUR,
 } from "./experiments.js";
-import { seedStarterSpec } from "./starter-spec.js";
 
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-426/acs/ac-${n}`;
 // spec-474 co-tags: this suite is the living proof that the reusable experiment framework
@@ -52,6 +41,9 @@ const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-426/acs
 // control with no handhold_demo entry (ac-11), and that the variant CHECK still permits the
 // historical 'handhold_demo' A-arm row (ac-14).
 const AC474 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-474/acs/ac-${n}`;
+// spec-509 dec-3: this suite is now also the proof that the variant-behaviour hook is
+// gone and that the general construct survived its removal.
+const AC509 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-509/acs/ac-${n}`;
 
 const rand = () => Math.random().toString(36).slice(2, 8);
 const unique = (p: string) => `${p}-${Date.now().toString(36)}-${rand()}`;
@@ -174,6 +166,10 @@ describe("resolveOrCreateAssignment", () => {
     tagAc(AC(14));
     tagAc(AC474(6)); // spec-474: deterministic bucketing across both arms remains intact
     tagAc(AC474(14)); // spec-474: the A-arm 'handhold_demo' variant row still inserts (CHECK permits it)
+    // spec-509 dec-3: same two facts are what ac-17 commits to — the construct still
+    // buckets, and the legacy handhold_demo variant row is still insertable/readable
+    // after the behaviour hook was deleted.
+    tagAc(AC509(17));
     const exp = await makeExperiment();
     const N = 200;
 
@@ -323,34 +319,41 @@ describe("pinAssignmentByBehaviour", () => {
   });
 });
 
-// ── runVariantBehaviour (ac-12) ───────────────────────────────────────────────
+// ── The provisioning-behaviour hook is GONE (spec-509 dec-3) ──────────────────
+//
+// spec-426 ac-12 used to be verified here by a dispatch test. spec-509 dec-3 deleted the
+// whole hook — VariantBehaviour / CONTROL_BEHAVIOUR / BEHAVIOUR_REGISTRY /
+// runVariantBehaviour — after grounding that runVariantBehaviour had NO production
+// callers (spec-474 dec-1 wired provisioning to call the seeder directly and orphaned the
+// dispatcher), and after dec-2 deleted the last seeder it could have dispatched to.
+//
+// So the assertion inverts: the module must export none of them. This is the guard
+// against a well-meaning future change re-adding an empty registry or a no-op control
+// behaviour — either would put a switchboard wired to nothing back on the signup path.
 
-describe("runVariantBehaviour", () => {
-  beforeEach(() => {
-    vi.mocked(seedStarterSpec).mockClear();
+describe("provisioning-behaviour hook (spec-509 dec-3: removed)", () => {
+  it("exports no variant-behaviour registry, control constant, or dispatcher", async () => {
+    tagAc(AC509(16));
+    const mod = await import("./experiments.js");
+    const surface = Object.keys(mod);
+
+    expect(surface).not.toContain("runVariantBehaviour");
+    expect(surface).not.toContain("CONTROL_BEHAVIOUR");
+    expect(surface).not.toContain("BEHAVIOUR_REGISTRY");
+    expect(surface).not.toContain("VariantBehaviour");
   });
 
-  it("dispatches 'starter_spec' to seedStarterSpec", async () => {
-    tagAc(AC(12));
-    tagAc(AC474(11)); // spec-474: the registry dispatches the control behaviour to seedStarterSpec
-    await runVariantBehaviour("starter_spec", "memex-2", { channel: "server" });
-    expect(seedStarterSpec).toHaveBeenCalledWith("memex-2", { channel: "server" });
-  });
+  // The other half of dec-3: what SURVIVES. The general construct is still exported and
+  // still exercised by the suites above — deleting the hook must not have taken the
+  // bucketing/assignment/verdict API with it.
+  it("still exports the general experiments construct", async () => {
+    tagAc(AC509(17));
+    const mod = await import("./experiments.js");
+    const surface = Object.keys(mod);
 
-  // spec-474 dec-1: with a single behaviour left, an UNKNOWN / legacy (e.g. the retired
-  // `handhold_demo`) behaviour id falls back to the control — the seeded starter Spec.
-  it("falls back to the control behaviour for an UNKNOWN / legacy behaviour id", async () => {
-    tagAc(AC(12));
-    tagAc(AC474(11)); // spec-474: CONTROL_BEHAVIOUR==='starter_spec' and a legacy id never runs a deleted seeder
-    expect(CONTROL_BEHAVIOUR).toBe("starter_spec");
-    await runVariantBehaviour("handhold_demo", "memex-3");
-    expect(seedStarterSpec).toHaveBeenCalledWith("memex-3", expect.anything());
-  });
-
-  it("falls back to the control behaviour for a MISSING (empty) behaviour id", async () => {
-    tagAc(AC(12));
-    await runVariantBehaviour("", "memex-4");
-    expect(seedStarterSpec).toHaveBeenCalledWith("memex-4", expect.anything());
+    expect(surface).toContain("resolveOrCreateAssignment");
+    expect(surface).toContain("pinAssignmentByBehaviour");
+    expect(surface).toContain("computeVerdict");
   });
 });
 

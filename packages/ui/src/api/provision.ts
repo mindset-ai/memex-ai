@@ -1,7 +1,7 @@
 // spec-474 dec-6 — first-load Memex readiness client.
 //
-// The onboarding content seed (default Standards + facets + the "Understanding Memex"
-// starter Spec) moved OFF the signup request onto an explicit first-load step, so the
+// The onboarding content seed (default Standards + facets; spec-509 dec-2 removed the
+// starter-Spec seed) moved OFF the signup request onto an explicit first-load step, so the
 // signup response and the verification email are never delayed by seconds of seeding.
 // The SPA reads readiness from GET /api/me and, for a brand-new (unprovisioned) Memex,
 // drives the seed via POST /api/me/provision behind a "Getting your Memex ready…"
@@ -21,10 +21,10 @@ export async function fetchPersonalMemexProvisioned(): Promise<boolean> {
 }
 
 // A single in-flight provision request, shared by all concurrent callers. The server's
-// per-seed existence checks are not concurrency-safe (two POSTs that both read "no starter
-// yet" before either inserts would each seed one — a double "Understanding Memex"), and the
-// gate's own StrictMode mount→cleanup→mount cycle fires the effect twice. Collapsing
-// concurrent calls to ONE POST makes the seed exactly-once from a single browser.
+// per-seed existence checks are not concurrency-safe (two POSTs that both read "nothing
+// seeded yet" before either inserts would each seed a set), and the gate's own StrictMode
+// mount→cleanup→mount cycle fires the effect twice. Collapsing concurrent calls to ONE
+// POST makes the seed exactly-once from a single browser.
 let inFlightProvision: Promise<void> | null = null;
 
 /** Idempotently seed the caller's own personal Memex. Safe to call repeatedly and

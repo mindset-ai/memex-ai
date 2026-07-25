@@ -119,10 +119,21 @@ describe("migration-smoke [t-9]", () => {
     // (ensureUserNamespace) — excluded so a concurrent file sharing this worker's DB
     // clone can't trip the scan (std-37, parallel-fixture isolation). A test DB has no
     // real users, so excluding these can never mask a production bug.
+    //
+    // spec-509: the `<prefix>-<13-digit-ms>@memex.ai` regex below covers the same category
+    // one pattern wider. A dozen suites (usage/telemetry/visitor/attribution/qa-report/…)
+    // raw-insert users named `${prefix}-${Date.now()}@memex.ai` without going through
+    // ensureUserNamespace, so they legitimately have namespace_id NULL. Only
+    // `doc-move-%@memex.ai` was excluded, which left this assertion dependent on WHICH
+    // worker clone those fixtures happened to land in — it passed or failed with the file
+    // schedule, not with the invariant. Adding one test file anywhere in the repo reshuffles
+    // that schedule and flipped it red, which is how this surfaced. Real users always come
+    // through signup, so a timestamped raw-insert fixture is never one.
     const result = await db.execute(sql`
       SELECT count(*)::int AS missing FROM users
       WHERE status = 'active'
         AND namespace_id IS NULL
+        AND email !~ '^[a-z0-9-]+-[0-9]{13}@memex\.ai$'
         AND email NOT LIKE '%@example.com'
         AND email NOT LIKE '%@example.net'
         AND email NOT LIKE '%@example.org'
