@@ -11,6 +11,11 @@
 // so it is announced on change; the panel is a plain <aside>, NOT a focus-trapping
 // modal (no role="dialog", no focus lock); and the "Create your own Memex" CTA is
 // always present and actionable through every context change.
+//
+// spec-508 Part 3: the panel body is extracted into `ExploreCompanionBody` so the
+// first-run welcome→companion morph (ExploreOnboarding) can reuse the exact same
+// content as its Motion morph target — the corner panel is one body, two shells
+// (this plain <aside> for returning visitors, a motion shell for the morph).
 
 import { useEffect, useRef } from 'react';
 import { useExploreContext } from './useExploreContext';
@@ -26,7 +31,11 @@ export interface ExploreCompanionProps {
   readonly className?: string;
 }
 
-export function ExploreCompanion({ onCreate, memexId, className }: ExploreCompanionProps) {
+/** The panel's inner content — the "you're exploring" pill, the live-region
+ *  synopsis, and the standing CTA. Shared verbatim between the plain-aside
+ *  companion and the morph target so the two can never drift (spec-508). It owns
+ *  the `wizard.explore_viewed` funnel head so step 0 is recorded on either path. */
+export function ExploreCompanionBody({ onCreate, memexId }: Omit<ExploreCompanionProps, 'className'>) {
   const entity = useExploreContext();
   const synopsis = deriveSynopsis(entity);
   const { track } = useTelemetry(true);
@@ -46,16 +55,7 @@ export function ExploreCompanion({ onCreate, memexId, className }: ExploreCompan
   }
 
   return (
-    <aside
-      aria-label="Explore companion"
-      data-testid="explore-companion"
-      className={
-        'fixed bottom-6 right-6 z-40 w-[26rem] max-w-[calc(100vw-3rem)] rounded-xl border ' +
-        'border-agent/40 bg-card-hover shadow-2xl shadow-agent/25 p-5 flex flex-col gap-4 ' +
-        'animate-companion-in' +
-        (className ? ` ${className}` : '')
-      }
-    >
+    <>
       <div className="flex flex-col gap-3">
         {/* Header: a "you're exploring" kicker on the left, and a live-status
             pill on the right. The pill (not inline prose) owns the framing —
@@ -112,6 +112,27 @@ export function ExploreCompanion({ onCreate, memexId, className }: ExploreCompan
         </button>
         <p className="text-center text-xs text-muted">Free · connect your coding agent · ~2 min</p>
       </div>
+    </>
+  );
+}
+
+/** The companion at rest — a plain, non-modal <aside> docked bottom-right with the
+ *  CSS `animate-companion-in` entrance. This is the returning-visitor path (the
+ *  welcome has already been dismissed); the first-run path renders the same body
+ *  inside ExploreOnboarding's Motion morph target instead. */
+export function ExploreCompanion({ onCreate, memexId, className }: ExploreCompanionProps) {
+  return (
+    <aside
+      aria-label="Explore companion"
+      data-testid="explore-companion"
+      className={
+        'fixed bottom-6 right-6 z-40 w-[26rem] max-w-[calc(100vw-3rem)] rounded-xl border ' +
+        'border-agent/40 bg-card-hover shadow-2xl shadow-agent/25 p-5 flex flex-col gap-4 ' +
+        'animate-companion-in' +
+        (className ? ` ${className}` : '')
+      }
+    >
+      <ExploreCompanionBody onCreate={onCreate} memexId={memexId} />
     </aside>
   );
 }

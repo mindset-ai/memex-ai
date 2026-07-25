@@ -57,6 +57,12 @@ export default defineConfig({
           ) {
             return 'vendor-markdown';
           }
+          // Motion (spec-508 Part 3) — the shared-layout morph behind the
+          // first-run Explore welcome. Lazy-loaded via ExploreCompanionMount, so
+          // this chunk is fetched only for first-time featured-demo visitors.
+          if (/[\\/]node_modules[\\/](motion|framer-motion|motion-dom|motion-utils)[\\/]/.test(id)) {
+            return 'vendor-motion';
+          }
           // LangGraph / LangChain runtime (the in-UI agent graph, std-11).
           if (
             /[\\/]node_modules[\\/](@langchain|langsmith|@cfworker|js-tiktoken)[\\/]/.test(

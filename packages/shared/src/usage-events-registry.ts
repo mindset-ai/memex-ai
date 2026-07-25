@@ -143,6 +143,18 @@ export const USAGE_EVENT_REGISTRY = [
       "The user reached the wizard's agent-connect step (the hard gate). The denominator for the headline reached-connect → connected conversion (ac-5); pairs with the back-end mcp.connected / mcp.tool_called seam.",
     source: "frontend",
   },
+  {
+    name: "wizard.welcome_viewed",
+    description:
+      "The centered first-landing welcome card was shown over the featured demo Memex (spec-508 Part 3). Fired once per mount, ahead of wizard.explore_viewed — it sits before the companion in the funnel. No props.",
+    source: "frontend",
+  },
+  {
+    name: "wizard.welcome_ok",
+    description:
+      "The user dismissed the centered welcome card (OK / Esc / backdrop, spec-508 Part 3), morphing it into the Explore companion. The welcome→companion conversion; a completion signal only, no props.",
+    source: "frontend",
+  },
   // ── Front-end engagement interactions (track(), spec-336 follow-on) ──────────
   // Pure UI taps the server never sees — board navigation, search, voice, filters.
   // Server OUTCOMES (spec/decision/task created, phase advanced) stay back-end
