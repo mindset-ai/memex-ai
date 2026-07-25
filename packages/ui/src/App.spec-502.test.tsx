@@ -53,11 +53,11 @@ function makeSession(opts: { hiddenFeatures: string[]; withFeatured: boolean }):
   } as unknown as SessionPayload;
 }
 
-function journeyState(hasSpec: boolean): JourneyStateResponse {
+function journeyState(hasSpec: boolean, mcpConnected = false): JourneyStateResponse {
   return {
     milestones: {
       identityConfirmed: true,
-      mcpConnected: false,
+      mcpConnected,
       mcpToolCalled: false,
       hasSpec,
       hasResolvedDecision: false,
@@ -154,6 +154,19 @@ describe('spec-502 ac-1: value-first landing on the featured demo Memex', () => 
     tagAc(AC_SEE_IT);
     mockSession = makeSession({ hiddenFeatures: [], withFeatured: true });
     journeyFetch = () => Promise.resolve(journeyState(true));
+    renderAt('/');
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/trails');
+    });
+  });
+
+  it('spec-508: a spec-less but MCP-connected user is NOT rerouted to the demo (lands on their own board)', async () => {
+    tagAc(AC_SEE_IT);
+    mockSession = makeSession({ hiddenFeatures: [], withFeatured: true });
+    // Unactivated by spec (hasSpec:false) but already connected an agent — past the
+    // "install an MCP" nudge, so the value-first reroute must NOT fire (spec-508:
+    // land on the demo only when 0 specs AND no MCP).
+    journeyFetch = () => Promise.resolve(journeyState(false, true));
     renderAt('/');
     await waitFor(() => {
       expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/trails');

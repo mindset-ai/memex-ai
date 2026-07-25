@@ -10,7 +10,6 @@ import { test as base, expect as pwExpect, type Page } from "@playwright/test";
 import {
   ensureUser,
   setUserName,
-  setOnboardingGreeted,
   setIdentityConfirmed,
   clearOrgMemberships,
   clearUserSpecs,
@@ -60,15 +59,9 @@ export const test = base.extend<{ resources: TestResources }>({
     // spec-305: needsOnboarding now keys off identity_confirmed_at (not !name), so
     // confirm the dev user each test — otherwise every journey is redirected to /onboarding.
     await setIdentityConfirmed(DEV_EMAIL, true);
-    // spec-206: pre-stamp the dev user as already greeted so Specky's first-run
-    // auto-greeting never fires unexpectedly on a journey's first board load
-    // (it would otherwise trigger wherever a mic is available, e.g. journey-21).
-    // The onboarding journey explicitly un-greets to drive the auto-greeting.
-    await setOnboardingGreeted(DEV_EMAIL, true);
-    // spec-507: the two welcome-video suppressions that used to sit here (pre-stamping
-    // video_welcomed_at + seeding sessionStorage) are gone. They existed to stop the
-    // spec-444 gate ambushing unrelated journeys; there is no gate to dodge now, and a
-    // fixture that suppresses nothing only misleads the next author.
+    // spec-507 + spec-508: the welcome-video and voice-greeting suppressions that used
+    // to sit here are gone — both first-run gates were removed, so there is nothing to
+    // dodge, and a fixture that suppresses nothing only misleads the next author.
 
     const uniq = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
     const namespaceSlugs: string[] = [];

@@ -35,7 +35,6 @@ function buildApp(routePath: string) {
       emailVerifiedAt: new Date(),
       status: "active",
       namespaceId: "ns-user-1",
-      onboardingGreetedAt: null,
       roleCoords: null,
       identityConfirmedAt: null,
       lifecycleEmailUnsubscribedAt: null,

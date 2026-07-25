@@ -31,6 +31,9 @@ const ACS = [
   "mindset-prod/memex-building-itself/specs/spec-502/acs/ac-2",
   "mindset-prod/memex-building-itself/specs/spec-502/acs/ac-7",
   "mindset-prod/memex-building-itself/specs/spec-502/acs/ac-8",
+  // spec-508 Part 3: the first-landing welcome that morphs into the companion.
+  "mindset-prod/memex-building-itself/specs/spec-508/acs/ac-8",
+  "mindset-prod/memex-building-itself/specs/spec-508/acs/ac-9",
 ];
 
 test.afterEach(async ({}, testInfo) => {
@@ -76,6 +79,14 @@ test("the Explore companion invites you to create your own, and the CTA opens th
   await expect
     .poll(() => new URL(page.url()).pathname, { timeout: 15_000 })
     .toMatch(new RegExp(`^/${b.namespaceSlug}/${b.memexSlug}\\b`));
+
+  // ── spec-508 ac-8 / ac-9: a FIRST landing opens on the centered welcome, which
+  // morphs into the corner companion on OK (this is a cold-DB run, so nothing is
+  // recorded in localStorage yet — the welcome is shown) ─────────────────────────
+  const welcome = page.getByTestId("explore-welcome");
+  await expect(welcome).toBeVisible({ timeout: 15_000 });
+  await welcome.getByTestId("explore-welcome-ok").click();
+  await expect(welcome).toBeHidden();
 
   // ── ac-1 / ac-16: the context-aware companion is present with its synopsis + CTA ──
   const companion = page.getByTestId("explore-companion");

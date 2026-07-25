@@ -104,3 +104,21 @@ describe('spec-502 ExploreCompanion', () => {
     expect(onCreate).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('spec-508 ExploreCompanion prominence (ac-1)', () => {
+  it('renders the unmissable treatment: 416px width, violet border+glow, entrance animation, corner anchor', () => {
+    tagAc('mindset-prod/memex-building-itself/specs/spec-508/acs/ac-1');
+    renderAt('/acme/main/specs');
+    const panel = screen.getByTestId('explore-companion');
+    const cls = panel.className;
+    expect(cls).toContain('w-[26rem]');
+    expect(cls).toContain('border-agent/40');
+    expect(cls).toContain('shadow-agent/25');
+    expect(cls).toContain('animate-companion-in');
+    expect(cls).toContain('bottom-6');
+    expect(cls).toContain('right-6');
+    // The accessibility posture survives the restyle (spec-502 ac-19).
+    expect(panel.tagName.toLowerCase()).toBe('aside');
+    expect(screen.getByTestId('create-your-own-memex-cta')).toBeEnabled();
+  });
+});

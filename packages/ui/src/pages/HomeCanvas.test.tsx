@@ -467,15 +467,3 @@ describe('HomeCanvas — spec-433 dormant code (ac-4)', () => {
     expect(personaLabel).toBeDefined();
   });
 });
-
-describe('HomeCanvas — spec-434 intact voice infrastructure (ac-4)', () => {
-  it('Specky component and voice session pipeline remain importable — no voice code removed', async () => {
-    const AC434 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-434/acs/ac-${n}`;
-    tagAc(AC434(4));
-    const { Specky } = await import('@memex/guide-sdk');
-    const { VoiceSessionPill, VoiceIcon } = await import('@memex/guide-sdk');
-    expect(Specky).toBeDefined();
-    expect(VoiceSessionPill).toBeDefined();
-    expect(VoiceIcon).toBeDefined();
-  });
-});

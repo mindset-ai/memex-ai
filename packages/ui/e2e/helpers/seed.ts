@@ -81,16 +81,6 @@ export async function clearUserName(email: string): Promise<void> {
   await call("POST", "/user-name", { email, name: null });
 }
 
-/**
- * Set/clear a user's first-run greeting flag (spec-206). `greeted: true` stamps
- * onboarding_greeted_at (so Specky's auto-greeting won't fire); `false` un-greets
- * so it will. The per-test fixture pre-stamps the dev user `true` so the greeting
- * never surprises other journeys; the onboarding journey sets it `false` to drive
- * the auto-greeting deterministically.
- */
-export async function setOnboardingGreeted(email: string, greeted: boolean): Promise<void> {
-  await call("POST", "/onboarding-greeted", { email, greeted });
-}
 
 /**
  * Set/clear a user's identity_confirmed_at (spec-305). `confirmed: false` un-confirms
