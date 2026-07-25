@@ -15,7 +15,18 @@
 // a reassess-and-re-persist per render — the very clunk this replaces.
 import { useEffect, useState } from 'react';
 import { fetchJourneyStateApi, type JourneyStateResponse } from '../api/journey';
-import { setCachedJourneyState } from './journeyStateCache';
+import { getCachedJourneyState, setCachedJourneyState } from './journeyStateCache';
+
+/**
+ * spec-508: is the just-assessed user MCP-connected? Reads the same cached journey
+ * state `useShouldLandOnHome` populates. RootRedirect pairs this with the spec-less
+ * predicate to keep the featured-demo landing to UNACTIVATED users (0 specs AND no
+ * MCP). Kept here (not inline in App.tsx) so the router stays free of the journey-
+ * cache plumbing — the spec-507 cleanup guard asserts App.tsx never touches it.
+ */
+export function isMcpConnectedCached(): boolean {
+  return !!getCachedJourneyState()?.milestones.mcpConnected;
+}
 
 /**
  * Pure predicate: has this user NOT yet created their first spec?

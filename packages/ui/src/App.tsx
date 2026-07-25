@@ -141,8 +141,7 @@ import { probePublicMemex, type PublicMemexProbe } from './api/client';
 import { PublicMemexProvider } from './components/PublicMemexContext';
 import { useTrackRouteChange, useTelemetry, trackAnonymous } from './hooks/useTelemetry';
 import { useStaleTenantForward } from './hooks/useStaleTenantForward';
-import { useShouldLandOnHome } from './journeys/landing';
-import { getCachedJourneyState } from './journeys/journeyStateCache';
+import { useShouldLandOnHome, isMcpConnectedCached } from './journeys/landing';
 import { tenantBase, BASE_URL, fetchWithRetry } from './api/http';
 import { SearchProvider } from './components/SearchContext';
 import { WhatsNewRibbonConnected } from './components/whats-new/WhatsNewRibbonConnected';
@@ -430,7 +429,7 @@ function RootRedirect() {
   // reads the same journey-state the predicate just cached. The goal is to plant the
   // wizard's "install an MCP" ask in front of people who haven't yet; a user who has
   // authored a spec OR already connected an agent falls through to their normal board.
-  const mcpConnected = !!getCachedJourneyState()?.milestones.mcpConnected;
+  const mcpConnected = isMcpConnectedCached();
   if (landOnHome && !mcpConnected && isOnboardingWizardEnabled(session)) {
     const featured = session.memberships.find((m) => m.source === 'featured');
     if (featured) {
