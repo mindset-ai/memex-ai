@@ -94,4 +94,24 @@ describe('spec-508 ExploreOnboarding — welcome → companion morph', () => {
     fireEvent.click(screen.getByTestId('explore-welcome-ok'));
     expect(await screen.findByTestId('explore-companion')).toBeInTheDocument();
   });
+
+  it('ac-9: dismissal is in-memory only — a fresh mount (refresh) returns to the welcome', async () => {
+    tagAc(AC_GATE);
+    // First visit: dismiss to the companion.
+    const first = renderOverlay();
+    fireEvent.click(screen.getByTestId('explore-welcome-ok'));
+    expect(await screen.findByTestId('explore-companion')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByTestId('explore-welcome')).toBeNull());
+
+    // Nothing was persisted — dismissal lives in component state, not storage.
+    expect(window.localStorage.length).toBe(0);
+
+    // A refresh = the component tree is torn down and re-created from scratch.
+    first.unmount();
+    renderOverlay();
+
+    // The fresh mount opens on the centered welcome again (no sticky dismissal).
+    expect(screen.getByTestId('explore-welcome')).toBeInTheDocument();
+    expect(screen.queryByTestId('explore-companion')).toBeNull();
+  });
 });

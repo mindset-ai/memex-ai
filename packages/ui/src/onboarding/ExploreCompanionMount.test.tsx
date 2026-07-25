@@ -4,22 +4,29 @@ import { MemoryRouter } from 'react-router-dom';
 import { tagAc } from '@memex-ai-ac/vitest';
 import { setCachedJourneyState, resetCachedJourneyState } from '../journeys/journeyStateCache';
 
-// An unactivated user (0 specs, no MCP) — the cohort the welcome targets.
-const UNACTIVATED = {
-  milestones: {
-    identityConfirmed: true,
-    mcpConnected: false,
-    mcpToolCalled: false,
-    hasSpec: false,
-    hasResolvedDecision: false,
-    hasAc: false,
-    acVerified: false,
-    planGrounded: false,
-  },
-  roleCoords: null,
-  currentStepId: 'connect',
-  steps: [],
-} as unknown as Parameters<typeof setCachedJourneyState>[0];
+// A journey-state fixture with the given milestone overrides. Unactivated = 0 specs
+// AND no MCP; flipping either milestone marks the user "activated" (past onboarding).
+function journeyState(overrides: { hasSpec?: boolean; mcpConnected?: boolean } = {}) {
+  return {
+    milestones: {
+      identityConfirmed: true,
+      mcpConnected: false,
+      mcpToolCalled: false,
+      hasSpec: false,
+      hasResolvedDecision: false,
+      hasAc: false,
+      acVerified: false,
+      planGrounded: false,
+      ...overrides,
+    },
+    roleCoords: null,
+    currentStepId: 'connect',
+    steps: [],
+  } as unknown as Parameters<typeof setCachedJourneyState>[0];
+}
+
+// The cohort the welcome targets: 0 specs, no MCP.
+const UNACTIVATED = journeyState();
 
 // spec-502 ac-1: the wizard's step 0 appears over the featured building-itself
 // surface (and only there, when the flag is on). spec-508 Part 3: that step now
@@ -95,9 +102,15 @@ beforeEach(() => {
   hiddenFeatures = [];
   stubMatchMedia(true); // reduced-motion → instant welcome→companion swap in tests
   setCachedJourneyState(UNACTIVATED); // warm cache → the activation gate resolves synchronously
+  // The mount reads window.location.search for the ?welcome hatch; reset it so a
+  // query set by one test never leaks into the next.
+  window.history.replaceState({}, '', '/');
 });
 
-afterEach(() => resetCachedJourneyState());
+afterEach(() => {
+  resetCachedJourneyState();
+  window.history.replaceState({}, '', '/');
+});
 
 describe('spec-502 ac-1 / spec-508 ac-9: ExploreCompanionMount', () => {
   it('opens on the centered welcome over the featured demo Memex', async () => {
@@ -130,5 +143,41 @@ describe('spec-502 ac-1 / spec-508 ac-9: ExploreCompanionMount', () => {
     fireEvent.click(cta);
     expect(screen.getByTestId('wizard-modal')).toBeInTheDocument();
     expect(navigate).not.toHaveBeenCalled();
+  });
+
+  // spec-508 activation gate: the welcome is the UNACTIVATED-user nudge, so it must
+  // not surface once the user has authored a spec or connected an agent — even while
+  // they're browsing the featured demo.
+  it('ac-9: does NOT show for an ACTIVATED user who already has a spec', () => {
+    tagAc(AC_WELCOME);
+    setCachedJourneyState(journeyState({ hasSpec: true }));
+    renderMount('mindset-prod', 'memex-building-itself');
+    expect(screen.queryByTestId('explore-welcome')).toBeNull();
+    expect(screen.queryByTestId('explore-companion')).toBeNull();
+  });
+
+  it('ac-9: does NOT show for an ACTIVATED user who has connected an MCP (even with no spec)', () => {
+    tagAc(AC_WELCOME);
+    setCachedJourneyState(journeyState({ hasSpec: false, mcpConnected: true }));
+    renderMount('mindset-prod', 'memex-building-itself');
+    expect(screen.queryByTestId('explore-welcome')).toBeNull();
+    expect(screen.queryByTestId('explore-companion')).toBeNull();
+  });
+
+  // spec-508 QA/demo hatch: `?welcome` forces the welcome over the featured surface
+  // regardless of activation state, without changing the ship default.
+  it('ac-9: `?welcome` forces the welcome for an ACTIVATED user on the featured demo', async () => {
+    tagAc(AC_WELCOME);
+    setCachedJourneyState(journeyState({ hasSpec: true })); // activated → normally hidden
+    window.history.replaceState({}, '', '/mindset-prod/memex-building-itself/specs?welcome=1');
+    renderMount('mindset-prod', 'memex-building-itself');
+    expect(await screen.findByTestId('explore-welcome')).toBeInTheDocument();
+  });
+
+  it('ac-9: an ACTIVATED user WITHOUT `?welcome` sees nothing (the hatch is opt-in)', () => {
+    tagAc(AC_WELCOME);
+    setCachedJourneyState(journeyState({ hasSpec: true }));
+    renderMount('mindset-prod', 'memex-building-itself');
+    expect(screen.queryByTestId('explore-welcome')).toBeNull();
   });
 });
