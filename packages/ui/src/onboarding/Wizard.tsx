@@ -30,7 +30,11 @@ export function Wizard() {
   const [step, setStep] = useState<Step>('name');
 
   const personal = session?.memberships?.find((m) => m.kind === 'personal') ?? null;
-  const defaultName = personal?.memexName ?? personal?.name ?? 'my-first-memex';
+  // A friendly, neutral suggestion for the user's FIRST project Memex. We deliberately
+  // do NOT echo the personal membership's name here: every user's auto-provisioned
+  // personal Memex is named "Personal Memex", so preferring it pre-filled a confusing,
+  // already-taken-looking default. The field stays fully editable.
+  const defaultName = 'My first Memex';
 
   // Land the user in their (own) personal Memex. After a real connect the agent
   // authors their first spec over MCP, so the board is populated — never empty
