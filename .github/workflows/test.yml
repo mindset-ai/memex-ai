@@ -103,7 +103,7 @@ jobs:
       # the root package.json `packageManager` field and errors if both are set.
       - uses: pnpm/action-setup@v6
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -185,7 +185,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -221,7 +221,7 @@ jobs:
 
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -298,7 +298,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -318,7 +318,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -359,7 +359,7 @@ jobs:
       # No `version:` here — pnpm/action-setup@v6 reads the pinned version from
       # the root package.json `packageManager` field and errors if both are set.
       - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -384,7 +384,7 @@ jobs:
       # No `version:` here — pnpm/action-setup@v6 reads the pinned version from
       # the root package.json `packageManager` field and errors if both are set.
       - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -410,7 +410,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -468,7 +468,7 @@ jobs:
       # No `version:` here — pnpm/action-setup@v6 reads the pinned version from
       # the root package.json `packageManager` field and errors if both are set.
       - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -585,7 +585,7 @@ jobs:
       # No `version:` here — pnpm/action-setup@v6 reads the pinned version from
       # the root package.json `packageManager` field and errors if both are set.
       - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -726,7 +726,7 @@ jobs:
       # No `version:` here — pnpm/action-setup@v6 reads the pinned version from
       # the root package.json `packageManager` field and errors if both are set.
       - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
