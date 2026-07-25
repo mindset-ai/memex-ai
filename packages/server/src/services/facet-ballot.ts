@@ -116,28 +116,82 @@ export async function validateBallotForMemex(memexId: string, input: BallotInput
   return vocab;
 }
 
+/** The exact argument name the ballot must arrive under. */
+const BALLOT_ARG = "facetBallot";
+
+/** Fold an argument name to its comparable core: lowercase, alphanumerics only.
+ *  `facet_ballot`, `facet-ballot`, and `FacetBallot` all fold to `facetballot`. */
+function normaliseArgName(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+/**
+ * spec-499 dec-2 — the received argument that was CLEARLY meant to be the ballot but
+ * arrived under a name the schema doesn't declare, or undefined if there wasn't one.
+ *
+ * This only ever sees anything because tool schemas are registered as loose objects
+ * (dec-1, mcp/tools.ts); with the default strip the misnamed key is deleted before the
+ * handler runs and is indistinguishable from a ballot that was never sent.
+ */
+export function nearMissBallotArg(receivedArgNames: string[]): string | undefined {
+  return receivedArgNames.find(
+    (name) => name !== BALLOT_ARG && normaliseArgName(name) === normaliseArgName(BALLOT_ARG),
+  );
+}
+
 /** Re-handing message for a ballot that is REQUIRED but ABSENT: leads with why it
- *  failed, hands the full ballot shape + vocabulary (via reHand), and, for a non-in-app
- *  caller, adds the stale-schema reload branch (an MCP client on a cached tool list can
- *  only start sending facetBallot after it reloads). */
+ *  failed and hands the full ballot shape + vocabulary (via reHand).
+ *
+ *  spec-499 dec-2 — the lead DISCRIMINATES, because "absent" covers three different
+ *  situations and the old single message named only the one the server could see:
+ *    • a near-miss key arrived (`facet_ballot`) → name what came and what was expected,
+ *      and do NOT suggest reconnecting: we can see a ballot was sent, so the cache hint
+ *      would send the caller chasing the wrong thing;
+ *    • nothing ballot-shaped arrived → echo the argument NAMES that did (never their
+ *      values — see the disclosure note in the Spec's Architecture lens), which is what
+ *      makes a client-side drop visible as evidence rather than inferred, and keep the
+ *      stale-schema hint here, where it is genuinely a candidate.
+ *  Per dec-3 a near-miss is named and REJECTED, never aliased into a valid ballot. */
 function requireLead(
   vocab: VocabFacet[],
-  opts: { noun: "task" | "decision"; channel?: "mcp" | "in_app_agent" },
+  opts: {
+    noun: "task" | "decision";
+    channel?: "mcp" | "in_app_agent";
+    receivedArgNames?: string[];
+  },
 ): string {
   // The ballot is forced at the CREATE site for both nouns (create_task / create_decision);
   // resolve_decision only ever VALIDATES a provided ballot, so it never reaches this
   // absent-branch. Name the create tool so the remediation points at the right call.
   const tool = opts.noun === "task" ? "create_task" : "create_decision";
   const verb = "created";
+  const received = opts.receivedArgNames ?? [];
+  const preamble =
+    `A facet ballot is REQUIRED on every ${opts.noun} in this Memex (it has a facet vocabulary) ` +
+    `— the ${opts.noun} was NOT ${verb}.`;
+
+  const nearMiss = nearMissBallotArg(received);
+  if (nearMiss) {
+    return reHand(
+      vocab,
+      `${preamble} An argument named \`${nearMiss}\` arrived, but \`${tool}\` expects ` +
+        `\`${BALLOT_ARG}\` — it was DISCARDED because the name does not match. Re-send the ` +
+        `same ballot under the exact name \`${BALLOT_ARG}\`.`,
+    );
+  }
+
   let msg = reHand(
     vocab,
-    `A facet ballot is REQUIRED on every ${opts.noun} in this Memex (it has a facet vocabulary), ` +
-      `and none was supplied — the ${opts.noun} was NOT ${verb}.`,
+    `${preamble} No \`${BALLOT_ARG}\` argument reached the server. ` +
+      (received.length > 0
+        ? `The arguments it did receive were: ${received.join(", ")}.`
+        : `It received no arguments at all.`),
   );
   if (opts.channel !== "in_app_agent") {
     msg +=
-      ` If your \`${tool}\` tool exposes no \`facetBallot\` parameter, your MCP client is on a cached ` +
-      `tool list — reconnect/reload the Memex MCP server to refresh it, then retry.`;
+      ` If you believe you sent \`${BALLOT_ARG}\`, it was dropped before reaching the server: ` +
+      `your MCP client may be on a cached tool list on which \`${tool}\` exposes no ` +
+      `\`${BALLOT_ARG}\` parameter — reconnect/reload the Memex MCP server to refresh it, then retry.`;
   }
   return msg;
 }
@@ -152,12 +206,23 @@ function requireLead(
  */
 export async function requireBallotForMemex(
   memexId: string,
-  input: { provided: boolean; ballot: BallotInput },
+  input: {
+    provided: boolean;
+    ballot: BallotInput;
+    /** spec-499 dec-2: the argument names the handler actually received, so an absent
+     *  ballot can be diagnosed instead of merely reported. Callers pass
+     *  `Object.keys(input)`; omitted, the message degrades to the un-echoed form. */
+    receivedArgNames?: string[];
+  },
   opts: { noun: "task" | "decision"; channel?: "mcp" | "in_app_agent" },
 ): Promise<VocabFacet[]> {
   const vocab = await vocabForMemex(memexId);
   if (vocab.length === 0) return vocab; // no vocabulary → nothing to adjudicate
-  if (!input.provided) throw new ValidationError(requireLead(vocab, opts));
+  if (!input.provided) {
+    throw new ValidationError(
+      requireLead(vocab, { ...opts, receivedArgNames: input.receivedArgNames }),
+    );
+  }
   const check = validateBallot(input.ballot, vocab);
   if (!check.ok) throw new ValidationError(check.message);
   return vocab;
