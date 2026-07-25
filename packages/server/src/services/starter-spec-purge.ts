@@ -35,7 +35,7 @@
 // number of bulk queries per memex, never one query per document; progress logged every
 // N. A --dry-run mode reports what it WOULD do without any write.
 
-import { and, eq, inArray, isNotNull, isNull, gt, ne } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, ne } from "drizzle-orm";
 import { db, runWithMemexId } from "../db/connection.js";
 import {
   documents,
