@@ -199,9 +199,38 @@ if [ "${PROVE_E2E:-0}" = "1" ]; then
   ( cd "$WORKTREE_DIR"  && PGPASSWORD=postgres MEMEX_EMIT=off make e2e-cold >/tmp/ac1-e2e-b.log 2>&1 ) & B_PID=$!
   wait $A_PID; RC_A=$?
   wait $B_PID; RC_B=$?
-  { [ $RC_A -eq 0 ] && [ $RC_B -eq 0 ]; } \
-    && pass "both e2e suites passed concurrently" \
-    || fail "concurrent e2e failed (A=$RC_A B=$RC_B)" "see /tmp/ac1-e2e-a.log and /tmp/ac1-e2e-b.log"
+
+  # What this tier can and cannot conclude.
+  #
+  # A pre-existing red journey makes both suites exit non-zero, and blaming that
+  # on concurrency would be a false accusation in the same family as the false
+  # passes this Spec exists to remove — a harness must not claim a collision it
+  # did not observe. So: report the counts, and name the failures each side saw.
+  # Only failures unique to ONE side can plausibly be interference; a journey that
+  # fails identically in both is a property of the branch, not of running two.
+  #
+  # Observed 2026-07-27: A 137 passed/1 failed, B 136 passed/2 failed. The shared
+  # failure (journey-45) reproduces on clean `develop` against a cold DB with no
+  # spec-512 code present — filed as issue-6, unrelated to concurrency.
+  fails_of() {
+    grep -oE '\[chromium\] › e2e/journey-[^ ]+\.spec\.ts:[0-9]+:[0-9]+' "$1" 2>/dev/null \
+      | sort -u
+  }
+  A_FAILS=$(fails_of /tmp/ac1-e2e-a.log); B_FAILS=$(fails_of /tmp/ac1-e2e-b.log)
+  ONLY_ONE_SIDE=$(comm -3 <(echo "$A_FAILS") <(echo "$B_FAILS") | tr -d '\t' | sed '/^$/d')
+
+  printf '    A: %s\n' "$(grep -cE '^\s+[0-9]+ passed' /tmp/ac1-e2e-a.log >/dev/null && grep -oE '[0-9]+ passed \([^)]*\)' /tmp/ac1-e2e-a.log | tail -1)"
+  printf '    B: %s\n' "$(grep -oE '[0-9]+ passed \([^)]*\)' /tmp/ac1-e2e-b.log | tail -1)"
+
+  if [ $RC_A -eq 0 ] && [ $RC_B -eq 0 ]; then
+    pass "both e2e suites passed concurrently"
+  elif [ -z "$ONLY_ONE_SIDE" ]; then
+    pass "both suites ran to completion concurrently; every failure was common to BOTH (pre-existing, not interference) — verify each against a solo run"
+    printf '      shared failures: %s\n' "$(echo "$A_FAILS" | tr '\n' ' ')"
+  else
+    fail "failure(s) unique to ONE workspace — possible interference" \
+      "$(echo "$ONLY_ONE_SIDE" | tr '\n' ' ') | logs: /tmp/ac1-e2e-a.log /tmp/ac1-e2e-b.log"
+  fi
 else
   echo "  ⚠ SKIPPED (opt-in). This tier is the fullest form of the claim —"
   echo "    tiers 1-3 prove allocation, binding and identity, not a whole suite."

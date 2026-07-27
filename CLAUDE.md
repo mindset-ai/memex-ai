@@ -29,6 +29,7 @@ mcp__memex__get_doc({ref: "mindset-prod/memex-building-itself/standards/std-N"})
 
 ## Standards index
 
+<!-- BEGIN generated: standards-index -->
 | Standard | Covers |
 |---|---|
 | std-1 | Namespace / org / memex are three distinct concepts — plus user-facing vocabulary and handle conventions (`b-N` / `doc-N` / `std-N` / `s-N` / `dec-N` / `t-N` / `c-N`). |
@@ -68,6 +69,12 @@ mcp__memex__get_doc({ref: "mindset-prod/memex-building-itself/standards/std-N"})
 | std-35 | Usage events / Mixpanel — the metering + product-analytics event recipe. |
 | std-36 | Tenant RLS posture — `ENABLE` row-level security, never `FORCE`; `runWithMemexId` ALS sets `memex_id`; views are `security_invoker`. |
 | std-37 | Test fixtures are isolated under parallel execution — per-worker-unique identifiers, poll for async writes, restore global stubs. |
+| std-38 | In-app agents share one contract — same visual shell (`ChatPanel`), Memex-wide grounding, narrow per-mode authoring scope enforced server-side by a `MODE_TOOLS` allow-list, copyable handoff on refusal. |
+| std-39 | Database hygiene — every DB interaction is reasoned about for cost, locks, and growth, not just correctness. Covers migrations, handlers, MCP tools, relays, cron, and the React UI's query/polling patterns. |
+| std-40 | Plugins are the Claude-Code delivery vehicle — one plugin, one concern. Covers hooks (std-41), a bundled MCP server, or slash commands; excludes the `memex-ai` CLI credential installer. |
+| std-41 | Hooks make capability a side effect of work you already do — use them sparingly, never for correctness. Six tests gate whether a hook is the right tool; correctness/security/mutation work belongs on the server (std-8). |
+| std-42 | Desktop client (memex-clients) releases follow one runbook — signing on BOTH platforms, notarization, auto-update, and per-channel distribution. An unsigned build is a CI artifact only, never published. |
+<!-- END generated: standards-index -->
 
 If a Standard contradicts the code, the Standard is probably right and the code has drifted — flag it.
 

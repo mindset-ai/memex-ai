@@ -27,17 +27,28 @@
 .PHONY: test test-unit test-integration test-api test-security test-perf test-regression test-rls \
         test-server test-ui e2e e2e-cold e2e-preflight smoke smoke-int smoke-prod smoke-int-with-db smoke-prod-with-db \
         dev build db-migrate db-seed typecheck lint \
-        check check-url-shape help
+        check check-url-shape standards-check standards-gen standards-sync affected prove-concurrent help
 
 # ── Fast offline lane (spec-512) ─────────────────────────────
 
 ## The sub-minute guard battery: no database, no network. This is what replaces
 ## "push and wait for CI" as the tight feedback loop. Everything here is a pure
 ## static check — anything needing Postgres belongs in `make test`.
-check: check-url-shape lint
+check: check-url-shape lint standards-check
 	@node scripts/ci/workspace-alloc.mjs --all > /dev/null || \
 		{ echo "✗ workspace allocator failed — see scripts/ci/workspace-alloc.mjs"; exit 1; }
 	@echo "✓ offline guard battery passed"
+
+## Which suites are worth running for your current diff (advisory — CI still
+## runs the full matrix). An unrecognised path widens to everything, never to
+## nothing. `make affected ARGS=--json` for machine-readable output.
+affected:
+	@node scripts/ci/affected-tests.mjs $(ARGS)
+
+## Prove two working copies run concurrently without collisions (spec-512 ac-1).
+## PROVE_E2E=1 adds the two-full-suite tier.
+prove-concurrent:
+	@bash scripts/ci/prove-concurrent-workspaces.sh
 
 # ── Tests ────────────────────────────────────────────────────
 
@@ -259,3 +270,20 @@ help:
 	@grep -E '^## ' $(MAKEFILE_LIST) | sed 's/^## /  /'
 	@echo ""
 	@echo "Run 'make <target>' to execute."
+
+# ── Standards index (spec-512 dec-4) ─────────────────────────────────────────
+
+## Fail if the CLAUDE.md standards index has drifted from the manifest.
+standards-check:
+	@node scripts/ci/standards-index.mjs --check
+
+## Regenerate the CLAUDE.md standards index from standards.manifest.json.
+standards-gen:
+	@node scripts/ci/standards-index.mjs --write
+
+## Refresh the manifest FROM Memex (online — an agent runs search_memex and
+## rewrites standards.manifest.json), then regenerate. Deliberately not part of
+## `make check`: the offline lane must never need the network.
+standards-sync:
+	@echo "Refresh standards.manifest.json from Memex, then run: make standards-gen"
+	@echo "  search_memex({ memex: 'mindset-prod/memex-building-itself', kind: 'standard' })"
