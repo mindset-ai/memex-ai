@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # spec-512 ac-1 — PROVE two working copies run concurrently without collisions.
 #
-# The motivating brief is blunt about why this script exists rather than a
+# The motivating guidance is blunt about why this script exists rather than a
 # paragraph of reasoning: "Shared state hides in unexpected places. You will only
 # find this by genuinely running two copies at once." Every collision spec-512
 # fixed was found that way, and the two that were merely reasoned about (the dev
