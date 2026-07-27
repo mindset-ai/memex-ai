@@ -33,7 +33,11 @@ import {
   deriveE2eDbNames,
   resolveE2eConfig,
 } from "../../../../scripts/ci/workspace-alloc.mjs";
-import { classifyPortOwner, isStaleBuild } from "../../../../scripts/ci/e2e-preflight.mjs";
+import {
+  classifyPortOwner,
+  isStaleBuild,
+  portsToCheck,
+} from "../../../../scripts/ci/e2e-preflight.mjs";
 
 const REPO_ROOT = join(__dirname, "..", "..", "..", "..");
 const MAKEFILE = readFileSync(join(REPO_ROOT, "Makefile"), "utf8");
@@ -48,6 +52,22 @@ const GLOBAL_SETUP = readFileSync(
 
 const WS_A = "/Users/dev/work/memex-ai";
 const WS_B = "/Users/dev/work/memex-ai-spec-499";
+
+/** The recipe lines of one Makefile target (tab-indented lines after `name:`),
+ *  with `#` comments stripped so prose ABOUT a rule can't satisfy a rule. */
+function makeRecipe(target: string): string {
+  const lines = MAKEFILE.split("\n");
+  const start = lines.findIndex((l) => new RegExp(`^${target}:`).test(l));
+  if (start === -1) return "";
+  const body: string[] = [];
+  for (const line of lines.slice(start + 1)) {
+    if (line.trim() === "") continue;
+    if (!line.startsWith("\t")) break; // next target begins
+    if (/^\t\s*@?#/.test(line)) continue; // recipe comment
+    body.push(line);
+  }
+  return body.join("\n");
+}
 
 describe("spec-512: the allocator is pure, deterministic, and collision-free across worktrees", () => {
   it("derives stable, distinct ports and database names per workspace (ac-12)", () => {
@@ -145,54 +165,120 @@ describe("spec-512: the foreign-server classifier flags every unsafe case", () =
     expect((await classify("<html>not us</html>")).kind).toBe("foreign");
   });
 
-  it("probes BOTH the API and the UI port, not just one (ac-14)", () => {
+  it("covers BOTH the API and the UI port — asserted behaviourally (ac-14)", () => {
     tagAc("mindset-prod/memex-building-itself/specs/spec-512/acs/ac-14");
 
-    // Found by adversarial review. The first cut of the preflight probed only the
-    // API port and merely PRINTED the UI port in its success line — so a foreign
-    // UI server with a free API port sailed through, and Playwright (which applies
-    // reuseExistingServer to BOTH its webServer entries) would reuse that foreign
-    // UI. Same silent lie, different door.
-    const preflight = readFileSync(
-      join(REPO_ROOT, "scripts", "ci", "e2e-preflight.mjs"),
-      "utf8",
-    );
-
-    // Look at real call sites, not the prose that explains them — the comments in
-    // that file necessarily name both ports.
-    const callSites = preflight
-      .split("\n")
-      .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
-      // `await` distinguishes a real call site from the `async function`
-      // DEFINITION, which otherwise matches too and inflated this count to 3.
-      .filter((l) => /await\s+checkPortOwnership\(cfg,/.test(l));
+    // The first version of this test counted `await checkPortOwnership(cfg,` lines
+    // in the source and asserted === 2. Adversarial review defeated it three ways:
+    // wrapping the UI probe in `if (process.env.SKIP_UI_CHECK)` kept the count at 2
+    // and the test GREEN while a real foreign UI was adopted; so did replacing the
+    // probe with a same-shaped string literal; and an honest refactor to a `for`
+    // loop made it FAIL. It passed two broken files and failed one correct one —
+    // the very "regex over source treats prose as code" defect this file elsewhere
+    // congratulates itself for having fixed.
+    //
+    // So assert the DATA the loop consumes, not the shape of the source.
+    const targets = portsToCheck({ apiPort: 1111, uiPort: 2222 });
+    const ports = targets.map((t) => t.port);
 
     expect(
-      callSites.length,
-      `e2e-preflight must call checkPortOwnership for BOTH the API and the UI port, ` +
-        `but found ${callSites.length} call site(s):\n  ${callSites.join("\n  ")}\n\n` +
-        `Playwright's reuseExistingServer applies to both its webServer entries, so ` +
-        `an unchecked UI port lets a foreign UI be adopted silently.\n\n` +
-        `Fix — in scripts/ci/e2e-preflight.mjs main():\n` +
-        `  await checkPortOwnership(cfg, { port: cfg.uiPort, label: "UI" });\n\n` +
+      ports,
+      `e2e-preflight must check BOTH the API and the UI port. portsToCheck returned ` +
+        `${JSON.stringify(targets)}.\n\n` +
+        `Playwright's reuseExistingServer applies to both of its webServer entries, ` +
+        `so an unchecked port lets a foreign server be adopted silently.\n\n` +
+        `Fix — in scripts/ci/e2e-preflight.mjs, make portsToCheck() return both:\n` +
+        `  return [{ port: cfg.apiPort, label: "API" }, { port: cfg.uiPort, label: "UI" }];\n\n` +
         `Check: packages/server/src/__regression__/spec-512-workspace-isolation.regression.test.ts`,
-    ).toBe(2);
+    ).toEqual([1111, 2222]);
 
-    expect(callSites.join("\n")).toMatch(/cfg\.apiPort/);
-    expect(callSites.join("\n")).toMatch(/cfg\.uiPort/);
+    expect(targets.map((t) => t.label)).toEqual(["API", "UI"]);
   });
 
-  it("treats a missing or outdated shared build as stale (ac-14)", () => {
+  it("classifies a SLOW or unparseable server as occupied, never free (ac-14)", async () => {
     tagAc("mindset-prod/memex-building-itself/specs/spec-512/acs/ac-14");
 
-    expect(isStaleBuild("/nonexistent/dist", "/nonexistent/src").stale).toBe(true);
+    // Both of these were live false negatives found by adversarial review, and both
+    // reinstated silent adoption:
+    //   * a foreign server slower than the 2s probe timeout — 1500ms was caught,
+    //     2100ms printed "✓ preflight passed" even though the server's own log
+    //     showed it had RECEIVED the probe. Playwright waits 60s, so it adopts it.
+    //   * a 200 whose body is not JSON (SPA HTML fallback, empty body, redirect) —
+    //     res.json() threw into the same catch that handles ECONNREFUSED.
+    // ONLY a refused connection may be classified "free".
+    const classify = (health: unknown) =>
+      classifyPortOwner({
+        port: 1234,
+        expectedWorkspaceId: "aaaaaaaa",
+        probe: async () => health,
+      });
 
-    // src newer than dist → stale (the trap: React never mounts, every journey
-    // fails identically with a generic "heading not found").
-    const stale = isStaleBuild("/dist", "/src", {
-      listFiles: (d: string) => [`${d}/f`],
+    for (const [label, health] of [
+      ["timeout", { timedOut: true }],
+      ["non-JSON 200", { unparseable: true }],
+      ["HTTP 500", { unhealthy: 500 }],
+      ["empty workspace", { status: "ok", workspace: "" }],
+      ["whitespace workspace", { status: "ok", workspace: "   " }],
+      ["null workspace", { status: "ok", workspace: null }],
+    ] as const) {
+      const verdict = await classify(health);
+      expect(
+        verdict.kind,
+        `A ${label} response must NOT be treated as a free port — something is ` +
+          `listening and cannot prove it is ours, so the run must stop. Got ` +
+          `"${verdict.kind}".\n\nCheck: scripts/ci/e2e-preflight.mjs classifyPortOwner`,
+      ).not.toBe("free");
+      expect(verdict.kind).not.toBe("own");
+    }
+
+    // The one case that genuinely IS free: nothing listening at all.
+    expect((await classify(null)).kind).toBe("free");
+  });
+
+  it("detects a PARTIAL shared build, not just an old one (ac-14)", () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-512/acs/ac-14");
+
+    // Adversarial review showed the previous version of this test was doubly
+    // vacuous: `existsSync("/dist")` short-circuited so the injected `listFiles`
+    // fixture was NEVER invoked (0 calls), and the assertion was
+    // `expect(typeof stale.stale).toBe("boolean")` — true for every possible
+    // return value of the function. Of three verdicts, only `missing` was covered.
+    //
+    // It also showed the implementation itself was blind to its own stated
+    // purpose: a max-mtime comparison cannot see a MISSING module, yet the check
+    // exists for "a stale dist missing an export the UI now imports". A dist with
+    // 1 of 38 modules reported {stale:false}, and one `touch` cleared a genuine
+    // stale verdict. Hence the coverage comparison, tested here for real.
+    const missingDist = isStaleBuild("/nonexistent/dist", "/nonexistent/src");
+    expect(missingDist).toEqual({ stale: true, reason: "missing" });
+
+    // Use this repo's real, freshly-built shared package as the healthy control.
+    const realDist = join(REPO_ROOT, "packages", "shared", "dist");
+    const realSrc = join(REPO_ROOT, "packages", "shared", "src");
+
+    // Partial build: every source module present, but only ONE emitted.
+    const srcModules = ["/a.ts", "/b.ts", "/c.ts"];
+    const partial = isStaleBuild(realDist, realSrc, {
+      listFiles: (d: string) =>
+        d === realSrc ? srcModules.map((m) => d + m) : [`${d}/a.js`],
     });
-    expect(typeof stale.stale).toBe("boolean");
+    expect(
+      partial,
+      "A dist holding 1 of 3 source modules must be reported stale (reason " +
+        "'incomplete', 2 missing) — this is the interrupted-build case the check " +
+        "exists for, and a newest-mtime comparison is structurally blind to it.",
+    ).toMatchObject({ stale: true, reason: "incomplete", missingCount: 2 });
+
+    // Fully covered and freshly emitted → not stale. Proves the check can still
+    // say "healthy", so the partial verdict above isn't just a checker that
+    // always returns true.
+    const complete = isStaleBuild(realDist, realSrc, {
+      listFiles: (d: string) =>
+        d === realSrc
+          ? srcModules.map((m) => d + m)
+          : srcModules.map((m) => d + m.replace(/\.ts$/, ".js")),
+    });
+    expect(complete.stale).toBe(false);
   });
 });
 
@@ -245,15 +331,63 @@ describe("spec-512: the wiring cannot be quietly removed", () => {
     expect(MAKEFILE).toContain("scripts/ci/workspace-alloc.mjs");
   });
 
-  it("e2e-cold runs the preflight, and the offline lane exists (ac-10, ac-14)", () => {
+  it("EVERY e2e target is armed, not just e2e-cold (ac-10, ac-14)", () => {
     tagAc("mindset-prod/memex-building-itself/specs/spec-512/acs/ac-10");
     tagAc("mindset-prod/memex-building-itself/specs/spec-512/acs/ac-14");
 
+    // spec-512's worst defect, found by adversarial review that reproduced the
+    // original incident end-to-end: the hardening was applied to `e2e-cold` only.
+    // Bare `make e2e` — the command developers run while iterating, and the first
+    // one in packages/ui/e2e/README.md — fell back to the literal ports and the
+    // SHARED dev database, and e2e/global-setup.ts's guard early-returns when
+    // MEMEX_WORKSPACE_ID is unset, so the backstop disarmed itself on exactly that
+    // path. A guard that fails OPEN on its most common path is worse than none,
+    // because it reads as protection.
+    for (const target of ["e2e", "e2e-cold"]) {
+      const recipe = makeRecipe(target);
+      expect(
+        recipe,
+        `Makefile target "${target}" was not found — the arming assertions below ` +
+          `would pass vacuously.`,
+      ).not.toBe("");
+
+      expect(
+        new RegExp(`^${target}:.*\\be2e-preflight\\b`, "m").test(MAKEFILE),
+        `Makefile target "${target}" must depend on e2e-preflight.\n\n` +
+          `Without it, a run can silently adopt another workspace's server and ` +
+          `report a pass against the wrong code.\n\n` +
+          `Fix:\n  ${target}: e2e-preflight\n\n` +
+          `Check: packages/server/src/__regression__/spec-512-workspace-isolation.regression.test.ts`,
+      ).toBe(true);
+
+      expect(
+        recipe,
+        `Makefile target "${target}" must export MEMEX_WORKSPACE_ID.\n\n` +
+          `packages/ui/e2e/global-setup.ts returns early when it is unset — so ` +
+          `without it the foreign-server backstop silently checks nothing.\n\n` +
+          `Observed recipe:\n${recipe}\n\n` +
+          `Fix — add to the recipe:\n  MEMEX_WORKSPACE_ID="$(E2E_WS_ID)" \\\n\n` +
+          `Check: packages/server/src/__regression__/spec-512-workspace-isolation.regression.test.ts`,
+      ).toContain("MEMEX_WORKSPACE_ID");
+
+      expect(recipe).toContain("E2E_SERVER_PORT");
+      expect(recipe).toContain("E2E_UI_PORT");
+    }
+
+    // `make dev` must use derived ports too, or two worktrees cannot run dev
+    // servers concurrently (Vite's strictPort makes the second exit EADDRINUSE).
+    const devRecipe = makeRecipe("dev");
+    expect(devRecipe).not.toBe("");
     expect(
-      MAKEFILE,
-      "e2e-cold must depend on e2e-preflight — without it a run can silently " +
-        "adopt another workspace's server. Fix: `e2e-cold: e2e-preflight`.",
-    ).toMatch(/e2e-cold:\s*e2e-preflight/);
+      devRecipe,
+      `\`make dev\` must bind this workspace's DERIVED ports.\n\n` +
+        `Observed recipe:\n${devRecipe}\n\n` +
+        `Hardcoded 8080/5173 plus Vite's strictPort:true means a second worktree's ` +
+        `dev server exits EADDRINUSE.\n\n` +
+        `Fix — in the dev recipe:\n  PORT=$(DEV_API_PORT) ... VITE_PORT=$(DEV_UI_PORT)\n\n` +
+        `Check: packages/server/src/__regression__/spec-512-workspace-isolation.regression.test.ts`,
+    ).toMatch(/DEV_API_PORT/);
+    expect(devRecipe).toMatch(/DEV_UI_PORT/);
 
     expect(MAKEFILE).toMatch(/^e2e-preflight:/m);
     expect(MAKEFILE).toMatch(/^check:/m);

@@ -110,6 +110,9 @@ export function resolveE2eConfig(env = process.env, workspaceRoot = process.cwd(
     // and remain the escape hatch.
     apiPort: Number(env.E2E_SERVER_PORT ?? ports.e2eApi),
     uiPort: Number(env.E2E_UI_PORT ?? ports.e2eUi),
+    // `make dev` ports. PORT/VITE_PORT keep precedence, as they always have.
+    devPort: Number(env.PORT ?? ports.dev),
+    devUiPort: Number(env.VITE_PORT ?? ports.devUi),
     // An explicit E2E_DATABASE_URL is taken verbatim — someone naming a database
     // by hand means it, and silently rewriting it would be its own silent lie.
     databaseUrl: env.E2E_DATABASE_URL ?? withDatabase(baseUrl, names.database),
@@ -129,6 +132,13 @@ const FIELDS = {
   "workspace-id": (c) => c.workspaceId,
   "e2e-api-port": (c) => c.apiPort,
   "e2e-ui-port": (c) => c.uiPort,
+  // spec-512: derivePorts() always computed dev/devUi, but these two fields were
+  // never exposed, so nothing could read them and `make dev` stayed on hardcoded
+  // 8080/5173 with Vite's strictPort — a second worktree's dev server died
+  // EADDRINUSE. Adversarial review caught them as dead values: the intent was
+  // implemented and then not wired.
+  "dev-api-port": (c) => c.devPort,
+  "dev-ui-port": (c) => c.devUiPort,
   "e2e-database-url": (c) => c.databaseUrl,
   "e2e-template-url": (c) => c.templateUrl,
   "e2e-database-name": (c) => c.databaseName,

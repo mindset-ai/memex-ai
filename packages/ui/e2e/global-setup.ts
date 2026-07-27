@@ -52,7 +52,7 @@ async function assertServerBelongsToThisWorkspace(): Promise<void> {
       `  and database and reported a pass — nothing you changed would be tested.\n` +
       `\n` +
       `  Fix — free the port, then re-run:\n` +
-      `    lsof -ti tcp:${process.env.E2E_SERVER_PORT ?? 8090} | xargs kill\n` +
+      `    lsof -ti tcp:${process.env.E2E_SERVER_PORT ?? 8090} | xargs -r kill\n` +
       `\n` +
       `  Check: packages/ui/e2e/global-setup.ts`,
   );

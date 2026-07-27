@@ -166,7 +166,14 @@ app.get("/api/health", (c) => {
   // NOT an authentication mechanism: it answers "is this the server I
   // started?", not "is this server trustworthy". It defends against two of
   // your own worktrees colliding, and nothing else.
-  const workspace = process.env.MEMEX_WORKSPACE_ID?.trim();
+  // ENFORCED, not merely intended: only an 8-char hex digest is ever published.
+  // Adversarial review booted this server with
+  // MEMEX_WORKSPACE_ID=/Users/me/secret-project/acme-merger and the unauthenticated
+  // endpoint echoed the path verbatim. The sibling variable MEMEX_WORKSPACE_ROOT
+  // *is* a path, so one _ID/_ROOT slip would leak host layout to the internet.
+  // Anything not matching the digest shape is dropped rather than published.
+  const raw = process.env.MEMEX_WORKSPACE_ID?.trim();
+  const workspace = raw && /^[0-9a-f]{8}$/.test(raw) ? raw : undefined;
 
   return c.json({
     status: "ok",

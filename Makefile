@@ -90,8 +90,18 @@ test-ui:
 ## (5173) itself via the Playwright webServer block; needs local Postgres running.
 ## Runs against your dev DB; use e2e-cold for the CI posture. Extra args via ARGS,
 ## e.g. `make e2e ARGS="journey-18 --headed"`.
-e2e:
-	pnpm --filter @memex/ui test:e2e $(ARGS)
+##
+## spec-512 C1: this target gets the SAME workspace arming as e2e-cold. It was
+## originally left bare, and adversarial review reproduced the original incident on
+## it end-to-end: with no MEMEX_WORKSPACE_ID, playwright.config.ts falls back to the
+## literal 5173/8090 AND e2e/global-setup.ts's guard early-returns (it has nothing to
+## compare against), so a second worktree silently adopts the first's servers and the
+## shared dev database — reporting PASS. It is the command developers run while
+## iterating, so it was the most exposed target, not the least.
+e2e: e2e-preflight
+	MEMEX_WORKSPACE_ID="$(E2E_WS_ID)" \
+		E2E_SERVER_PORT="$(E2E_API_PORT)" E2E_UI_PORT="$(E2E_UI_PORT_)" \
+		pnpm --filter @memex/ui test:e2e $(ARGS)
 
 ## UI: e2e against a throwaway, freshly-migrated database — exact CI parity (std-28).
 ## Fast path: migrations are replayed ONCE into memex_e2e_template (rebuilt only when
@@ -128,7 +138,11 @@ e2e-cold: e2e-preflight
 	else \
 		echo "✓ e2e template DB $(E2E_TPL_NAME) up to date"; \
 	fi
-	dropdb --if-exists -h localhost -U postgres $(E2E_DB_NAME)
+	@# --force (spec-512): a lingering e2e server from an interrupted run holds the
+	@# database and blocks a plain dropdb, aborting the whole run. The vitest tier
+	@# already does this (vitest.global-setup.ts uses DROP DATABASE ... WITH FORCE);
+	@# the e2e tier had not inherited it.
+	dropdb --if-exists --force -h localhost -U postgres $(E2E_DB_NAME)
 	createdb -h localhost -U postgres -T $(E2E_TPL_NAME) $(E2E_DB_NAME)
 	DATABASE_URL="$(E2E_COLD_DB)" E2E_DATABASE_URL="$(E2E_COLD_DB)" \
 		MEMEX_WORKSPACE_ID="$(E2E_WS_ID)" \
@@ -173,9 +187,18 @@ smoke-prod-with-db:
 
 # ── Dev ──────────────────────────────────────────────────────
 
-## Start server + UI dev servers
+## Start server + UI dev servers on this workspace's derived ports (spec-512), so
+## two worktrees can run `make dev` at once. Previously hardcoded 8080/5173 with
+## Vite's strictPort: true, so the second worktree's dev server exited EADDRINUSE.
+## PORT / VITE_PORT still override.
+DEV_API_PORT := $(shell node scripts/ci/workspace-alloc.mjs dev-api-port)
+DEV_UI_PORT  := $(shell node scripts/ci/workspace-alloc.mjs dev-ui-port)
 dev:
-	pnpm dev:server & pnpm dev:ui & wait
+	@echo "▶ dev server  http://localhost:$(DEV_API_PORT)"
+	@echo "▶ dev UI      http://localhost:$(DEV_UI_PORT)"
+	MEMEX_WORKSPACE_ID="$(E2E_WS_ID)" PORT=$(DEV_API_PORT) pnpm dev:server & \
+		VITE_PORT=$(DEV_UI_PORT) VITE_API_PROXY="http://localhost:$(DEV_API_PORT)" pnpm dev:ui & \
+		wait
 
 ## Build all packages
 build:

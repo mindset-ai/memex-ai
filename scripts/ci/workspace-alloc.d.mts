@@ -23,6 +23,8 @@ export interface E2eConfig {
   workspaceId: string;
   apiPort: number;
   uiPort: number;
+  devPort: number;
+  devUiPort: number;
   databaseUrl: string;
   templateUrl: string;
   databaseName: string;
