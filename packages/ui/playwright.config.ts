@@ -72,7 +72,12 @@ export default defineConfig({
           // can still render a tracker step deterministically now that spec-470/473's hero
           // owns the live spec-less /home. Preview only activates on an explicit ?preview=
           // query, so every other journey is unaffected.
-          command: `GOOGLE_CLIENT_ID="" MEMEX_ANTHROPIC_FAKE=1 JOURNEY_PREVIEW_DOMAINS="memex.ai" SLACK_TOKEN_ENCRYPTION="${process.env.SLACK_TOKEN_ENCRYPTION ?? "plaintext"}" DATABASE_URL="${DATABASE_URL}" PORT=${SERVER_PORT} pnpm --filter @memex/server dev`,
+          // spec-512 dec-3: MEMEX_WORKSPACE_ID is threaded through so this server
+          // advertises WHICH working copy started it on /api/health. Without it,
+          // `reuseExistingServer` below silently adopts another worktree's server
+          // and every journey runs against that branch's code while reporting a
+          // pass. e2e/global-setup.ts refuses to proceed on a mismatch.
+          command: `GOOGLE_CLIENT_ID="" MEMEX_ANTHROPIC_FAKE=1 JOURNEY_PREVIEW_DOMAINS="memex.ai" SLACK_TOKEN_ENCRYPTION="${process.env.SLACK_TOKEN_ENCRYPTION ?? "plaintext"}" DATABASE_URL="${DATABASE_URL}" MEMEX_WORKSPACE_ID="${process.env.MEMEX_WORKSPACE_ID ?? ""}" PORT=${SERVER_PORT} pnpm --filter @memex/server dev`,
           url: `http://localhost:${SERVER_PORT}/api/health`,
           reuseExistingServer: !process.env.CI,
           timeout: 60_000,
