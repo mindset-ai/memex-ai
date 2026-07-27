@@ -110,10 +110,22 @@ function fail(message) {
   failures.push(message);
 }
 
-async function checkPortOwnership(cfg) {
+// Playwright's webServer block has TWO entries — the API server AND the Vite UI
+// server — and `reuseExistingServer` applies to BOTH. Checking only the API port
+// leaves the exact same silent lie available through the other door: a free API
+// port and a foreign UI port means Playwright boots our API, reuses THEIR UI, and
+// the journeys drive another workspace's bundle. (Found by adversarial review of
+// the first cut of this file, which probed only the API port and merely PRINTED
+// the UI port in its success line — the reassuring-but-unchecked shape this whole
+// Spec exists to eliminate.)
+//
+// The UI port is a Vite dev server with no /api/health of its own, but it PROXIES
+// /api/* to whichever API it was configured against — so probing health through it
+// answers the sharper question: which API is this UI actually wired to?
+async function checkPortOwnership(cfg, { port, label }) {
   checksRun++;
   const verdict = await classifyPortOwner({
-    port: cfg.apiPort,
+    port,
     expectedWorkspaceId: cfg.workspaceId,
     probe: httpHealth,
   });
@@ -126,21 +138,22 @@ async function checkPortOwnership(cfg) {
       : `a server belonging to workspace ${verdict.seen ?? "(unparseable)"}`;
 
   fail(
-    `E2E PORT BELONGS TO ANOTHER WORKSPACE (spec-512 dec-3)\n` +
+    `E2E ${label} PORT BELONGS TO ANOTHER WORKSPACE (spec-512 dec-3)\n` +
       `\n` +
-      `  Port ${cfg.apiPort} is already held by ${owner}.\n` +
+      `  Port ${port} (the ${label} server) is already held by ${owner}.\n` +
       `  This workspace is ${cfg.workspaceRoot} (id ${cfg.workspaceId}).\n` +
       `\n` +
-      `  Playwright is configured with reuseExistingServer, so it would have REUSED\n` +
-      `  that server instead of starting this checkout's. Your journeys would have\n` +
-      `  run against the OTHER workspace's code and the OTHER workspace's database,\n` +
-      `  and reported a PASS. Nothing you just changed would have been tested.\n` +
+      `  Playwright is configured with reuseExistingServer for BOTH its API and UI\n` +
+      `  servers, so it would have REUSED that one instead of starting this\n` +
+      `  checkout's. Your journeys would have run against the OTHER workspace's code\n` +
+      `  and the OTHER workspace's database, and reported a PASS. Nothing you just\n` +
+      `  changed would have been tested.\n` +
       `\n` +
       `  Fix — free the port by stopping whatever holds it:\n` +
-      `    lsof -ti tcp:${cfg.apiPort} | xargs kill\n` +
+      `    kill $(lsof -ti tcp:${port})\n` +
       `\n` +
-      `  Or leave it running and give this run its own adjacent pair:\n` +
-      `    E2E_SERVER_PORT=${cfg.apiPort + 2} E2E_UI_PORT=${cfg.apiPort + 3} make e2e-cold\n` +
+      `  Or leave it running and give this run its own pair:\n` +
+      `    E2E_SERVER_PORT=${cfg.apiPort + 100} E2E_UI_PORT=${cfg.uiPort + 100} make e2e-cold\n` +
       `\n` +
       `  Check: ${SELF}`,
   );
@@ -238,7 +251,8 @@ async function main() {
   const repoRoot = process.env.MEMEX_WORKSPACE_ROOT ?? process.cwd();
   const cfg = resolveE2eConfig(process.env, repoRoot);
 
-  await checkPortOwnership(cfg);
+  await checkPortOwnership(cfg, { port: cfg.apiPort, label: "API" });
+  await checkPortOwnership(cfg, { port: cfg.uiPort, label: "UI" });
   checkPgPassword();
   checkSharedBuild(repoRoot);
   checkEmissionTarget();

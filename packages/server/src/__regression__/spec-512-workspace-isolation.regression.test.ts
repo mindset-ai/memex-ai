@@ -145,6 +145,43 @@ describe("spec-512: the foreign-server classifier flags every unsafe case", () =
     expect((await classify("<html>not us</html>")).kind).toBe("foreign");
   });
 
+  it("probes BOTH the API and the UI port, not just one (ac-14)", () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-512/acs/ac-14");
+
+    // Found by adversarial review. The first cut of the preflight probed only the
+    // API port and merely PRINTED the UI port in its success line — so a foreign
+    // UI server with a free API port sailed through, and Playwright (which applies
+    // reuseExistingServer to BOTH its webServer entries) would reuse that foreign
+    // UI. Same silent lie, different door.
+    const preflight = readFileSync(
+      join(REPO_ROOT, "scripts", "ci", "e2e-preflight.mjs"),
+      "utf8",
+    );
+
+    // Look at real call sites, not the prose that explains them — the comments in
+    // that file necessarily name both ports.
+    const callSites = preflight
+      .split("\n")
+      .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
+      // `await` distinguishes a real call site from the `async function`
+      // DEFINITION, which otherwise matches too and inflated this count to 3.
+      .filter((l) => /await\s+checkPortOwnership\(cfg,/.test(l));
+
+    expect(
+      callSites.length,
+      `e2e-preflight must call checkPortOwnership for BOTH the API and the UI port, ` +
+        `but found ${callSites.length} call site(s):\n  ${callSites.join("\n  ")}\n\n` +
+        `Playwright's reuseExistingServer applies to both its webServer entries, so ` +
+        `an unchecked UI port lets a foreign UI be adopted silently.\n\n` +
+        `Fix — in scripts/ci/e2e-preflight.mjs main():\n` +
+        `  await checkPortOwnership(cfg, { port: cfg.uiPort, label: "UI" });\n\n` +
+        `Check: packages/server/src/__regression__/spec-512-workspace-isolation.regression.test.ts`,
+    ).toBe(2);
+
+    expect(callSites.join("\n")).toMatch(/cfg\.apiPort/);
+    expect(callSites.join("\n")).toMatch(/cfg\.uiPort/);
+  });
+
   it("treats a missing or outdated shared build as stale (ac-14)", () => {
     tagAc("mindset-prod/memex-building-itself/specs/spec-512/acs/ac-14");
 
