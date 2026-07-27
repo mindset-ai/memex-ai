@@ -182,9 +182,22 @@ build:
 	pnpm build
 
 ## TypeScript type checking (no emit)
+##
+## spec-512: the UI half MUST use `tsc -b`, not `tsc --noEmit`.
+## packages/ui/tsconfig.json is a solution-style config — `{"files": [], "references":
+## [./tsconfig.app.json]}`. Plain `tsc --noEmit` honours `files: []` and therefore
+## type-checks ZERO UI files, exiting 0 no matter what. Proven by planting
+## `const x: number = "not a number"` in packages/ui/src/main.tsx: `tsc --noEmit`
+## reported nothing; `tsc -b` caught TS2322 + TS6133 immediately.
+##
+## That made .husky/pre-push's "superset of the deploy's build-config type gate"
+## claim false for the UI, and is the direct cause of commit 5b930ff
+## ("drop unused imports the voice removal orphaned (production-build gate)").
+## `tsc -b` follows the reference into tsconfig.app.json, which carries
+## noUnusedLocals/noUnusedParameters — matching what CI's `build` job runs.
 typecheck:
 	pnpm --filter @memex/server exec tsc --noEmit
-	pnpm --filter @memex/ui exec tsc --noEmit
+	pnpm --filter @memex/ui exec tsc -b
 
 ## Lint (Biome — curated baseline per spec-356; no reformat)
 lint:

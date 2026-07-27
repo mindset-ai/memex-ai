@@ -223,6 +223,59 @@ describe("spec-512: the wiring cannot be quietly removed", () => {
     expect(MAKEFILE).toContain("scripts/ci/e2e-preflight.mjs");
   });
 
+  it("the UI type gate actually checks files — never the no-op form (ac-11)", () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-512/acs/ac-11");
+
+    // THE DEFECT THIS PINS (live on develop until spec-512, proven empirically):
+    // packages/ui/tsconfig.json is `{"files": [], "references": [tsconfig.app.json]}`.
+    // Plain `tsc --noEmit` honours `files: []` and type-checks ZERO ui files,
+    // exiting 0 unconditionally. Planting `const x: number = "not a number"` in
+    // packages/ui/src/main.tsx produced NO output from `tsc --noEmit`, while
+    // `tsc -b` reported TS2322 + TS6133 immediately.
+    //
+    // So `make typecheck`'s ui half was a checker that examined nothing and
+    // therefore reported universal success — and .husky/pre-push documented it as
+    // "a superset" of the deploy gate. That is why commit 5b930ff had to drop
+    // unused imports that only CI's build job caught.
+    const uiTsconfig = JSON.parse(
+      readFileSync(join(REPO_ROOT, "packages", "ui", "tsconfig.json"), "utf8"),
+    );
+
+    // The premise of this guard: if the ui tsconfig ever stops being the
+    // empty-files solution form, `tsc --noEmit` might become safe again and this
+    // test's reasoning would no longer apply. Assert the premise explicitly
+    // rather than letting it rot into a stale rule.
+    expect(
+      uiTsconfig.files,
+      "packages/ui/tsconfig.json is no longer the `files: []` solution form. " +
+        "Re-derive whether `tsc --noEmit` now checks real files before relaxing " +
+        "the `tsc -b` requirement below.",
+    ).toEqual([]);
+
+    const typecheckBlock = MAKEFILE.split("\n")
+      .slice(MAKEFILE.split("\n").findIndex((l) => /^typecheck:/.test(l)))
+      .slice(0, 4)
+      .join("\n");
+
+    expect(typecheckBlock.length).toBeGreaterThan(20); // denominator: we found the recipe
+
+    expect(
+      /@memex\/ui exec tsc -b/.test(typecheckBlock),
+      `\`make typecheck\` must run \`tsc -b\` for the UI, not \`tsc --noEmit\`.\n` +
+        `\n` +
+        `  Observed recipe:\n${typecheckBlock}\n` +
+        `\n` +
+        `  packages/ui/tsconfig.json sets \`files: []\`, so \`tsc --noEmit\` checks ZERO\n` +
+        `  files and passes no matter what is broken. The pre-push gate would then be\n` +
+        `  reporting a UI type-check it never performed.\n` +
+        `\n` +
+        `  Fix — in the Makefile's typecheck recipe:\n` +
+        `    pnpm --filter @memex/ui exec tsc -b\n` +
+        `\n` +
+        `  Check: packages/server/src/__regression__/spec-512-workspace-isolation.regression.test.ts`,
+    ).toBe(true);
+  });
+
   it("the e2e harness threads and verifies workspace identity (ac-13, ac-14)", () => {
     tagAc("mindset-prod/memex-building-itself/specs/spec-512/acs/ac-13");
     tagAc("mindset-prod/memex-building-itself/specs/spec-512/acs/ac-14");
