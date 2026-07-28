@@ -127,10 +127,29 @@ export async function emit(
   args: EmitArgs,
   transport: typeof fetch = globalThis.fetch,
 ): Promise<void> {
-  if (!isEmissionEnabled()) return;
+  await emitOnce(args, transport);
+}
+
+/**
+ * What one emission did. `emit()` deliberately discards this — its documented
+ * contract is `Promise<void>` that never throws, and the `ac-emission-bootstrap`
+ * topic describes that shape for other languages to copy, so it must not change.
+ *
+ * The 404 fallback needs the outcome for one reason only: a 401 means the key is
+ * refused, so every remaining event in the flush will be refused too and sending
+ * them is pure waste (spec-515 ac-14).
+ */
+type EmitOutcome = "ok" | "auth-refused" | "failed";
+
+/** `emit()` with the outcome reported instead of swallowed. Never throws. */
+async function emitOnce(
+  args: EmitArgs,
+  transport: typeof fetch = globalThis.fetch,
+): Promise<EmitOutcome> {
+  if (!isEmissionEnabled()) return "ok";
 
   const url = deriveEventsUrl(args.ac_uid);
-  if (url === null) return;
+  if (url === null) return "ok";
 
   const payload = buildPayload(args);
 
@@ -184,11 +203,72 @@ export async function emit(
         `[ac-emit] server warning for ac_uid=${args.ac_uid}: ${warning}`,
       );
     }
+    // 401 is the only DEFINITIVE refusal: same key, same server, so the rest of
+    // the flush cannot succeed either. A 5xx is transient and per-event — treat it
+    // as a plain failure so a flaky server never silently drops the whole buffer.
+    if (res.status === 401) return "auth-refused";
+    return res.ok ? "ok" : "failed";
   } catch (err) {
     // eslint-disable-next-line no-console
     console.warn(
       `[ac-emit] POST ${url} failed for ac_uid=${args.ac_uid}:`,
       err instanceof Error ? err.message : err,
+    );
+    return "failed";
+  }
+}
+
+/**
+ * How many single-event POSTs the 404 fallback may hold in flight at once
+ * (spec-515 ac-13).
+ *
+ * Was unbounded: `Promise.all` over the whole file buffer, multiplied by however
+ * many vitest workers flushed at the same moment. Observed on prod 2026-07-24 at
+ * ~1,800 POSTs/min.
+ *
+ * The binding constraint is not CPU but the server's connection pool —
+ * `DB_POOL_MAX=10` × `maxScale 3` = 30 slots, shared with real user traffic. This
+ * cap is per flush and several workers can flush together, so it has to leave
+ * headroom rather than merely be finite: 4 keeps even a simultaneous multi-worker
+ * flush in the same order of magnitude as the pool instead of hundreds of times
+ * over it. Exported so the test asserts the real value, not a copy.
+ */
+export const MAX_FALLBACK_CONCURRENCY = 4;
+
+/**
+ * Post `entries` one at a time through `emitOnce`, at most
+ * {@link MAX_FALLBACK_CONCURRENCY} in flight, stopping early if the server refuses
+ * the emission key.
+ *
+ * Never throws: `emitOnce` swallows everything, so the `Promise.all` below cannot
+ * reject and the fail-safe contract survives (spec-515 ac-15 / t-12).
+ */
+async function runBoundedFallback(
+  entries: EmitArgs[],
+  transport: typeof fetch,
+): Promise<void> {
+  let cursor = 0;
+  let authRefused = false;
+
+  const worker = async (): Promise<void> => {
+    while (!authRefused) {
+      const index = cursor++;
+      if (index >= entries.length) return;
+      if ((await emitOnce(entries[index], transport)) === "auth-refused") {
+        authRefused = true;
+      }
+    }
+  };
+
+  const width = Math.min(MAX_FALLBACK_CONCURRENCY, entries.length);
+  await Promise.all(Array.from({ length: width }, () => worker()));
+
+  if (authRefused && cursor < entries.length) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[ac-emit] emission key refused (401) — abandoned ${entries.length - cursor} ` +
+        "of this file's remaining events rather than sending requests that cannot " +
+        "succeed. Provision a fresh key (provision_ac_emission) and re-run.",
     );
   }
 }
@@ -271,9 +351,9 @@ export async function emitBatch(
       // /batch route itself only ever returns 200/400/401, so 404/405 is an
       // unambiguous "route absent" signal, not a per-request error.
       if (res.status === 404 || res.status === 405) {
-        await Promise.all(
-          bucket.map((entry) => emit(entry, transport)),
-        );
+        // spec-515 ac-13/ac-14: bounded, and abandoned early if the key is refused.
+        // Was `Promise.all(bucket.map(emit))` — every event of the file at once.
+        await runBoundedFallback(bucket, transport);
         continue;
       }
 
