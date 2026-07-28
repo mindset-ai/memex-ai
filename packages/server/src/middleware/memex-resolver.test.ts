@@ -21,7 +21,7 @@ vi.mock("../db/connection.js", () => ({
 
 import { Hono } from "hono";
 import { tagAc } from "@memex-ai-ac/vitest";
-import { memexResolver, parseMemexPath } from "./memex-resolver.js";
+import { memexResolver, parseMemexPath, reservedApiRoots } from "./memex-resolver.js";
 
 const app = new Hono();
 app.use("/*", memexResolver);
@@ -207,5 +207,82 @@ describe("flat /api/<root> mounts survive tenant resolution (spec-515)", () => {
   ])("does not swallow %s (%s)", (path) => {
     tagAc("mindset-prod/memex-building-itself/specs/spec-515/acs/ac-8");
     expect(parseMemexPath(path)).toBeNull();
+  });
+});
+
+// spec-515 t-9 / dec-6 / ac-12, ac-17 — the exemption marker.
+//
+// WHY A MARKER AT ALL. The post-deploy smoke check has to prove every flat
+// `/api/<root>` mount is reachable on the deployed host. It cannot do that from the
+// response body: `{"error":"Not found"}` is emitted by at least six code paths
+// (memexResolver ×3, session.ts, permissions.ts, hook-key-or-session.ts, plus
+// NotFoundError), so a router legitimately reporting "no such id" is byte-identical
+// to the resolver swallowing the route. Measured during t-2: after the fix,
+// `/api/issues/x` and an unmounted control root returned the same bytes.
+//
+// WHY IT MARKS THE EXEMPTION, NOT THE FAILURE (dec-6). memexResolver performs no
+// membership check — it does two lookups and 404s if either misses; authorization is
+// enforced later. Marking the FAILURE would therefore have split two cases std-7
+// requires to be indistinguishable: a nonexistent namespace (resolver 404s → marked)
+// versus a private-but-existing memex (resolver passes; a later layer 404s → not
+// marked). That is namespace enumeration, and std-7 exists to prevent it.
+//
+// Marking the exemption leaks nothing: the header only says "this word is an API
+// root", which the route surface already makes public, and it never appears on a
+// tenant path.
+describe("exemption marker x-memex-tenant (spec-515 t-9 / dec-6)", () => {
+  const AC_SMOKE = "mindset-prod/memex-building-itself/specs/spec-515/acs/ac-12";
+  const AC_NOLEAK = "mindset-prod/memex-building-itself/specs/spec-515/acs/ac-17";
+
+  it("marks every reserved API root, driven from the shared declaration", async () => {
+    tagAc(AC_SMOKE);
+    const unmarked: string[] = [];
+    for (const root of reservedApiRoots()) {
+      const res = await app.request(`/api/${root}/probe`);
+      if (res.headers.get("x-memex-tenant") !== "exempt") unmarked.push(root);
+    }
+    expect(unmarked).toEqual([]);
+  });
+
+  it("survives a downstream handler that builds its own response", async () => {
+    // The catch-all above answers with c.json(...), i.e. a NEW Response object. A
+    // header set by middleware before next() has to survive that or the smoke check
+    // would read as 'unreachable' on a perfectly healthy route.
+    tagAc(AC_SMOKE);
+    const res = await app.request("/api/test-events/batch");
+    expect(res.status).toBe(200); // the test catch-all, not the real router
+    expect(res.headers.get("x-memex-tenant")).toBe("exempt");
+  });
+
+  it("marks a single-segment reserved root too", async () => {
+    tagAc(AC_SMOKE);
+    const res = await app.request("/api/health");
+    expect(res.headers.get("x-memex-tenant")).toBe("exempt");
+  });
+
+  it("does NOT mark a tenant path — nonexistent and private stay indistinguishable", async () => {
+    // The std-7 claim. The mocked DB returns null for the namespace lookup, so this
+    // is the "namespace does not exist" branch — the one a failure-marker would have
+    // singled out. It must look exactly like any other 404.
+    tagAc(AC_NOLEAK);
+    const res = await app.request("/api/mindset/memex-app/docs");
+    expect(res.status).toBe(404);
+    expect(res.headers.get("x-memex-tenant")).toBeNull();
+  });
+
+  it("does NOT mark a path that fails tenant parsing for other reasons", async () => {
+    // The claim is "this root is exempt", not "this wasn't a tenant path". A browser
+    // route and a malformed slug both no-op the resolver without being exempt.
+    tagAc(AC_NOLEAK);
+    for (const path of ["/login", "/api/UPPER/case/docs"]) {
+      const res = await app.request(path);
+      expect(res.headers.get("x-memex-tenant")).toBeNull();
+    }
+  });
+
+  it("does NOT mark an unreserved root that looks tenant-shaped", async () => {
+    tagAc(AC_NOLEAK);
+    const res = await app.request("/api/zzznotreserved/thing");
+    expect(res.headers.get("x-memex-tenant")).toBeNull();
   });
 });

@@ -138,6 +138,29 @@ export function parseMemexPath(rawPath: string): PathPrefix | null {
 // memex regardless of what URL they typed (a debugging footgun, not an IDOR).
 const ENCODED_PATH_SEPARATOR = /%2[Ff]|%5[Cc]/;
 
+/**
+ * The response header the resolver stamps on a request it EXEMPTS from tenant
+ * parsing (spec-515 dec-6). The post-deploy smoke check asserts its presence for
+ * every reserved root — see `__smoke__/flat-api-reachability.smoke.test.ts`.
+ */
+export const TENANT_EXEMPT_HEADER = "x-memex-tenant";
+
+/**
+ * The reserved API root this path is exempt under, or null.
+ *
+ * Deliberately narrower than "parseMemexPath returned null": a single-segment path,
+ * a malformed slug or a browser route also no-op the resolver, but they are not
+ * *exempt roots* and must not be marked. The marker's claim is precise so the smoke
+ * check cannot read a coincidence as reachability.
+ */
+export function exemptApiRoot(rawPath: string): string | null {
+  const path = rawPath.split("?")[0];
+  if (!path.startsWith("/api/")) return null;
+  const first = path.slice("/api/".length).split("/")[0];
+  if (!first) return null;
+  return resolveReservedApiRoots().has(first) ? first : null;
+}
+
 export const memexResolver = createMiddleware<MemexResolverEnv>(async (c, next) => {
   const path = c.req.path;
 
@@ -147,6 +170,20 @@ export const memexResolver = createMiddleware<MemexResolverEnv>(async (c, next) 
     return c.json({ error: "Malformed path" }, 400);
   }
 
+  // spec-515 dec-6 — stamp the requests we EXEMPT, never the ones whose tenant
+  // lookup fails. Marking a failure would distinguish "namespace does not exist"
+  // (resolver 404s) from "memex exists but is private" (resolver passes, a later
+  // layer 404s) — the namespace enumeration std-7 exists to prevent. Marking the
+  // exemption says only "this word is an API root", which the route surface already
+  // makes public, and never appears on a tenant path.
+  if (exemptApiRoot(path) !== null) {
+    c.header(TENANT_EXEMPT_HEADER, "exempt");
+  }
+
+  // NOTE the ordering: the marker is set BEFORE the fast-path loop below, which
+  // `return next()`s for anything in NON_TENANT_API_PREFIXES. Setting it after would
+  // silently skip ~10 roots (health, cli, mcp, __test__, onboarding, …) and the smoke
+  // check would report them unreachable while they are perfectly healthy.
   // Fast path for /api routes that are intentionally non-tenant. Without this
   // skip, /api/health and /api/auth/login would try to resolve "auth/login" as
   // a (namespace, memex) pair — wasted DB query that always returns null.
