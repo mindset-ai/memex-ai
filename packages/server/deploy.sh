@@ -283,6 +283,25 @@ RUNTIME_DB_USER="${RUNTIME_DB_USER:-$DB_USER}"
 RUNTIME_DB_PASS="${RUNTIME_DB_PASS:-$DB_PASS}"
 RUNTIME_DB_PASS_ENC=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "${RUNTIME_DB_PASS}")
 
+# ── spec-515 t-3: reserved-root collision gate (PRE-condition, gating) ────────
+# `memexResolver` treats a word in RESERVED_API_ROOTS as "not a tenant", which is
+# what makes a flat /api/<root> mount reachable — and what would strand a tenant
+# that already owns that word as its namespace slug. The two features compete for
+# one vocabulary (std-3 cl-7); this is the interlock.
+#
+# Runs BEFORE migrations on purpose: it is a precondition, so it must fail while
+# the schema is still untouched. GATING (no `|| true`) — unlike the idempotent
+# backfills in Step 5, a collision here means a live tenant is about to go
+# unroutable. Exit 2 ("could not check") is treated exactly like exit 1: an
+# unverified deploy is not a verified one.
+echo "  1·pre. reserved-root collision check (spec-515)..."
+if ! DATABASE_URL="${DB_URL}" pnpm --filter @memex/server tsx scripts/check-reserved-root-collisions.ts; then
+  echo ""
+  echo "ERROR: reserved-root collision check did not pass — aborting before migrations."
+  kill ${PROXY_PID} 2>/dev/null || true
+  exit 1
+fi
+
 echo "  1a. drizzle-kit journal migrations..."
 DATABASE_URL="${DB_URL}" pnpm db:migrate
 

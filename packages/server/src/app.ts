@@ -46,6 +46,7 @@ import driftRouter from "./routes/drift.js";
 import { search } from "./routes/search.js";
 import { internalLifecycleRouter } from "./routes/internal-lifecycle.js";
 import { testEventsRouter } from "./routes/test-events.js";
+import { mountFlatApi } from "./routes/flat-api-mounts.js";
 import { specCheckoutRouter } from "./routes/spec-checkout.js";
 import { hookKeysRouter } from "./routes/hook-keys.js";
 import { testOnlyRouter } from "./routes/__test__.js";
@@ -320,7 +321,7 @@ app.route("/api/:namespace/:memex/telemetry", telemetryRouter);
 //
 //   ORG:      /api/orgs/:orgId/scaffold/*           — org-admin gated (b-68 t-10)
 //   PERSONAL: /api/:namespace/:memex/scaffold/*     — namespace-owner gated
-app.route("/api/orgs", scaffoldRouter);
+mountFlatApi(app, "orgs", scaffoldRouter);
 app.route("/api/:namespace/:memex/scaffold", personalScaffoldRouter);
 app.use("/api/:namespace/:memex/llm/*", sessionMiddleware);
 app.route("/api/:namespace/:memex/llm", llmRouter);
@@ -352,33 +353,33 @@ app.route("/api/:namespace/:memex/memexes", memexesRouter);
 // which reads currentMemexId set by sessionMiddleware from either the path-resolved
 // memex (above) or the caller's single membership (below). For multi-membership
 // callers, only the path-prefixed mount works — that's the std-5 ambiguity contract.
-app.route("/api/docs", docEventsRouter);
-app.route("/api/docs", docs);
-app.route("/api/comments", comments);
-app.route("/api/decisions", decisionsRouter);
-app.route("/api/tasks", tasksRouter);
-app.route("/api/issues", issuesRouter);
-app.route("/api/acs", acsRouter);
-app.route("/api/execution-plans", executionPlans);
-app.route("/api/drift", driftRouter);
+mountFlatApi(app, "docs", docEventsRouter);
+mountFlatApi(app, "docs", docs);
+mountFlatApi(app, "comments", comments);
+mountFlatApi(app, "decisions", decisionsRouter);
+mountFlatApi(app, "tasks", tasksRouter);
+mountFlatApi(app, "issues", issuesRouter);
+mountFlatApi(app, "acs", acsRouter);
+mountFlatApi(app, "execution-plans", executionPlans);
+mountFlatApi(app, "drift", driftRouter);
 // feat-ac-spike V0.0.1 — test-event receiver for AC pass/fail emissions from the codebase.
-app.route("/api/test-events", testEventsRouter);
+mountFlatApi(app, "test-events", testEventsRouter);
 // spec-371 — record-only checkout phone-home (Bearer hook-key auth, body-resolved tenant).
-app.route("/api/spec-checkout", specCheckoutRouter);
+mountFlatApi(app, "spec-checkout", specCheckoutRouter);
 // /api/llm/* migrated to sessionMiddleware (t-13). Legacy middleware/auth.ts deleted.
 app.use("/api/llm/*", sessionMiddleware);
-app.route("/api/llm", llmRouter);
+mountFlatApi(app, "llm", llmRouter);
 
 // Caller-scoped + public surfaces — stay flat (no path prefix). These have no
 // per-memex semantics, so prefixing them would be noise.
 // spec-479 dec-5 — public page-path redirect resolution for the CDN-served SPA.
-app.route("/api/redirects", redirectsRouter);
+mountFlatApi(app, "redirects", redirectsRouter);
 
-app.route("/api/waitlist", waitlist);
+mountFlatApi(app, "waitlist", waitlist);
 // spec-458 (PROTOTYPE) — PUBLIC global live-stats aggregate behind memex.ai/live.
 // Flat + tenant-less + NO session middleware (the /api/health pattern): the
 // payload is aggregates + a templated ticker only. Kill switch inside the router.
-app.route("/api/live", live);
+mountFlatApi(app, "live", live);
 // spec-324 — the ANONYMOUS-capable engagement ingress (the spec-244 retrofit).
 // Flat + tenant-less + PERMISSIVE publicSessionMiddleware so a PRE-AUTH visitor
 // (no user, no memex) is captured keyed on the consent-gated visitor_id — the
@@ -386,50 +387,50 @@ app.route("/api/live", live);
 // surfaces; `/api/telemetry` (2 segments) never collides with the 4-segment
 // `/api/:ns/:mx/telemetry`.
 app.use("/api/telemetry/*", publicSessionMiddleware);
-app.route("/api/telemetry", anonTelemetryRouter);
-app.route("/api/auth", auth);
+mountFlatApi(app, "telemetry", anonTelemetryRouter);
+mountFlatApi(app, "auth", auth);
 // /api/internal — spec-453 t-6 (dec-11): machine-only lifecycle scheduler tick. Flat,
 // non-tenant (global drip + Day-12 pass); self-authenticates a shared bearer secret
 // (LIFECYCLE_TICK_SECRET), NOT the user session. The sole trigger is Cloud Scheduler.
-app.route("/api/internal", internalLifecycleRouter);
+mountFlatApi(app, "internal", internalLifecycleRouter);
 // spec-507 + spec-508: /api/welcome-video (spec-444's video dismiss) and /api/onboarding
 // (spec-206's voice greeting gate) are both retired with their first-run gates. The
 // users.video_welcomed_at column survives as history (spec-507 dec-2); onboarding_greeted_at
 // was dropped with the voice guide (spec-508, migration 0130).
 // /api/orgs — t-14 + t-16 of doc-15. Single org-creation + admin surface.
 // Replaces the retired /api/accounts and /api/account mounts.
-app.route("/api/orgs", orgsRouter);
+mountFlatApi(app, "orgs", orgsRouter);
 // /api/orgs/:orgId/scaffold — read the merged base+org scaffold and administer
 // per-Org GuidanceBlock additions (b-68 t-10). Mounted EARLIER (above, before
 // the param-prefixed personal scaffold router) so the literal `orgs` path isn't
 // shadowed by `/api/:namespace/:memex/scaffold` — see the ordering note there.
 // /api/namespaces — doc-19 t-3: namespace-keyed endpoints (slug check, rename,
 // home payload, sibling-memex creation).
-app.route("/api/namespaces", namespacesRouter);
+mountFlatApi(app, "namespaces", namespacesRouter);
 // /api/consent — t-13 of doc-15. The domain-match consent prompt the React UI
 // surfaces on session start. SSO no longer auto-inserts memberships; this is
 // the only path that does.
-app.route("/api/consent", consentRouter);
+mountFlatApi(app, "consent", consentRouter);
 // `/api/invites/accept` stays flat — the invite token IS the authorization;
 // caller doesn't have a tenant context yet (joining the invite is what grants
 // them one). The mint/list/revoke trio moved under the tenant prefix above.
-app.route("/api/invites", invitesAcceptRouter);
+mountFlatApi(app, "invites", invitesAcceptRouter);
 // Caller-scoped endpoints — namespace picker (std-5) and minimal session shape.
-app.route("/api/me", meRouter);
+mountFlatApi(app, "me", meRouter);
 // spec-303 — Home Canvas onboarding journey-state (user-level, no memex). Derived
 // position + measurement + operator preview.
-app.route("/api/me", journeyRouter);
+mountFlatApi(app, "me", journeyRouter);
 // spec-315 — the graduated Home surface (user-level, no memex): where-you're-needed
 // + specs-in-flight, aggregated across all the user's memberships.
-app.route("/api/me", homeRouter);
+mountFlatApi(app, "me", homeRouter);
 // spec-200: global What's New feed (not tenant-scoped).
-app.route("/api/whats-new", whatsNewRouter);
+mountFlatApi(app, "whats-new", whatsNewRouter);
 // PUBLIC: share routes skip session middleware — guests access shared docs by token alone (t-10).
-app.route("/api/share", shareRouter);
+mountFlatApi(app, "share", shareRouter);
 
 // spec-427 t-4 — PUBLIC lifecycle-email unsubscribe (GET one-click + POST RFC 8058).
 // No session/tenant middleware: the HMAC token in the URL is the capability.
-app.route("/api/email", unsubscribeRouter);
+mountFlatApi(app, "email", unsubscribeRouter);
 
 // spec-171 t-3: Stripe webhook receiver. No session middleware — the
 // Stripe-Signature HMAC header IS the auth (verified inside the router).
@@ -441,20 +442,20 @@ app.route("/api/postmark/webhook", postmarkWebhookRouter);
 
 // Platform backstage — dev-mode only today. Gated inside the router itself. Registered on
 // the bare domain so operators can hit it without a tenant subdomain.
-app.route("/api/backstage", backstageRouter);
+mountFlatApi(app, "backstage", backstageRouter);
 
 // Device-flow installer + token settings (t-14).
 app.route("/api/cli/auth", cliAuth);
 app.route("/api/mcp/tokens", mcpTokensRouter);
 // spec-430 dec-3: hook keys are per USER, never per memex — user-level mint, no
 // :namespace/:memex in the path (modelled on /api/mcp/tokens above).
-app.route("/api/hook-keys", hookKeysRouter);
+mountFlatApi(app, "hook-keys", hookKeysRouter);
 
 // OAuth 2.1 + DCR + PKCE (b-31 W1). Gated by OAUTH_ENABLED=1 so the entire
 // surface (routes + well-known discovery) is dead until explicitly turned on.
 // Existing `mxt_` users are unaffected when this flag is off.
 if (isOAuthEnabled()) {
-  app.route("/api/oauth", oauth);
+  mountFlatApi(app, "oauth", oauth);
   app.route("/.well-known", wellKnown);
 }
 

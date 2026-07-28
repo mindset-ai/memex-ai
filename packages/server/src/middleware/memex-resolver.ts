@@ -1,6 +1,7 @@
 import { createMiddleware } from "hono/factory";
 import { and, eq } from "drizzle-orm";
 import { db } from "../db/connection.js";
+import { reservedApiRoots as resolveReservedApiRoots } from "../routes/api-roots.js";
 import { memexes, namespaces, orgMemberships } from "../db/schema.js";
 import type { Memex, Namespace } from "../db/schema.js";
 
@@ -89,66 +90,11 @@ interface PathPrefix {
 // namespace and "check" as a memex; same logic for every other API mount. The
 // reserved-slug list (services/shared/slug.ts) covers user-facing reservations;
 // this list covers internal API path roots.
-const RESERVED_API_ROOTS = new Set([
-  "health",
-  "share",
-  "auth",
-  "oauth",
-  "waitlist",
-  "cli",
-  "mcp",
-  "me",
-  "onboarding",
-  "orgs",
-  "namespaces",
-  "redirects",
-  "consent",
-  "invites",
-  "team",
-  "backstage",
-  "docs",
-  "comments",
-  "decisions",
-  "tasks",
-  "execution-plans",
-  "llm",
-  "drift",
-  "__test__",
-  // spec-171: the Stripe webhook receiver mounts at /api/stripe/webhook (public —
-  // the Stripe-Signature HMAC is the auth). Without this, parseMemexPath reads
-  // "/api/stripe/webhook" as namespace=stripe / memex=webhook and 404s before the
-  // webhook router runs, so Stripe deliveries fail and orgs never get their tier.
-  "stripe",
-  // spec-341: the Postmark delivery webhook mounts at /api/postmark/webhook
-  // (public — the Basic-auth credential is the auth). Without this, parseMemexPath
-  // reads "/api/postmark/webhook" as namespace=postmark / memex=webhook and 404s
-  // before the webhook router runs, so Postmark deliveries never update comms_log.
-  // (Same class of bug as spec-171's "stripe" entry.)
-  "postmark",
-  // spec-453 t-6: the machine lifecycle-tick mounts at /api/internal/lifecycle-tick
-  // (non-tenant; a shared bearer secret is the auth). Without this, parseMemexPath reads
-  // "/api/internal/lifecycle-tick" as namespace=internal / memex=lifecycle-tick and 404s
-  // before the router runs, so Cloud Scheduler could never trigger the drip / Day-12 pass.
-  // (Same class of bug as the stripe / postmark webhook entries above.)
-  "internal",
-  // spec-515: nine more flat `/api/<root>` mounts (app.ts) that were never added here,
-  // so parseMemexPath read `/api/<root>/<x>` as namespace=<root>/memex=<x> and 404'd
-  // before their router ran — the same recurring class as stripe/postmark/internal.
-  // The sharpest consequence: `/api/test-events/batch` 404'd, so the CI AC-emitter fell
-  // back to unbounded per-event POSTs (`emitBatch` 404 → Promise.all(single)) — ~11.6M
-  // INSERT/DELETE/upsert calls that drove prod Cloud SQL to ~100% CPU (2026-08). Also
-  // 404'd one-click unsubscribe (`/api/email/...`). The flat-mount scan test
-  // (reserved-api-roots.spec-515.test.ts) now fails CI if a flat root is ever left out.
-  "issues",
-  "acs",
-  "test-events",
-  "spec-checkout",
-  "live",
-  "telemetry",
-  "whats-new",
-  "email",
-  "hook-keys",
-]);
+// spec-515 — "is this root a tenant namespace?" has ONE definition, in
+// routes/api-roots.ts (zero imports, so the reserved-slug list can share it).
+// Re-exported here because this module is the historical home and several
+// callers still reach for it through the resolver.
+export { reservedApiRoots } from "../routes/api-roots.js";
 
 // Parses `/<namespace>/<memex>/...` or `/api/<namespace>/<memex>/...` from a
 // request path. Returns null when the path is a top-level reserved word
@@ -179,7 +125,7 @@ export function parseMemexPath(rawPath: string): PathPrefix | null {
   if (!SLUG_RE.test(second)) return null;
 
   // Path roots reserved for API mounts can't be tenant namespaces.
-  if (RESERVED_API_ROOTS.has(first)) return null;
+  if (resolveReservedApiRoots().has(first)) return null;
 
   return { namespaceSlug: first, memexSlug: second };
 }
