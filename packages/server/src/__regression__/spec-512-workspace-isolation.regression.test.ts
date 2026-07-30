@@ -372,6 +372,30 @@ describe("spec-512: the wiring cannot be quietly removed", () => {
 
       expect(recipe).toContain("E2E_SERVER_PORT");
       expect(recipe).toContain("E2E_UI_PORT");
+
+      // The ports are NOT sufficient on their own. Journeys read the API host two
+      // different ways — `E2E_SERVER_PORT ?? 8090` in some files, and
+      // `E2E_API_URL ?? "http://localhost:8090"` in others (e.g.
+      // journey-45-spec-304, journey-8, journey-16, journey-20, journey-47,
+      // journey-55, journey-65). Setting only the ports leaves that second group
+      // pointing at the OLD hardcoded 8090 while the server listens on the derived
+      // port, and they die with ECONNREFUSED ::1:8090 — a defect this Spec's own
+      // port derivation introduced, found by running the full suite.
+      for (const v of ["E2E_API_URL", "E2E_BASE_URL"]) {
+        expect(
+          recipe,
+          `Makefile target "${target}" sets the e2e PORTS but not ${v}.\n\n` +
+            `Observed recipe:\n${recipe}\n\n` +
+            `Journeys that read ${v} fall back to the hardcoded localhost:8090, which\n` +
+            `is not where the derived server listens — they fail ECONNREFUSED while\n` +
+            `every port-reading journey passes, so the suite looks flaky rather than\n` +
+            `misconfigured.\n\n` +
+            `Fix — add to the recipe:\n` +
+            `  E2E_API_URL="http://localhost:$(E2E_API_PORT)" \\\n` +
+            `  E2E_BASE_URL="http://localhost:$(E2E_UI_PORT_)" \\\n\n` +
+            `Check: packages/server/src/__regression__/spec-512-workspace-isolation.regression.test.ts`,
+        ).toContain(v);
+      }
     }
 
     // `make dev` must use derived ports too, or two worktrees cannot run dev

@@ -109,9 +109,17 @@ test-ui:
 ## compare against), so a second worktree silently adopts the first's servers and the
 ## shared dev database — reporting PASS. It is the command developers run while
 ## iterating, so it was the most exposed target, not the least.
+## E2E_API_URL / E2E_BASE_URL must be set ALONGSIDE the ports. Journeys read the
+## API host two different ways — some as `E2E_SERVER_PORT ?? 8090`, others as
+## `E2E_API_URL ?? "http://localhost:8090"` — so setting only the ports leaves the
+## second group pointing at the OLD hardcoded 8090 while the server listens on the
+## derived port. Caught by journey-45 failing `ECONNREFUSED ::1:8090`; a defect
+## this Spec's own port derivation introduced.
 e2e: e2e-preflight
 	MEMEX_WORKSPACE_ID="$(E2E_WS_ID)" \
 		E2E_SERVER_PORT="$(E2E_API_PORT)" E2E_UI_PORT="$(E2E_UI_PORT_)" \
+		E2E_API_URL="http://localhost:$(E2E_API_PORT)" \
+		E2E_BASE_URL="http://localhost:$(E2E_UI_PORT_)" \
 		pnpm --filter @memex/ui test:e2e $(ARGS)
 
 ## UI: e2e against a throwaway, freshly-migrated database — exact CI parity (std-28).
@@ -158,6 +166,8 @@ e2e-cold: e2e-preflight
 	DATABASE_URL="$(E2E_COLD_DB)" E2E_DATABASE_URL="$(E2E_COLD_DB)" \
 		MEMEX_WORKSPACE_ID="$(E2E_WS_ID)" \
 		E2E_SERVER_PORT="$(E2E_API_PORT)" E2E_UI_PORT="$(E2E_UI_PORT_)" \
+		E2E_API_URL="http://localhost:$(E2E_API_PORT)" \
+		E2E_BASE_URL="http://localhost:$(E2E_UI_PORT_)" \
 		pnpm --filter @memex/ui test:e2e $(ARGS)
 
 ## Refuse to start an e2e run that would silently test the wrong code (spec-512).
