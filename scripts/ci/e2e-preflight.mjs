@@ -31,7 +31,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { resolveE2eConfig, resolveWorkspaceId } from "./workspace-alloc.mjs";
+import { resolveE2eConfig } from "./workspace-alloc.mjs";
 
 const SELF = "scripts/ci/e2e-preflight.mjs";
 

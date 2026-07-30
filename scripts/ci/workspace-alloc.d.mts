@@ -36,9 +36,6 @@ export function workspaceHash(workspaceRoot: string): string;
 export function derivePorts(workspaceRoot: string): WorkspacePorts;
 export function deriveE2eDbNames(workspaceRoot: string): E2eDbNames;
 export function withDatabase(baseUrl: string, databaseName: string): string;
-export function resolveWorkspaceId(
-  env?: Record<string, string | undefined>,
-): string | null;
 export function resolveE2eConfig(
   env?: Record<string, string | undefined>,
   workspaceRoot?: string,

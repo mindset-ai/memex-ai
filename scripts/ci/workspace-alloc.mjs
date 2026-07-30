@@ -86,14 +86,14 @@ export function withDatabase(baseUrl, databaseName) {
 
 // ── Env-aware resolution (overrides always win) ──────────────────────────────
 
-/** The workspace identity a server should advertise, or null when it should
- *  advertise nothing. Absent MEMEX_WORKSPACE_ID means "not a managed local
- *  workspace" — which is exactly the production posture, so /api/health stays
- *  byte-identical to what it has always returned. */
-export function resolveWorkspaceId(env = process.env) {
-  const explicit = env.MEMEX_WORKSPACE_ID;
-  return explicit && explicit.trim() !== "" ? explicit.trim() : null;
-}
+// NOTE: there is deliberately no `resolveWorkspaceId(env)` helper reading
+// MEMEX_WORKSPACE_ID. The preflight must derive the identity it EXPECTS from the
+// workspace path (`resolveE2eConfig().workspaceId`) and compare that against what
+// a running server advertises. Trusting the env var for both sides would compare
+// a value to itself and always agree — the check would pass while a foreign
+// server was adopted. (Flagged as dead code by adversarial review and by the
+// code-quality bot on PR #571; removed rather than wired in, because wiring it in
+// is the bug.)
 
 /** Effective e2e config, with every pre-existing override honoured ahead of the
  *  derivation so no current workflow breaks. */
