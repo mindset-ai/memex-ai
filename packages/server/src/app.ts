@@ -147,10 +147,39 @@ app.get("/api/health", (c) => {
   // attached (single-process / local dev / tests) the field is null — distinct
   // from "attached but not yet listening", so smoke can tell the two apart.
   const relay = getBusRelay();
+
+  // spec-512 dec-3 — workspace identity, LOCAL ONLY.
+  //
+  // Parallel worktrees share one loopback. Playwright runs with
+  // `reuseExistingServer`, so without a way to ask "whose server is this?" a
+  // second worktree silently reuses the first one's server and runs its
+  // journeys against another branch's code, reporting a pass. This field is
+  // how scripts/ci/e2e-preflight.mjs tells its own server from a foreign one.
+  //
+  // Emitted ONLY when MEMEX_WORKSPACE_ID is set. The local tooling sets it; no
+  // deploy path does, so the deployed payload stays byte-identical to what it
+  // has always been (pinned by a regression test). The value is the 8-char
+  // sha1 digest of the workspace path, never the path itself — /api/health is
+  // unauthenticated and internet-reachable, so even a gate that failed open
+  // must leak nothing about the host filesystem.
+  //
+  // NOT an authentication mechanism: it answers "is this the server I
+  // started?", not "is this server trustworthy". It defends against two of
+  // your own worktrees colliding, and nothing else.
+  // ENFORCED, not merely intended: only an 8-char hex digest is ever published.
+  // Adversarial review booted this server with
+  // MEMEX_WORKSPACE_ID=/Users/me/secret-project/acme-merger and the unauthenticated
+  // endpoint echoed the path verbatim. The sibling variable MEMEX_WORKSPACE_ROOT
+  // *is* a path, so one _ID/_ROOT slip would leak host layout to the internet.
+  // Anything not matching the digest shape is dropped rather than published.
+  const raw = process.env.MEMEX_WORKSPACE_ID?.trim();
+  const workspace = raw && /^[0-9a-f]{8}$/.test(raw) ? raw : undefined;
+
   return c.json({
     status: "ok",
     timestamp: new Date().toISOString(),
     relay: relay ? relay.health() : null,
+    ...(workspace ? { workspace } : {}),
   });
 });
 

@@ -1,0 +1,174 @@
+{
+  "//": "GENERATED-CONSUMED. The authoritative offline copy of the Memex standards index.",
+  "//refresh": "An agent refreshes this from Memex with: search_memex({kind:\"standard\"}) — then `make standards-gen` rewrites the CLAUDE.md table.",
+  "standards": [
+    {
+      "handle": "std-1",
+      "summary": "Namespace / org / memex are three distinct concepts — plus user-facing vocabulary and handle conventions (`b-N` / `doc-N` / `std-N` / `s-N` / `dec-N` / `t-N` / `c-N`)."
+    },
+    {
+      "handle": "std-2",
+      "summary": "Tenant routing is path-based on the apex domain — never subdomains."
+    },
+    {
+      "handle": "std-3",
+      "summary": "Namespace slug allocation (format, reserved list, rate limits, rename cooldown)."
+    },
+    {
+      "handle": "std-4",
+      "summary": "Org membership grants access to every Memex in the org (v1 access model)."
+    },
+    {
+      "handle": "std-5",
+      "summary": "No silent namespace default — ambiguous MCP / middleware calls error."
+    },
+    {
+      "handle": "std-6",
+      "summary": "Domain-based auto-join requires explicit user consent."
+    },
+    {
+      "handle": "std-7",
+      "summary": "Unauthorized resource access returns 404, not 403."
+    },
+    {
+      "handle": "std-8",
+      "summary": "Every mutation goes through `mutate()` and emits on the unified bus (real-time SSE)."
+    },
+    {
+      "handle": "std-9",
+      "summary": "Infrastructure: int + prod GCP projects (Cloud Run, Cloud SQL, buckets, secrets, DNS) + local development."
+    },
+    {
+      "handle": "std-10",
+      "summary": "Canonical URL paths for Memex entities (the `ref` grammar)."
+    },
+    {
+      "handle": "std-11",
+      "summary": "AI agent: direct Anthropic SDK on server, LangGraph in React UI."
+    },
+    {
+      "handle": "std-12",
+      "summary": "Service architecture — bounded components and how they wire."
+    },
+    {
+      "handle": "std-13",
+      "summary": "Native authentication: hand-rolled JWT + scrypt + auth_tokens + Postmark."
+    },
+    {
+      "handle": "std-14",
+      "summary": "Per-domain debug logging convention (`packages/server/.logs/<domain>.log`)."
+    },
+    {
+      "handle": "std-15",
+      "summary": "Agent prompts live in `packages/server/src/agent/phases/` markdown, never inline in code."
+    },
+    {
+      "handle": "std-16",
+      "summary": "The coding-agent tool contract has one source — the `@memex/shared` manifest."
+    },
+    {
+      "handle": "std-17",
+      "summary": "Smoke tests are mandatory and run against live envs — int after every deploy, green before prod."
+    },
+    {
+      "handle": "std-18",
+      "summary": "Spec anatomy — the lens set every Spec carries: core lenses (Overview, Design & UX, Architecture & Security) always present; adaptive lenses (Operations, …) added when the work earns them. Decisions and ACs are primitives, not prose sections."
+    },
+    {
+      "handle": "std-19",
+      "summary": "Specs are SDD's canonical artifact — every unit of work is a Spec; \"Spec\" is the noun."
+    },
+    {
+      "handle": "std-20",
+      "summary": "Spec-Driven Development — drift is the enemy; the Spec is a living node in a knowledge map."
+    },
+    {
+      "handle": "std-21",
+      "summary": "Branch structure — `develop` integrates work; `main` is the production line (releases land as a **merge commit** via the develop→main PR — GitHub's PR surface can't fast-forward, cl-50; the content invariant is `git log develop..main --no-merges` empty, not SHA-identity; branch-bound deploy targets, main-only licence carve-out)."
+    },
+    {
+      "handle": "std-22",
+      "summary": "Everything we ship runs against arbitrary codebases — portable artifacts (prompts, scaffold prose, Prompt Buttons, Init Prompts, in-repo tools) assume no language, framework, layout, file paths, or tooling."
+    },
+    {
+      "handle": "std-23",
+      "summary": "Prompt Buttons are the standard human→agent handoff — prompt prose lives in the Scaffold (`scaffold-data.ts`), never inline; copy-to-clipboard; Org-extensible (append-only)."
+    },
+    {
+      "handle": "std-24",
+      "summary": "One version per shared library across the pnpm workspace, enforced by `pnpm.overrides` (today: vitest, `@vitest/coverage-v8`, `@types/node`, `react`/`react-dom`, `typescript`; plus security-floor pins `esbuild`/`form-data`/`protobufjs`). Exact pins in each package's devDependencies; new dep families added to the root overrides."
+    },
+    {
+      "handle": "std-25",
+      "summary": "Every Spec classifies its work as fair-code (open core) or EE — the licence boundary is decided per-Spec, up front, not retrofitted."
+    },
+    {
+      "handle": "std-26",
+      "summary": "Deploying Memex follows one runbook — prerequisites, the int→prod sequence, and the gotchas that bite (the procedural sibling of std-9's topology)."
+    },
+    {
+      "handle": "std-27",
+      "summary": "Charts & data-viz: one theme-aware palette + glass treatment — `useChartPalette()`/`insightsTheme` from `packages/ui/src/components/insights/theme.ts`, reserved hue semantics, translucent fills with crisp edges, integer count ticks, themed tooltips, noise excluded server-side."
+    },
+    {
+      "handle": "std-28",
+      "summary": "PR-gate e2e journeys are mandatory — every change that adds/alters a user-facing flow adds or extends a Playwright journey in `packages/ui/e2e`; journey work is part of EVERY Spec's lifecycle (surfaced in plan, delivered in build, gating verify); run `make e2e-cold` before opening every PR; the suite runs per-PR against a cold DB and is a required check on develop + main; path-based nav, seed via the env-gated test surface (no raw SQL). The merge-side sibling of std-17's post-deploy smoke rule. Authoring a journey + local-run gotchas (cold-DB `PGPASSWORD`, stale `@memex/shared` build, browser install): [`packages/ui/e2e/README.md`](packages/ui/e2e/README.md)."
+    },
+    {
+      "handle": "std-29",
+      "summary": "Guide content (Specky) stays current with the UI it documents — drift flagged for retirement (spec-508 removed the voice guide + its content pipeline)."
+    },
+    {
+      "handle": "std-30",
+      "summary": "All LLM access goes through the metering wrapper (`getAnthropicClient()` singleton) — the only sanctioned path; direct `new Anthropic(...)` construction is forbidden."
+    },
+    {
+      "handle": "std-31",
+      "summary": "No real person or customer names in this public Memex (it builds itself in the open)."
+    },
+    {
+      "handle": "std-32",
+      "summary": "The activity contract — every activity-bearing table (`documents`/`acs`/`tasks`/`decisions`/`doc_sections`/`doc_comments`/`test_events`/`activity_log`) carries WHEN (`at`, the row's own timestamp) + WHO (`actor_user_id` + denormalised `actor_name`, stamped at write so a rename can't rewrite history) + HOW (`channel`) + WHAT-coarse (owning-spec ref); load-bearing fields are first-class columns, only decorative context lives in `metadata`/`payload`. Identity rides the explicit `RequestCtx` through `mutate()` (not AsyncLocalStorage); a missing channel is a visible defect, never a silent 'server'. The attribution sibling of std-8 (spec-122 dec-2)."
+    },
+    {
+      "handle": "std-33",
+      "summary": "Embedding the guide SDK (Specky) — drift flagged for retirement (spec-508 deleted `packages/guide-sdk` and the /guide/v1 backend)."
+    },
+    {
+      "handle": "std-34",
+      "summary": "No human-facing surface instructs an MCP-only step — signal the web↔MCP capability boundary in copy (the honest-CTA rule)."
+    },
+    {
+      "handle": "std-35",
+      "summary": "Usage events / Mixpanel — the metering + product-analytics event recipe."
+    },
+    {
+      "handle": "std-36",
+      "summary": "Tenant RLS posture — `ENABLE` row-level security, never `FORCE`; `runWithMemexId` ALS sets `memex_id`; views are `security_invoker`."
+    },
+    {
+      "handle": "std-37",
+      "summary": "Test fixtures are isolated under parallel execution — per-worker-unique identifiers, poll for async writes, restore global stubs."
+    },
+    {
+      "handle": "std-38",
+      "summary": "In-app agents share one contract — same visual shell (`ChatPanel`), Memex-wide grounding, narrow per-mode authoring scope enforced server-side by a `MODE_TOOLS` allow-list, copyable handoff on refusal."
+    },
+    {
+      "handle": "std-39",
+      "summary": "Database hygiene — every DB interaction is reasoned about for cost, locks, and growth, not just correctness. Covers migrations, handlers, MCP tools, relays, cron, and the React UI's query/polling patterns."
+    },
+    {
+      "handle": "std-40",
+      "summary": "Plugins are the Claude-Code delivery vehicle — one plugin, one concern. Covers hooks (std-41), a bundled MCP server, or slash commands; excludes the `memex-ai` CLI credential installer."
+    },
+    {
+      "handle": "std-41",
+      "summary": "Hooks make capability a side effect of work you already do — use them sparingly, never for correctness. Six tests gate whether a hook is the right tool; correctness/security/mutation work belongs on the server (std-8)."
+    },
+    {
+      "handle": "std-42",
+      "summary": "Desktop client (memex-clients) releases follow one runbook — signing on BOTH platforms, notarization, auto-update, and per-channel distribution. An unsigned build is a CI artifact only, never published."
+    }
+  ]
+}

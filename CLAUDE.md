@@ -2,18 +2,9 @@
 
 This file is a pointer. The system of record is Memex itself.
 
-## Where Memex lives (prod is live as of 2026-05-24)
+## Where Memex lives
 
-The platform is deployed and the workspace has moved. INT is no longer the source of truth.
-
-| Surface | URL |
-|---|---|
-| **Production app** (React UI + API + MCP) | `https://memex.ai/<namespace>/<memex>/...` |
-| **Staging app (int)** | `https://int.memex.ai/<namespace>/<memex>/...` |
-| **Marketing site** | `https://www.memex.ai/` |
-| **MCP endpoint** (prod / int) | `https://memex.ai/mcp` · `https://int.memex.ai/mcp` |
-
-**This codebase's Memex is now `mindset-prod/memex-building-itself`** (web: `https://memex.ai/mindset-prod/memex-building-itself`). It was migrated from the old `mindset-int/memex-app` on 2026-05-24 via direct SQL (b-65) — the memex was renamed (`memex-app` → `memex-building-itself`) and rehomed under the `mindset-prod` namespace, with all UUIDs and `b-N`/`std-N` handles preserved. The old INT workspace at `mindset-int/memex-app` remains readable for reference only; each INT doc carries a breadcrumb comment pointing at its PROD counterpart. Full infra + routing topology lives in std-9.
+**This codebase's Memex is `mindset-prod/memex-building-itself`** — <https://memex.ai/mindset-prod/memex-building-itself>. Prod is `memex.ai`, staging is `int.memex.ai`, and each serves the app, the API and `/mcp` off the same host. Full topology: std-9. (The old `mindset-int/memex-app` workspace is read-only history.)
 
 ## How to orient (every session)
 
@@ -29,6 +20,7 @@ mcp__memex__get_doc({ref: "mindset-prod/memex-building-itself/standards/std-N"})
 
 ## Standards index
 
+<!-- BEGIN generated: standards-index -->
 | Standard | Covers |
 |---|---|
 | std-1 | Namespace / org / memex are three distinct concepts — plus user-facing vocabulary and handle conventions (`b-N` / `doc-N` / `std-N` / `s-N` / `dec-N` / `t-N` / `c-N`). |
@@ -68,6 +60,12 @@ mcp__memex__get_doc({ref: "mindset-prod/memex-building-itself/standards/std-N"})
 | std-35 | Usage events / Mixpanel — the metering + product-analytics event recipe. |
 | std-36 | Tenant RLS posture — `ENABLE` row-level security, never `FORCE`; `runWithMemexId` ALS sets `memex_id`; views are `security_invoker`. |
 | std-37 | Test fixtures are isolated under parallel execution — per-worker-unique identifiers, poll for async writes, restore global stubs. |
+| std-38 | In-app agents share one contract — same visual shell (`ChatPanel`), Memex-wide grounding, narrow per-mode authoring scope enforced server-side by a `MODE_TOOLS` allow-list, copyable handoff on refusal. |
+| std-39 | Database hygiene — every DB interaction is reasoned about for cost, locks, and growth, not just correctness. Covers migrations, handlers, MCP tools, relays, cron, and the React UI's query/polling patterns. |
+| std-40 | Plugins are the Claude-Code delivery vehicle — one plugin, one concern. Covers hooks (std-41), a bundled MCP server, or slash commands; excludes the `memex-ai` CLI credential installer. |
+| std-41 | Hooks make capability a side effect of work you already do — use them sparingly, never for correctness. Six tests gate whether a hook is the right tool; correctness/security/mutation work belongs on the server (std-8). |
+| std-42 | Desktop client (memex-clients) releases follow one runbook — signing on BOTH platforms, notarization, auto-update, and per-channel distribution. An unsigned build is a CI artifact only, never published. |
+<!-- END generated: standards-index -->
 
 If a Standard contradicts the code, the Standard is probably right and the code has drifted — flag it.
 
@@ -77,52 +75,47 @@ If a Standard contradicts the code, the Standard is probably right and the code 
 brew services start postgresql@16
 pnpm install
 pnpm --filter @memex/server db:migrate
-make dev          # server (8080) + React UI (5173)
+make dev          # server + UI on THIS workspace's derived ports (it prints them)
+make check        # offline guard battery — no DB, no network, ~1s
+make affected     # which suites your diff actually needs (advisory)
 make test         # full server suite
 ```
+
+Ports and e2e database names are **derived per workspace** from a hash of its path
+(`scripts/ci/workspace-alloc.mjs`), so parallel worktrees never collide. Never hardcode a
+port — run `make dev` and read the ones it prints, or `node scripts/ci/workspace-alloc.mjs --all`.
+Prove isolation with `make prove-concurrent`.
 
 Local Postgres connection string: `postgresql://postgres:postgres@localhost:5432/memex` (full local-dev posture lives in std-9 §9).
 
 ## Repository shape
 
-```
-packages/server/    Hono API, Drizzle ORM, auth, email, AI agent, MCP endpoint
-packages/ui/        React 19 UI (Vite, TailwindCSS) — the "React UI"
-packages/cli/       memex-ai npm package (MCP installer, zero-dep)
-packages/extractor/ Code intelligence ingestion
-packages/shared/    Shared types/utilities (pure — no server deps)
-packages/db-schema/    Standalone Drizzle schema, published to the GitHub npm registry (Backstage control plane)
-packages/ac-emit-vitest/  `@memex-ai/vitest` — the AC test-event emitter for Vitest
-scripts/deploy-config.sh    env-keyed deploy values (std-9 documents this)
-Makefile / deploy.sh / docker-compose.yml / Rakefile
-```
+`packages/`: **server** (Hono API, Drizzle, auth, agent, MCP) · **ui** (React 19 + Vite) · **shared** (pure, imported everywhere) · **cli** (`memex-ai` installer) · **db-schema** (published standalone) · **extractor** · **ac-emit-vitest** (the AC emitter). Service architecture: std-12. For anything deeper, `ls` — a tree copied here goes stale.
 
-For deeper layouts inside any package, `ls` is the source of truth — replicating the tree here goes stale fast.
+## Licensing — open core + EE
 
-## Licensing — open core + EE (the `.ee` marker)
+Memex is [**fair-code**](https://faircode.io/). **The file path is the licence marker**: `.ee.` in a filename or `.ee` as a dirname means [Memex Enterprise License](LICENSE_EE.md); everything else is the [Sustainable Use License](LICENSE.md). Dev and testing are always free — only *production* use of EE files needs a licence.
 
-Memex is [**fair-code**](https://faircode.io/) (open core). Two licenses, and **the file path is the license marker** — there is no private fork, submodule, or build flag. EE = **Enterprise Edition** (the *Memex Enterprise License*).
+Adding or removing the marker **re-licenses the file**, so treat it as deliberate, and give every Spec an explicit fair-code/EE call (std-25). PRs touching `.ee.` files need a signed CLA (`CONTRIBUTING.md`).
 
-| Scope | License | Production use |
+Full statement: `README.md` ("Where enterprise code lives") and `CONTRIBUTING.md`. Enquiries: [hello@memex.ai](mailto:hello@memex.ai).
+
+## Mechanics the machines enforce
+
+Each rule below has a check. Break one and the check tells you what to run — you shouldn't need to remember any of this.
+
+| Rule | Check | Fix |
 |---|---|---|
-| Default — everything else | [Sustainable Use License](LICENSE.md) | Free for internal-business / non-commercial / personal use |
-| Files with **`.ee.` in the filename** or **`.ee` as a dirname** | [Memex Enterprise License](LICENSE_EE.md) | Requires a valid Memex Enterprise license |
+| The standards index above matches Memex | `make standards-check` (in `make check`) | `make standards-gen` |
+| Your e2e run can't silently test another workspace's code | `scripts/ci/e2e-preflight.mjs` (auto, via `make e2e`/`e2e-cold`) | it prints the exact command |
+| Two worktrees don't collide on ports or databases | `make prove-concurrent` | — |
+| UI types are really checked (`tsc -b`, not the no-op `--noEmit`) | `make typecheck`, pinned by `spec-512-workspace-isolation` | — |
+| Emitted tenant URLs are path-based (std-2) | `make check-url-shape` | — |
+| Every mutation goes through `mutate()` (std-8) | `mutate-coverage.*` guards | — |
+| No direct `new Anthropic(...)` (std-30) | `no-direct-anthropic` guard | use `getAnthropicClient()` |
+| Every user-facing flow change has an e2e journey (std-28) | `make e2e-cold` before every PR | — |
 
-```
-packages/server/src/routes/.ee/slack.integration.test.ts   # filename marker (.ee. test)
-packages/server/src/services/.ee/slack/oauth.ts            # dirname marker (.ee/ cluster)
-packages/ui/src/components/.ee/SlackIntegrationSection.tsx # dirname marker (.ee/ cluster)
-```
-
-Rules to respect when working in this repo:
-
-- **Either marker qualifies** — it's a file-path test, not a build flag. Single-file EE features use the `.ee.` filename; multi-file EE clusters use a `.ee/` directory. They're interchangeable.
-- **Dev/testing is always free** — only *production* use of EE-marked files needs a license.
-- **Don't move code across the line silently.** Adding `.ee.`/`.ee` re-licenses a file (and gates it commercially); removing it relicenses it as open core. Treat the marker as deliberate.
-- **PRs touching `.ee.` files need a signed CLA** and prior coordination with Mindset — see `CONTRIBUTING.md` ("EE feature"). "Changes to `.ee.` files without a signed CLA" is on the won't-merge list.
-- Branches other than `main` are not licensed; third-party components keep their original licenses.
-
-Full statement lives in `README.md` ("Where enterprise code lives") and `CONTRIBUTING.md`. Licensing enquiries: [hello@memex.ai](mailto:hello@memex.ai).
+`make check` runs the offline battery (no DB, no network, ~1s). `.husky/pre-push` runs lint + typecheck + unit tests.
 
 ## When in doubt
 
