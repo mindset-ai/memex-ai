@@ -232,7 +232,7 @@ describe.skipIf(!SMOKE_MCP_TOKEN || !SMOKE_SESSION_TOKEN)(
     });
 
     // ── ac-1 (scope): repeated MCP mutations ALL arrive on one long-lived SSE
-    //    stream. On prod (--max-instances 3, no session affinity) the /mcp
+    //    stream. On prod (multiple instances — maxScale is env-keyed, 8 today — no session affinity) the /mcp
     //    request and the SSE stream routinely land on DIFFERENT instances, so a
     //    multi-round loop exercises the relay's cross-instance hop with high
     //    probability — the single-round test above can get lucky on one warm
