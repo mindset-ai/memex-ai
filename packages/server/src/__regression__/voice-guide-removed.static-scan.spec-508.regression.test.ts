@@ -14,6 +14,7 @@
 import { describe, it, expect } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-508/acs/ac-${n}`;
@@ -100,10 +101,39 @@ function walk(dir: string): string[] {
 const IMPORT_FROM = /(?:from|import)\s+['"]([^'"]+)['"]/g;
 
 describe("spec-508 — the voice guide is fully removed (ac-2 / ac-6 / ac-10)", () => {
-  it("every deleted voice-guide path is gone (ac-2)", () => {
+  it("every deleted voice-guide path is gone from the REPOSITORY (ac-2)", () => {
     tagAc(AC(2));
-    const survivors = DELETED_PATHS.filter((rel) => existsSync(join(REPO_ROOT, rel)));
-    expect(survivors).toEqual([]);
+
+    // spec-512 issue-4: this asserted filesystem existence, which made it green in
+    // CI (clean checkout) and permanently RED on any developer machine carrying
+    // pre-spec-508 build residue — untracked `packages/guide-sdk/{dist,node_modules}`
+    // and the downloaded `packages/ui/public/assets/vad/*.wasm|.onnx`. Neither is in
+    // the index; `a1bb0e6` removed them from git and left the artefacts on disk.
+    //
+    // "The voice guide is removed" is a claim about the REPOSITORY, and the
+    // repository is git's index — not one laptop's disk. A guard that cries wolf
+    // locally trains everyone to ignore the regression suite, which is the same
+    // erosion of trust in a green signal that spec-512 exists to reverse.
+    const tracked = execFileSync("git", ["ls-files", "--", ...DELETED_PATHS], {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+    })
+      .split("\n")
+      .filter((l) => l.trim() !== "");
+
+    expect(
+      tracked,
+      `Deleted voice-guide path(s) are tracked by git again (spec-508 ac-2):\n` +
+        `  ${tracked.join("\n  ")}\n\n` +
+        `The voice stack was removed in a1bb0e6 and must stay removed.\n\n` +
+        `Fix — untrack the offending path(s):\n` +
+        `  git rm -r --cached ${tracked[0] ?? "<path>"}\n\n` +
+        `Check: packages/server/src/__regression__/voice-guide-removed.static-scan.spec-508.regression.test.ts`,
+    ).toEqual([]);
+
+    // Denominator: prove `git ls-files` ran against a real list, so a bad path
+    // argument or a non-git cwd cannot turn this into a vacuous pass.
+    expect(DELETED_PATHS.length).toBeGreaterThan(3);
   });
 
   it("no source file across server + UI imports a deleted voice module (ac-6 / ac-7)", () => {

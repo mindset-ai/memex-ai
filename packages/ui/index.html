@@ -27,6 +27,21 @@
     j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
     'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
     })(window,document,'script','dataLayer','GTM-MMCZ5GSX');</script>
+    <!-- GA4 (spec-517 dec-1): hardcoded on the app deploy, mirroring the marketing
+         site. Same measurement ID as www.memex.ai so a session that begins there
+         continues into the app (shared _ga cookie on .memex.ai) rather than starting
+         a new one. Only GA4 is added here — Google Ads (AW-18098801347) and LinkedIn
+         already fire on the app via the GTM container, so configuring them here too
+         would double-count. gtag() is already global from the consent block above. -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-9R0MM1G4PH"></script>
+    <script>
+      gtag('js', new Date());
+      gtag('config', 'G-9R0MM1G4PH');
+    </script>
+    <!-- OpenAI advertising pixel base (spec-517 dec-1): defines window.oaiq and loads
+         the SDK, mirroring the marketing site. registration_completed is fired from the
+         auth flow (fireSignupConversion) — without this base snippet that call no-ops. -->
+    <script>!function(w,d,s,u){if(w.oaiq)return;var q=function(){q.q.push(arguments)};q.q=[];w.oaiq=q;var j=d.createElement(s);j.async=1;j.src=u;var f=d.getElementsByTagName(s)[0];f.parentNode.insertBefore(j,f)}(window,document,"script","https://bzrcdn.openai.com/sdk/oaiq.min.js");oaiq("init",{pixelId:"PjRCVoZPvvHxvY26WNoWaU"});</script>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
