@@ -4,7 +4,7 @@ import { useAuth, computeDefaultLanding } from '../components/AuthContext';
 import { isFeatureHidden } from '../utils/featureFlags';
 import { Logo } from '../components/Logo';
 import { verifyEmailApi, AuthApiError } from '../api/client';
-import { readAttributionCookie, pushDataLayer } from '../lib/attribution';
+import { readAttributionCookie, fireSignupConversion } from '../lib/attribution';
 import { Spinner } from '../components/Spinner';
 import { Confetti } from '../components/Confetti';
 import { Button } from '../components/ui/Button';
@@ -38,11 +38,11 @@ export function VerifyEmail() {
       .then((s) => {
         acceptSession(s);
         if (s.isNewAccount) {
-          pushDataLayer({
-            event: 'sign_up_completed',
-            event_id: s.conversionEventId ?? crypto.randomUUID(),
-            ...readAttributionCookie(),
-          });
+          fireSignupConversion(
+            s.conversionEventId ?? crypto.randomUUID(),
+            s.user.email,
+            readAttributionCookie(),
+          );
         }
         setStage('success');
       })
