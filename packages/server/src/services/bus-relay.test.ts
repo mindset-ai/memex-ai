@@ -604,15 +604,19 @@ describe("spec-156 W1: health reports relay LISTEN-connection status (ac-12)", (
   });
 });
 
-describe("spec-156 W1 (dec-3): deploy.sh keeps --max-instances 3 (ac-27)", () => {
-  it("deploy.sh still pins --max-instances 3 — no interim single-instance throttle", () => {
+describe("spec-156 W1 (dec-3): deploy.sh runs prod at full scale (ac-27)", () => {
+  it("deploy.sh never throttles prod to a single instance — full scale via env-keyed flag", () => {
     tagAc(AC(27));
     tagAc(AC(5)); // scope ac-5: prod runs at full scale throughout (dec-3)
     const here = dirname(fileURLToPath(import.meta.url));
     // src/services/ -> packages/server/deploy.sh
     const deployPath = join(here, "..", "..", "deploy.sh");
     const deploy = readFileSync(deployPath, "utf8");
-    expect(deploy).toMatch(/--max-instances\s+3\b/);
+    // spec-518 env-keyed this flag: `--max-instances ${MAX_INSTANCES:-3}` (prod = 8 via the
+    // deploy-env secret). The spec-156 dec-3 invariant holds: prod is NEVER throttled to a
+    // single instance — the default is full scale (3) and the live value only goes up.
+    expect(deploy).toMatch(/--max-instances\s+"\$\{MAX_INSTANCES:-3\}"/);
     expect(deploy).not.toMatch(/--max-instances\s+1\b/);
+    expect(deploy).not.toMatch(/MAX_INSTANCES:-1\b/);
   });
 });

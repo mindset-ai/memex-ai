@@ -375,13 +375,16 @@ REMOVE_CONVERSION_SECRETS="${REMOVE_CONVERSION_SECRETS#,}"  # strip leading comm
 # MERGE leaves the live setting intact rather than blanking it — a deploy from a
 # checkout that never set the value can't silently un-hide features (spec-168
 # dec-4). The ${var+...} form is safe under `set -u`.
-# Resource/scaling flags (--memory/--min-instances/--max-instances/--concurrency/--cpu-boost)
-# are PINNED here, never left to the console: gcloud reverts anything a deploy doesn't
-# re-assert, so a console-set value silently disappears on the next deploy (std-26 §6 cl-136,
-# spec-489). --concurrency 80 / --cpu-boost restate the current live values so they survive.
-# DB_POOL_MAX is an optional per-env override of the db/connection.ts pool cap (prod=10, sized
-# against Cloud SQL max_connections=50 — spec-489/spec-332); omitted when unset, so a deploy
-# never blanks a live value.
+# Resource/scaling flags are re-asserted every deploy: gcloud reverts anything a deploy
+# doesn't restate, so a console-set value silently disappears on the next deploy (std-26 §6
+# cl-136, spec-489). --memory/--concurrency/--cpu-boost restate the current live values so they
+# survive. --min-instances/--max-instances are ENV-KEYED per-env (spec-518): MIN_INSTANCES /
+# MAX_INSTANCES come from the memex-<env>-deploy-env secret and default to 0/3 (today's
+# behaviour) when unset, so prod and int can differ and the live scaling can't drift from
+# config. Budget invariant (spec-518 / db/connection.ts:29): MAX_INSTANCES × (DB_POOL_MAX + 1
+# relay LISTEN) must stay under the DB's effective ceiling (prod ~47) — a value pair that
+# violates it can exhaust connections (the 2026-08-03 FATAL). DB_POOL_MAX is the per-env pool
+# cap (prod=4 under maxScale 8 → 8×(4+1)=40<47; spec-489/spec-518/spec-332); omitted when unset.
 gcloud run deploy "${SERVICE}" \
   --image "${IMAGE}" \
   --platform managed \
@@ -391,8 +394,8 @@ gcloud run deploy "${SERVICE}" \
   --allow-unauthenticated \
   --port 8080 \
   --memory 512Mi \
-  --min-instances 0 \
-  --max-instances 3 \
+  --min-instances "${MIN_INSTANCES:-0}" \
+  --max-instances "${MAX_INSTANCES:-3}" \
   --concurrency 80 \
   --cpu-boost \
   --add-cloudsql-instances "${CLOUD_SQL_INSTANCE_CONN}" \

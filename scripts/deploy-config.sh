@@ -226,4 +226,18 @@ if [ -n "${SERVICE_ACCOUNT+set}" ]; then
   export SERVICE_ACCOUNT
 fi
 
+# MIN_INSTANCES / MAX_INSTANCES — spec-518: per-env Cloud Run autoscaling bounds, consumed by
+# packages/server/deploy.sh as --min-instances ${MIN_INSTANCES:-0} / --max-instances
+# ${MAX_INSTANCES:-3}. Unset → the 0/3 defaults (current behaviour), so an env that never sets
+# them deploys unchanged. Set them in the memex-<env>-deploy-env secret to raise an env's
+# ceiling (prod: MIN_INSTANCES=1, MAX_INSTANCES=8). Budget invariant: MAX_INSTANCES ×
+# (DB_POOL_MAX + 1 relay LISTEN) must stay under the DB's effective max_connections ceiling
+# (prod ~47). Same set-vs-unset export as the knobs above.
+if [ -n "${MIN_INSTANCES+set}" ]; then
+  export MIN_INSTANCES
+fi
+if [ -n "${MAX_INSTANCES+set}" ]; then
+  export MAX_INSTANCES
+fi
+
 echo "[deploy-config] ENV=$ENV  project=$GCP_PROJECT  host=$PUBLIC_HOST  api=$API_PUBLIC_HOST"
