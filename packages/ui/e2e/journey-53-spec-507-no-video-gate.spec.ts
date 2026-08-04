@@ -121,8 +121,18 @@ test("a new user never meets the welcome video, and can still choose to watch it
   await expect(watchEntry).toBeVisible();
   await expect(watchEntry).toHaveAttribute("href", "/welcome");
 
-  await page.goto(bareUrl("/welcome"), { waitUntil: "commit" });
-  await expect(page).toHaveURL(/\/welcome/, { timeout: 15_000 });
+  // Dismiss the account popover before navigating. A full-document goto issued while
+  // the popover is still mounted loses the race to the SPA re-render and aborts the
+  // navigation (net::ERR_ABORTED; "frame was detached") — persistently enough under CI
+  // load to burn a whole retry budget. Close it and wait for it to unmount first; the
+  // toPass wrapper (the same idiom used for the onboarding form above) then re-issues
+  // the goto should a residual re-render still race it.
+  await page.keyboard.press("Escape");
+  await expect(watchEntry).toBeHidden();
+  await expect(async () => {
+    await page.goto(bareUrl("/welcome"), { waitUntil: "commit" });
+    await expect(page).toHaveURL(/\/welcome/, { timeout: 5_000 });
+  }).toPass({ timeout: 20_000 });
   // Assert on the heading (plain DOM text, always present when WelcomePage mounts)
   // rather than the <video> element — the video's src is a real external GCS asset
   // the cold e2e env may not fetch, leaving the element with zero dimensions.
