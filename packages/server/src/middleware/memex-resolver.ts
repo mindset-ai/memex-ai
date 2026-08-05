@@ -131,6 +131,23 @@ const RESERVED_API_ROOTS = new Set([
   // before the router runs, so Cloud Scheduler could never trigger the drip / Day-12 pass.
   // (Same class of bug as the stripe / postmark webhook entries above.)
   "internal",
+  // spec-515: nine more flat `/api/<root>` mounts (app.ts) that were never added here,
+  // so parseMemexPath read `/api/<root>/<x>` as namespace=<root>/memex=<x> and 404'd
+  // before their router ran — the same recurring class as stripe/postmark/internal.
+  // The sharpest consequence: `/api/test-events/batch` 404'd, so the CI AC-emitter fell
+  // back to unbounded per-event POSTs (`emitBatch` 404 → Promise.all(single)) — ~11.6M
+  // INSERT/DELETE/upsert calls that drove prod Cloud SQL to ~100% CPU (2026-08). Also
+  // 404'd one-click unsubscribe (`/api/email/...`). The flat-mount scan test
+  // (reserved-api-roots.spec-515.test.ts) now fails CI if a flat root is ever left out.
+  "issues",
+  "acs",
+  "test-events",
+  "spec-checkout",
+  "live",
+  "telemetry",
+  "whats-new",
+  "email",
+  "hook-keys",
 ]);
 
 // Parses `/<namespace>/<memex>/...` or `/api/<namespace>/<memex>/...` from a
