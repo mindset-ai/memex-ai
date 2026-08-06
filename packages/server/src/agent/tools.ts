@@ -27,7 +27,8 @@ import {
   docSections,
   docComments,
 } from "../db/schema.js";
-import { NotFoundError, ValidationError } from "../types/errors.js";
+import { ArchivedDocError, NotFoundError, ValidationError } from "../types/errors.js";
+import { formatArchivedDocStub } from "../services/archived-docs.js";
 import {
   toolSpecs,
   buildNudgeOrgBlocksGetter,
@@ -828,6 +829,16 @@ async function resolveRefForAgent(
   }
   if ("notFound" in result) {
     throw new NotFoundError(`Ref "${ref}" not found (${result.reason})`);
+  }
+  // spec-521 dec-2 (ac-1, ac-2, ac-3) — the DOC ref of an archived document. Serve
+  // the stub, never the content. Inherited from the canonical resolver rather than
+  // guarded here (dec-1), so this branch is response-rendering only: the decision
+  // that an archived doc is off-limits was already made upstream, for both surfaces
+  // at once. A doc-level WRITE lands here too and gets the same sentence, which is
+  // the correct answer — it names the Spec as archived so the agent stops instead of
+  // retrying (§5.3).
+  if ("archivedDoc" in result) {
+    throw new ArchivedDocError(formatArchivedDocStub(result.doc, ref));
   }
   const entity = result.entity;
   const doc = "doc" in entity ? entity.doc : entity.row;

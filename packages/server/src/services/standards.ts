@@ -709,6 +709,17 @@ export async function findStandardsAffectedByDecision(
           checkedOutBy: null,
           checkedOutAt: null,
           checkedOutThread: null,
+          // spec-521: archive attribution + supersession are not selected above
+          // (this reconstructs a partial Doc, like the other stub fields in this
+          // literal). Drift matching only needs the standard's identity and
+          // sections, so these stay null placeholders rather than widening the
+          // select — nothing downstream of this match reads them.
+          archiveReason: null,
+          archivedByUserId: null,
+          archivedByName: null,
+          supersededByDocId: null,
+          supersededAt: null,
+          supersessionNote: null,
           // spec-448 t-1: not selected above (this reconstructs a partial Doc,
           // like the other stub fields in this literal) — placeholder default.
           version: 1,

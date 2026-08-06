@@ -52,6 +52,13 @@ const DOC_ROW = {
   createdAt: baseDate,
   statusChangedAt: baseDate,
   archivedAt: null,
+  // spec-521: archive attribution + supersession pointers (nullable, unset here).
+  archiveReason: null,
+  archivedByUserId: null,
+  archivedByName: null,
+  supersededByDocId: null,
+  supersededAt: null,
+  supersessionNote: null,
   narrativeLastConsolidatedAt: null,
   isDemo: false,
   groundedInCode: false,

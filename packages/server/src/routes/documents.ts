@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { listDocs, getDoc, updateDocStatus, updateDocTitle, archiveDoc } from "../services/documents.js";
+import { listDocs, getDoc, updateDocStatus, updateDocTitle, archiveDoc, restoreDoc } from "../services/documents.js";
 import { restCtx } from "./_actor-ctx.js";
 import { moveDoc } from "../services/doc-move.js";
 import { splitSection, updateSection } from "../services/sections.js";
@@ -391,10 +391,31 @@ docs.post("/:id/status", async (c) => {
   return c.json(updated);
 });
 
+// spec-521 (ac-4) — archiving now records WHY, and threads the actor/channel so the
+// std-32 attribution lands on the row (the previous call passed no ctx at all, so
+// archive writes were unattributed). `reason` is optional on the wire so an older
+// client cannot 400, but the UI always sends one: the confirm asks for it.
 docs.post("/:id/archive", async (c) => {
   const memexId = requireMemexId(c);
   const id = c.req.param("id");
-  const updated = await archiveDoc(memexId, id);
+  const body = await parseJsonBodyOrNull<{ reason?: unknown }>(c);
+  const reason = typeof body?.reason === "string" ? body.reason : undefined;
+  const updated = await archiveDoc(memexId, id, restCtx(c), reason);
+  return c.json(updated);
+});
+
+// spec-521 (ac-4, ac-5) — the way back. Archiving was one-way before this, which is
+// why it went unused: nobody archives on suspicion if they cannot undo it. Restore
+// returns the doc to exactly the phase it had (archivedAt is orthogonal to status,
+// so there is no phase to reinstate).
+//
+// ac-16: this route is the ONLY way to clear archivedAt, and it is web-only. No MCP
+// tool and no in-app-agent tool reaches restoreDoc — archiving withholds content
+// from agents, so both directions of that switch stay with a human (dec-6).
+docs.post("/:id/restore", async (c) => {
+  const memexId = requireMemexId(c);
+  const id = c.req.param("id");
+  const updated = await restoreDoc(memexId, id, restCtx(c));
   return c.json(updated);
 });
 

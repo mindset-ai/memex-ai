@@ -6,6 +6,7 @@ import type { DocSummary } from "../types/index.js";
 import { NotFoundError, ValidationError } from "../types/errors.js";
 import { mutate, type ChangeKey, type Mutated, type RequestCtx } from "./mutate.js";
 import { resolveActorColumns } from "./actor.js";
+import { ARCHIVE_REASON_MAX_LENGTH } from "./archived-docs.js";
 import { isUuid } from "./shared/identifiers.js";
 import { withSeqRetry } from "./shared/sequence.js";
 import { docAttribution } from "./shared/doc-attribution.js";
@@ -846,18 +847,105 @@ export async function updateDocTitle(memexId: string, id: string, title: string)
   );
 }
 
-export async function archiveDoc(memexId: string, id: string): Promise<Mutated<Doc>> {
+// spec-521 (ac-4, ac-12) — archive a document, recording WHY and WHO.
+//
+// The reason is not decoration. Before spec-521 archive recorded only a timestamp,
+// which made it a black hole: the board hid the Spec and nothing said whether it
+// was absorbed elsewhere, abandoned, or parked for a fortnight. Now that archiving
+// also makes a Spec inert to every agent surface (dec-1/dec-2), the reason is what
+// makes the state legible to the next person — and legible enough to reverse.
+//
+// `ctx` is REQUIRED rather than defaulted. std-32 forbids a silently-defaulted
+// channel ("a mutation that reaches the activity sink with no channel is a visible
+// defect, never silently defaulted to 'server'"), and the previous signature passed
+// a bare `{}` into mutate(), so archive writes arrived unattributed. Making the
+// parameter mandatory means a caller cannot forget it.
+export async function archiveDoc(
+  memexId: string,
+  id: string,
+  ctx: RequestCtx,
+  reason?: string,
+): Promise<Mutated<Doc>> {
   const doc = await db.query.documents.findFirst({
     where: and(eq(documents.id, id), eq(documents.memexId, memexId)),
   });
   if (!doc) {
     throw new NotFoundError(`Document ${id} not found`);
   }
+
+  // ac-12: capped at write so the agent-facing stub cannot become a back door for
+  // the content the archive exists to withhold. Trim first — a reason of pure
+  // whitespace is no reason, and storing it would render an empty "Reason:" line.
+  const trimmedReason = reason?.trim() || null;
+  if (trimmedReason && trimmedReason.length > ARCHIVE_REASON_MAX_LENGTH) {
+    throw new ValidationError(
+      `Archive reason must be ${ARCHIVE_REASON_MAX_LENGTH} characters or fewer (got ${trimmedReason.length}).`,
+    );
+  }
+
   // Idempotent: already-archived docs succeed without bumping the timestamp.
   // silent: true — no DB write, no observable state change, no need to emit.
   if (doc.archivedAt) {
     return mutate(
-      {},
+      ctx,
+      { memexId, docId: id, entity: "document", action: "updated" },
+      async () => doc,
+      { silent: true },
+    );
+  }
+
+  // std-32: actorName is the DENORMALISED snapshot stamped here at write, so a
+  // later rename or user deletion can never rewrite who archived this.
+  const actor = await resolveActorColumns(ctx);
+
+  return mutate(
+    ctx,
+    { memexId, docId: id, entity: "document", action: "updated" },
+    async () => {
+      const [updated] = await db
+        .update(documents)
+        .set({
+          archivedAt: new Date(),
+          archiveReason: trimmedReason,
+          archivedByUserId: actor.actorUserId,
+          archivedByName: actor.actorName,
+        })
+        .where(and(eq(documents.id, id), eq(documents.memexId, memexId)))
+        .returning();
+      return updated;
+    },
+  );
+}
+
+// spec-521 (ac-4) — restore an archived document. No unarchive route, service or
+// tool existed before this: archiving was one-way, which is precisely why nobody
+// used it. Archive on suspicion has to cost nothing, and that requires a way back.
+//
+// Restoring returns the doc to EXACTLY the phase and content it had, and does so by
+// simply clearing archivedAt — there is no phase to reinstate, because archivedAt is
+// orthogonal to `status` and archiving never moved it. The archive attribution is
+// cleared alongside, so a restored-then-rearchived doc carries the reason for the
+// CURRENT archive rather than a stale one.
+//
+// Human-only by design (ac-16, dec-6). This service is reachable from the web route
+// and from nowhere else — no MCP tool and no in-app-agent tool clears archivedAt,
+// because withholding content from an agent is a judgement that belongs to a person.
+export async function restoreDoc(
+  memexId: string,
+  id: string,
+  ctx: RequestCtx,
+): Promise<Mutated<Doc>> {
+  const doc = await db.query.documents.findFirst({
+    where: and(eq(documents.id, id), eq(documents.memexId, memexId)),
+  });
+  if (!doc) {
+    throw new NotFoundError(`Document ${id} not found`);
+  }
+  // Idempotent, mirroring archiveDoc's already-archived branch: restoring a live
+  // doc is a no-op success, not an error.
+  if (!doc.archivedAt) {
+    return mutate(
+      ctx,
       { memexId, docId: id, entity: "document", action: "updated" },
       async () => doc,
       { silent: true },
@@ -865,12 +953,17 @@ export async function archiveDoc(memexId: string, id: string): Promise<Mutated<D
   }
 
   return mutate(
-    {},
+    ctx,
     { memexId, docId: id, entity: "document", action: "updated" },
     async () => {
       const [updated] = await db
         .update(documents)
-        .set({ archivedAt: new Date() })
+        .set({
+          archivedAt: null,
+          archiveReason: null,
+          archivedByUserId: null,
+          archivedByName: null,
+        })
         .where(and(eq(documents.id, id), eq(documents.memexId, memexId)))
         .returning();
       return updated;

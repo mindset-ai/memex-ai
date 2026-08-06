@@ -17,7 +17,8 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { listMemberships } from "../services/users.js";
-import { NotFoundError, ValidationError } from "../types/errors.js";
+import { ArchivedDocError, NotFoundError, ValidationError } from "../types/errors.js";
+import { formatArchivedDocStub } from "../services/archived-docs.js";
 import { formatMemexList } from "./formatters.js";
 import { listTopics } from "../services/guidance.js";
 import {
@@ -92,6 +93,12 @@ function textResult(text: string) {
 // Exported for unit testing — the createMcpServer path is integration-only.
 export function handleError(err: unknown) {
   if (err instanceof McpAuthError) return errorResult(err.message);
+  // spec-521 (ac-2): the archived-doc stub is emitted VERBATIM — no `Not found:`
+  // prefix. The stub's whole job is to say "this Spec exists, someone parked it, and
+  // here is why", so prefixing it with a contradiction would defeat it. Must sit
+  // ABOVE the NotFoundError branch to stay reachable if ArchivedDocError is ever
+  // reparented.
+  if (err instanceof ArchivedDocError) return errorResult(err.message);
   if (err instanceof NotFoundError) return errorResult(`Not found: ${err.message}`);
   if (err instanceof ValidationError) return errorResult(`Validation error: ${err.message}`);
   const requestId = randomUUID();
@@ -578,6 +585,22 @@ export async function resolveRefForUser(
   }
   if ("notFound" in result) {
     throw new NotFoundError(`Ref "${ref}" not found (${result.reason})`);
+  }
+  // spec-521 dec-2 (ac-1, ac-2, ac-3) — the DOC ref of an archived document on the
+  // coding-agent surface. Identical treatment to the in-app agent
+  // (agent/tools.ts::resolveRefForAgent) because both inherit the SAME guard from the
+  // canonical resolver (dec-1) and share ONE stub formatter. That symmetry is the
+  // point of the Spec: the defect was one surface carrying a guard the other lacked,
+  // so neither surface decides this for itself.
+  //
+  // Note this fires BEFORE the read-access check below. That ordering is safe under
+  // std-7 because the stub reveals nothing a member could not already see, and an
+  // archived doc in a Memex the caller cannot read still fails: `resolveCanonicalRef`
+  // is scoped by the namespace/memex slugs in the ref, so a non-member cannot name
+  // another tenant's doc without already knowing its Memex — and the doc-level read
+  // gate on every content path is unchanged.
+  if ("archivedDoc" in result) {
+    throw new ArchivedDocError(formatArchivedDocStub(result.doc, ref));
   }
 
   const entity = result.entity;
