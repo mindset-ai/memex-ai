@@ -190,11 +190,18 @@ docs.get("/", async (c) => {
   // docType — the Specs view keeps passing its own docType, so it stays the source of
   // truth for what counts as a Spec. listDocs runs the indexed (scope,value) join.
   const tagFilter = parseTagFilter(c.req.queries("tags"));
+  // spec-521 (ac-5): `?includeArchived=true` powers the archive view — the one place
+  // in the app that deliberately wants archived Specs. The board never passes it, so
+  // it keeps hiding them unconditionally. This is a WEB read path and does NOT go
+  // through the canonical resolver, so the dec-1 agent guard does not apply to it —
+  // that separation is exactly why the guard needed no opt-in parameter (ac-11).
+  const includeArchived = c.req.query("includeArchived") === "true";
   const result = await listDocs(memexId, {
     docType: docType || undefined,
     includeDriftCount,
     includeAcHealth,
     includeAssignees,
+    includeArchived,
     ...(tagFilter ? { tags: tagFilter } : {}),
   });
 

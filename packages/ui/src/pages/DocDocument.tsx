@@ -54,6 +54,7 @@ import { useHeaderSlot } from '../components/HeaderSlot';
 import { SpecMenu, type SpecMenuItem } from '../components/SpecMenu';
 import { RenameSpecDialog } from '../components/RenameSpecDialog';
 import { MoveSpecDialog } from '../components/MoveSpecDialog';
+import { SupersededByBanner, ReplacesBanner } from '../components/SupersessionBanner';
 import { specToMarkdown, downloadMarkdown, type MarkdownOptions } from '../utils/specMarkdown';
 import { renderSpecInitPrompt, type InitPromptMode } from '../utils/specInitPrompt';
 import { formatDate, docSeq } from '../utils/format';
@@ -1250,6 +1251,24 @@ export function DocDocument() {
           commentCount={totalCommentCount}
           onClose={() => setMoveOpen(false)}
         />
+      )}
+
+      {/* spec-521 dec-5 (ac-14) — supersession, DISPLAY-ONLY. Above the phase block
+          and the narrative, because it is the first thing a reader needs: this Spec's
+          prose may no longer be true. The phase badge is deliberately untouched — the
+          Spec is still whatever phase it was in, and the banner is what says not to
+          act on it. There is no control here to set or clear this state; it is
+          recorded exclusively over MCP (dec-4), and no copy suggests otherwise, so no
+          std-34 Prompt Button obligation attaches. */}
+      {doc.supersededByHandle && (
+        <SupersededByBanner
+          successorHandle={doc.supersededByHandle}
+          supersededAt={doc.supersededAt ?? null}
+          note={doc.supersessionNote ?? null}
+        />
+      )}
+      {(doc.replacesHandles?.length ?? 0) > 0 && (
+        <ReplacesBanner predecessorHandles={doc.replacesHandles ?? []} />
       )}
 
       {/* spec-182 dec-1: ONE shared phase block for every posture — the

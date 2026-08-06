@@ -809,6 +809,14 @@ export async function getDoc(
     // persisted flag (groundedInCode) rides along on `...doc`; this is the derived
     // companion the UI uses to render the "stale" state.
     groundedStale: boolean;
+    // spec-521 dec-5 (ac-14): the supersession relationship resolved to HANDLES so the
+    // page can render its banner and the mirror without a second round trip and
+    // without ever seeing a UUID (std-10). The raw columns ride along on `...doc`.
+    //   supersededByHandle — the successor, when this Spec has been superseded.
+    //   replacesHandles    — every Spec this one replaced (the mirror). Empty is the
+    //                        common case; the banner renders nothing for it.
+    supersededByHandle: string | null;
+    replacesHandles: string[];
   }
 > {
   const idMatch = isUuid(idOrHandle)
@@ -876,7 +884,33 @@ export async function getDoc(
 
   // spec-474: the spec-178 demo value-banner (demoValueCallout) was removed with the
   // demo walkthrough — no demo Specs are seeded any more and the UI banner is gone.
-  return { ...doc, sections, creator, checkoutHolder, groundedStale };
+  // spec-521 (ac-14): resolve both directions of supersession. Two cheap lookups on a
+  // single-doc read — the reverse one rides the partial index added by 0131 (std-39).
+  let supersededByHandle: string | null = null;
+  if (doc.supersededByDocId) {
+    const successor = await db.query.documents.findFirst({
+      where: eq(documents.id, doc.supersededByDocId),
+      columns: { handle: true },
+    });
+    supersededByHandle = successor?.handle ?? null;
+  }
+  const predecessors = await db
+    .select({ handle: documents.handle })
+    .from(documents)
+    .where(
+      and(eq(documents.memexId, memexId), eq(documents.supersededByDocId, doc.id)),
+    );
+  const replacesHandles = predecessors.map((p) => p.handle).sort();
+
+  return {
+    ...doc,
+    sections,
+    creator,
+    checkoutHolder,
+    groundedStale,
+    supersededByHandle,
+    replacesHandles,
+  };
 }
 
 export async function updateDocTitle(memexId: string, id: string, title: string): Promise<Mutated<Doc>> {

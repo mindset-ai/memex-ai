@@ -218,6 +218,11 @@ export async function lookupByHandle(
     strategies: ["handle"],
     authorName,
     lastUpdatedAt,
+    // spec-521 ac-9: the handle short-circuit IS a search_memex path, so its hit
+    // carries recency like any other. A doc's content age is last-updated, which is
+    // exactly the timestamp resolved above.
+    recencyAt: lastUpdatedAt,
+    recencyVerb: "updated" as const,
     matchingSections: sections.map((r) => ({
       id: r.section_id,
       sectionType: r.section_type,
@@ -342,6 +347,38 @@ export async function runSectionVector(
 // column. Concatenate title + context + resolution at query time. Cost is
 // modest because the table is small relative to doc_sections.
 
+// spec-521 dec-5 (ac-7) — attach the supersession pointer to an already-capped hit
+// set, in ONE query.
+//
+// Sibling of `attachOpenComments` and deliberately built the same way: enrich AFTER
+// the merge, batched over the result docs. Selecting the pointer inside all seven
+// retrieval tiers would have meant seven edits and seven chances for one tier to be
+// missed — and a marker absent from one read path is the failure mode this Spec
+// exists to fix, so the single post-merge seat is the safer shape as well as the
+// cheaper one.
+//
+// Keys off `parentDocId`, which is the hit's own doc for spec/standard/document hits
+// and the parent Spec for decision and issue hits — so a decision hit inherits its
+// Spec's supersession, which is what the reader needs.
+export async function attachSupersession(
+  hits: MemexSearchHit[],
+): Promise<MemexSearchHit[]> {
+  if (hits.length === 0) return hits;
+  const docIds = [...new Set(hits.map((h) => h.parentDocId))];
+  const rows = (await db.execute(sql`
+    SELECT d.id AS doc_id, succ.handle AS successor_handle
+    FROM documents d
+    INNER JOIN documents succ ON succ.id = d.superseded_by_doc_id
+    WHERE d.id = ANY(${sql.raw(`ARRAY['${docIds.join("','")}']::uuid[]`)})
+  `)) as unknown as { doc_id: string; successor_handle: string }[];
+  if (rows.length === 0) return hits;
+  const byDoc = new Map([...rows].map((r) => [r.doc_id, r.successor_handle]));
+  return hits.map((h) => {
+    const successor = byDoc.get(h.parentDocId);
+    return successor ? { ...h, supersededByHandle: successor } : h;
+  });
+}
+
 export async function runDecisionFts(
   memexId: string,
   query: string,
@@ -364,6 +401,7 @@ export async function runDecisionFts(
       dec.resolution  AS dec_resolution,
       dec.status      AS dec_status,
       dec.created_at  AS created_at,
+      dec.resolved_at AS resolved_at,
       COALESCE(NULLIF(TRIM(dec.actor_name), ''), NULLIF(TRIM(au.name), ''), au.email) AS author_name,
       d.handle        AS doc_handle,
       d.title         AS doc_title,
@@ -429,6 +467,7 @@ export async function runDecisionVector(
       dec.resolution  AS dec_resolution,
       dec.status      AS dec_status,
       dec.created_at  AS created_at,
+      dec.resolved_at AS resolved_at,
       COALESCE(NULLIF(TRIM(dec.actor_name), ''), NULLIF(TRIM(au.name), ''), au.email) AS author_name,
       d.handle        AS doc_handle,
       d.title         AS doc_title,

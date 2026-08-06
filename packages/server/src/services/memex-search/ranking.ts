@@ -47,6 +47,11 @@ interface AccumulatorEntry {
   /** Epoch millis of `lastUpdatedAt`, kept only to pick the latest matched
    *  section across the FTS + vector arms. Not emitted. */
   authorAtMillis: number;
+  /** spec-521 dec-7 (ac-9): content-age timestamp + which timestamp it is. Tracked
+   *  alongside the byline's WHO/WHEN because they answer different questions —
+   *  "who touched this" versus "how old is what I am about to read". */
+  recencyAt: string | null;
+  recencyVerb: "resolved" | "updated";
 }
 
 function pickDecisionSnippet(r: DecisionRow): string {
@@ -100,6 +105,10 @@ export function mergeWithRrf(
           authorName: null,
           lastUpdatedAt: null,
           authorAtMillis: -Infinity,
+          // Doc hits: content age is LAST-UPDATED (ac-9). Filled in below as matched
+          // sections arrive, alongside the byline's latest-section tracking.
+          recencyAt: null,
+          recencyVerb: "updated",
         };
         acc.set(`doc:${r.doc_id}`, entry);
       }
@@ -113,6 +122,9 @@ export function mergeWithRrf(
       const rowMillis = toMillis(r.updated_at);
       if (rowMillis > entry.authorAtMillis) {
         entry.authorAtMillis = rowMillis;
+        // ac-9: a doc's content age tracks its most recently updated matched section,
+        // the same row the byline attributes to.
+        entry.recencyAt = toIso(r.updated_at);
         entry.authorName = r.author_name?.trim() || null;
         entry.lastUpdatedAt = toIso(r.updated_at);
       }
@@ -159,6 +171,12 @@ export function mergeWithRrf(
           authorName: r.author_name?.trim() || null,
           lastUpdatedAt: toIso(r.created_at),
           authorAtMillis: toMillis(r.created_at),
+          // spec-521 ac-9: a DECISION's content age is when it was RESOLVED — that is
+          // the moment its content became the answer. An unresolved decision has no
+          // resolution to age, so it falls back to created_at and says `updated`
+          // rather than claiming a resolution that has not happened.
+          recencyAt: toIso(r.resolved_at) ?? toIso(r.created_at),
+          recencyVerb: r.resolved_at ? "resolved" : "updated",
         };
         acc.set(`dec:${r.decision_id}`, entry);
       } else {
@@ -194,6 +212,8 @@ export function mergeWithRrf(
           authorName: r.author_name?.trim() || null,
           lastUpdatedAt: toIso(r.updated_at),
           authorAtMillis: toMillis(r.updated_at),
+          recencyAt: toIso(r.updated_at),
+          recencyVerb: "updated",
         };
         acc.set(`iss:${r.issue_id}`, entry);
       } else {
@@ -229,6 +249,8 @@ export function mergeWithRrf(
     issueType: e.issueType,
     authorName: e.authorName,
     lastUpdatedAt: e.lastUpdatedAt,
+    recencyAt: e.recencyAt,
+    recencyVerb: e.recencyVerb,
   }));
 
   results.sort((a, b) => b.score - a.score);

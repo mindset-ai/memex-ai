@@ -34,7 +34,8 @@ import {
   ensureUserNamespace,
   ensureUserMemex,
 } from "../services/user-namespaces.js";
-import { createDocDraft, updateDocStatus } from "../services/documents.js";
+import { createDocDraft, updateDocStatus, archiveDoc } from "../services/documents.js";
+import { supersedeSpec } from "../services/supersession.js";
 import { markNarrativeConsolidated } from "../services/narrative.js";
 import { publishEntry } from "../services/whats-new.js";
 import { createDecision, resolveDecision } from "../services/decisions.js";
@@ -832,6 +833,49 @@ testOnlyRouter.post("/set-doc-status", async (c) => {
   const { memexId, docId, status } = parsed.data;
   const result = await updateDocStatus(memexId, docId, status);
   return c.json({ docId: result.id, status: result.status });
+});
+
+// spec-521 t-4/t-5 (std-28 cl-5): seed archive + supersession state through the REAL
+// services, so a journey can set up a precondition the UI deliberately offers no
+// control for. Supersession is MCP-only by dec-4, and archiving-with-a-reason is a
+// human action the journey exercises through the real dialog — but journey 3 needs a
+// Spec that is ALREADY superseded to assert the banner, and the web has no way to make
+// one. Seeding it here (not with raw SQL) keeps the bus emission and every guard live.
+const seedSupersedeSchema = z.object({
+  memexId: z.string().uuid(),
+  docId: z.string().uuid(),
+  supersededByDocId: z.string().uuid().nullable(),
+  note: z.string().optional(),
+});
+
+testOnlyRouter.post("/seed-supersede", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = seedSupersedeSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { memexId, docId, supersededByDocId, note } = parsed.data;
+  const result = await supersedeSpec(memexId, docId, supersededByDocId, note ?? null, {
+    channel: "mcp",
+  });
+  return c.json({ docId: result.id, supersededByDocId: result.supersededByDocId });
+});
+
+const seedArchiveSchema = z.object({
+  memexId: z.string().uuid(),
+  docId: z.string().uuid(),
+  reason: z.string().optional(),
+});
+
+testOnlyRouter.post("/seed-archive", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = seedArchiveSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { memexId, docId, reason } = parsed.data;
+  const result = await archiveDoc(memexId, docId, { channel: "rest_ui" }, reason);
+  return c.json({ docId: result.id, archivedAt: result.archivedAt });
 });
 
 // spec-196 t-5: stamp `narrativeLastConsolidatedAt = now()` through the real

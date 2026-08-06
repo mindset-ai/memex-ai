@@ -101,6 +101,9 @@ describe("GET /api/docs", () => {
       includeDriftCount: false,
       includeAcHealth: false,
       includeAssignees: false,
+      // spec-521 (ac-5): the archive view is the one caller that asks for archived
+      // rows; every other read passes false explicitly.
+      includeArchived: false,
     });
   });
 
@@ -113,6 +116,9 @@ describe("GET /api/docs", () => {
       includeDriftCount: false,
       includeAcHealth: false,
       includeAssignees: false,
+      // spec-521 (ac-5): the archive view is the one caller that asks for archived
+      // rows; every other read passes false explicitly.
+      includeArchived: false,
     });
   });
 
@@ -125,6 +131,9 @@ describe("GET /api/docs", () => {
       includeDriftCount: true,
       includeAcHealth: false,
       includeAssignees: false,
+      // spec-521 (ac-5): the archive view is the one caller that asks for archived
+      // rows; every other read passes false explicitly.
+      includeArchived: false,
     });
   });
 
@@ -137,6 +146,9 @@ describe("GET /api/docs", () => {
       includeDriftCount: false,
       includeAcHealth: true,
       includeAssignees: false,
+      // spec-521 (ac-5): the archive view is the one caller that asks for archived
+      // rows; every other read passes false explicitly.
+      includeArchived: false,
     });
   });
 
@@ -149,6 +161,9 @@ describe("GET /api/docs", () => {
       includeDriftCount: true,
       includeAcHealth: true,
       includeAssignees: false,
+      // spec-521 (ac-5): the archive view is the one caller that asks for archived
+      // rows; every other read passes false explicitly.
+      includeArchived: false,
     });
   });
 
@@ -161,6 +176,7 @@ describe("GET /api/docs", () => {
       includeDriftCount: false,
       includeAcHealth: false,
       includeAssignees: true,
+      includeArchived: false,
     });
   });
 });
@@ -205,6 +221,8 @@ describe("GET /api/docs/:id", () => {
       creator: null,
       checkoutHolder: null,
       groundedStale: false,
+      supersededByHandle: null,
+      replacesHandles: [],
     });
 
     const res = await app.request("/api/docs/uuid-1");
@@ -252,6 +270,8 @@ describe("GET /api/docs/:id", () => {
       creator: null,
       checkoutHolder: null,
       groundedStale: false,
+      supersededByHandle: null,
+      replacesHandles: [],
     });
 
     const res = await app.request("/api/docs/doc-1");
@@ -338,6 +358,8 @@ describe("POST /api/docs/sections/:sectionId/split", () => {
 // here uses a UNIQUE docId/handle to stay independent of the others.
 function mockDoc(id: string, handle: string) {
   vi.mocked(getDoc).mockResolvedValue({
+    supersededByHandle: null,
+    replacesHandles: [],
     id,
     memexId: TEST_MEMEX_ID,
     handle,

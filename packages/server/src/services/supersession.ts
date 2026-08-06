@@ -178,7 +178,11 @@ export async function supersedeSpec(
     where: and(eq(documents.id, docId), eq(documents.memexId, memexId)),
   });
   if (!doc) {
-    throw new NotFoundError(`Document ${docId} not found`);
+    // std-10 cl-15/cl-47: no UUID in a message that can reach the agent boundary. The
+    // caller already holds the ref it passed, so naming the id adds nothing for a
+    // human and leaks an internal key to an agent. (Defensive branch: the handler
+    // resolves the ref before calling this.)
+    throw new NotFoundError("Spec not found.");
   }
   if (doc.docType !== "spec") {
     throw new ValidationError(
@@ -225,8 +229,10 @@ export async function supersedeSpec(
     where: and(eq(documents.id, supersededByDocId), eq(documents.memexId, memexId)),
   });
   if (!successor) {
-    // std-7: a doc outside this Memex is reported as absent, never as forbidden.
-    throw new NotFoundError(`Document ${supersededByDocId} not found`);
+    // std-7: a doc outside this Memex is reported as absent, never as forbidden — the
+    // caller learns nothing about whether it exists elsewhere.
+    // std-10: no UUID in the message.
+    throw new NotFoundError("The Spec named as the successor was not found in this Memex.");
   }
   if (successor.docType !== "spec") {
     throw new ValidationError(

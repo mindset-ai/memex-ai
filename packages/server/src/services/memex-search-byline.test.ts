@@ -28,6 +28,9 @@ function docHit(overrides: Partial<MemexSearchHit> = {}): MemexSearchHit {
     kind: "document",
     path: "ns/mx/docs/doc-1",
     title: "Some Doc",
+    // spec-521 ac-9: recency defaults so the factory still produces a valid hit.
+    recencyAt: null,
+    recencyVerb: "updated",
     status: "active",
     score: 0.5,
     strategies: ["fts"],

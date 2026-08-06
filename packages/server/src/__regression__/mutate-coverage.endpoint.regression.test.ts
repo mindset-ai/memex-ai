@@ -86,6 +86,10 @@ const MUTATING_MCP_TOOLS: Record<string, ToolMutation[]> = {
   assess_spec: [{ entity: "document", action: "updated" }],
   // spec-409: ground_spec sets grounded_in_code + provenance → document/updated.
   ground_spec: [{ entity: "document", action: "updated" }],
+  // spec-521 dec-5: supersede_spec writes the three supersession columns on
+  // `documents` (or nulls them when clearing) → document/updated. std-8: it goes
+  // through mutate() so the Spec page picks the banner up live off the bus.
+  supersede_spec: [{ entity: "document", action: "updated" }],
   // tags (spec-418) — agent/handlers/tags.ts curation tools call the tags service.
   // createTag emits one tag event; rename/delete additionally fan out one
   // document.updated per carrying Spec (dec-4), all inside a single mutate().

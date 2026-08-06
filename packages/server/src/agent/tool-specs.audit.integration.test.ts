@@ -746,6 +746,15 @@ const REF_PROBE_SKIP = new Map<string, string>([
   // dec-1 sense. Tested separately via the verbose path and by the
   // per-mode pins.
   ["assess_spec", "returns analysis text keyed on handle, not a per-entity UUID confirmation"],
+  // spec-521 dec-5: supersede_spec needs TWO Spec refs (subject + successor), and it has
+  // a deliberate read-side effect — every subsequent read of the subject leads with a
+  // supersession line. Probing it here would have to supersede one of this harness's
+  // SHARED fixture docs, which would then inject that line into every other probe's
+  // output (the shared-fixture coupling std-37 warns about). Its ref emission and
+  // no-UUID property are covered directly, on both the service and the tool, by
+  // services/supersession.spec-521.integration.test.ts (29 assertions incl. every guard
+  // and every read surface) and by the live-MCP probe in __smoke__/authed.smoke.test.ts.
+  ["supersede_spec", "needs two Spec refs and mutates sibling probes' reads (adds a supersession lead line); covered by supersession.spec-521.integration.test.ts + the authed smoke probe"],
   // spec-340: the facets list verb is a discovery/read tool — output is the facet
   // vocabulary listing (key/name/description), not a per-entity `ref:` confirmation.
   ["facets", "discovery tool — facet vocabulary listing, no per-entity confirmation"],

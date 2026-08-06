@@ -376,14 +376,49 @@ export async function updateDocTitle(docId: string, title: string): Promise<void
   }
 }
 
-export async function archiveDoc(docId: string): Promise<void> {
+// spec-521 (ac-4): archiving now carries a REASON. Optional on the wire so an older
+// client cannot 400, but the dialog always sends one — it is the load-bearing column
+// in the archive view, and without it archive is a black hole.
+export async function archiveDoc(docId: string, reason?: string): Promise<void> {
   const res = await fetchWithRetry(`${tBase()}/docs/${docId}/archive`, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(reason ? { reason } : {}),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(text || `Failed to archive spec: ${res.status}`);
   }
+}
+
+// spec-521 (ac-4, ac-5): the way back. Archiving was one-way before this, which is
+// why it went unused — nobody archives on suspicion if they cannot undo it. Restore
+// returns the Spec to exactly the phase it had, because archivedAt is orthogonal to
+// status and archiving never moved it.
+//
+// ac-16: this is the ONLY caller-facing path that clears archivedAt, and it is
+// web-only. No MCP tool and no in-app-agent tool reaches it.
+export async function restoreDoc(docId: string): Promise<void> {
+  const res = await fetchWithRetry(`${tBase()}/docs/${docId}/restore`, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(text || `Failed to restore spec: ${res.status}`);
+  }
+}
+
+// spec-521 (ac-5): the archive view's data source — archived Specs only, each with
+// when/by whom/why. Uses the existing includeArchived projection rather than a new
+// endpoint; the caller filters to the archived ones.
+export async function fetchArchivedDocs(): Promise<DocSummary[]> {
+  const res = await fetchWithRetry(`${tBase()}/docs?includeArchived=true`);
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(text || `Failed to load archived specs: ${res.status}`);
+  }
+  const all = (await res.json()) as DocSummary[];
+  return all.filter((d) => d.archivedAt);
 }
 
 // spec-293 dec-2/dec-3: a move is always whole — no per-artifact opt-out flags.

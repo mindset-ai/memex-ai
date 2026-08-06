@@ -164,13 +164,14 @@ describe("Spec MCP tools (post-doc-14, b-105)", () => {
     created.docs.push(doc!.id);
   });
 
-  it("list_docs returns only Spec-typed docs (and active phases)", async () => {
+  it("list_docs returns only Spec-typed docs (every phase, spec-521 dec-3)", async () => {
     // Seed a non-Spec doc to verify docType filtering.
     const freeDoc = await createDocDraft(actor.account.id, "A free doc", "purpose", "document");
     created.docs.push(freeDoc.id);
-    // Seed an active Spec so the list isn't empty after the t-15 filter.
-    // (`MCP Spec A` from the earlier test is in draft status, which t-15
-    // hides per doc-12 dec-1.)
+    // spec-521 dec-3: the DRAFT exclusion this test used to assert is gone — draft
+    // Specs are now in the default set, so `MCP Spec A` (draft, from the earlier test)
+    // is legitimately present. The docType filter is what this test is actually about,
+    // and that is unchanged.
     const active = await createDocDraft(actor.account.id, "Active Spec Vis", "P", "spec");
     created.docs.push(active.id);
     await updateDocStatus(actor.account.id, active.id, "specify");
@@ -184,10 +185,10 @@ describe("Spec MCP tools (post-doc-14, b-105)", () => {
     // formatSpecList leads with "# Specs (<n>)".
     expect(text).toContain("# Specs");
     expect(text).toContain("Active Spec Vis");
-    // Non-Specs filtered.
+    // Non-Specs filtered — the actual subject of this test.
     expect(text).not.toContain("A free doc");
-    // Draft Specs hidden by the t-15 active-only filter.
-    expect(text).not.toContain("MCP Spec A");
+    // And the draft Spec is now INCLUDED, which is the dec-3 change.
+    expect(text).toContain("MCP Spec A");
   });
 
   it("get_spec_draft returns full Spec state (via get_doc)", async () => {
@@ -486,7 +487,14 @@ describe("MCP lifecycle nudges (doc-12 t-6)", () => {
 // ──────────────────────────────────────────────────────────────────────────────
 
 describe("list_specs active-only filter (doc-12 t-15)", () => {
-  it("excludes draft / done / archived Specs; keeps specify / build / verify", async () => {
+  // spec-521 dec-3 REVERSED this contract, deliberately. The old assertion was
+  // "excludes draft / done / archived; keeps specify / build / verify" — and the
+  // draft/done half of that exclusion was the DEFECT: it silently dropped every draft
+  // Spec, so a tag-shaped question got a wrong answer that looked right. Archived is
+  // now the ONLY exclusion, and the header states what it withheld. The test is
+  // rewritten to the new contract rather than deleted, so the coverage survives the
+  // change of intent.
+  it("returns every phase EXCEPT archived, and states what it withheld (spec-521 dec-3)", async () => {
     const sub = `t15-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`.slice(0, 39);
     const [u] = await db
       .insert(users)
@@ -540,14 +548,33 @@ describe("list_specs active-only filter (doc-12 t-15)", () => {
     expect(result.isError).toBeFalsy();
     const text = result.content[0].text;
 
-    // Active phases: kept.
+    // Every phase is in — draft and done included (ac-6).
+    expect(text).toContain("DraftSpec");
     expect(text).toContain("PlanSpec");
     expect(text).toContain("BuildSpec");
     expect(text).toContain("VerifySpec");
-    // Excluded.
-    expect(text).not.toContain("DraftSpec");
-    expect(text).not.toContain("DoneSpec");
+    expect(text).toContain("DoneSpec");
+    // Archived is the ONLY exclusion.
     expect(text).not.toContain("ArchivedSpec");
+    // ac-8: and the response SAYS it withheld one, rather than hiding a row in
+    // silence — 5 shown of 6, 1 archived.
+    const header = text.split("\n")[0];
+    expect(header).toContain("5 of 6");
+    expect(header).toContain("1 archived, hidden");
+
+    // statusIn narrows back to the old active set for a caller that wants it — the
+    // capability the hardcoded whitelist used to impose.
+    const narrowed = await callTool(u.id, "list_docs", {
+      memex: `${a.slug}/main`,
+      docType: "spec",
+      statusIn: ["specify", "build", "verify"],
+    });
+    const narrowedText = narrowed.content[0].text;
+    expect(narrowedText).toContain("PlanSpec");
+    expect(narrowedText).not.toContain("DraftSpec");
+    expect(narrowedText).not.toContain("DoneSpec");
+    expect(narrowedText).not.toContain("ArchivedSpec");
+    expect(narrowedText.split("\n")[0]).toContain("outside statusIn");
   });
 });
 

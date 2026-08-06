@@ -234,7 +234,6 @@ describe("ac-15 — supersede_spec refuses every malformed relationship", () => 
     // dec-5: the columns live on `documents` and nowhere else. Assert structurally
     // against the live schema so adding one to decisions/sections later trips this.
     const cols = await db.execute<{ table_name: string; column_name: string }>(
-      // biome-ignore lint/style/noUnusedTemplateLiteral: raw introspection query
       `select table_name, column_name from information_schema.columns
          where column_name in ('superseded_by_doc_id','superseded_at','supersession_note')
            and table_schema = 'public'`,
@@ -269,7 +268,6 @@ describe("ac-15 — supersede_spec refuses every malformed relationship", () => 
   it("the index the mirror lookup rides exists on documents (std-39)", async () => {
     tagAc(AC(15));
     const res = await db.execute<{ indexname: string }>(
-      // biome-ignore lint/style/noUnusedTemplateLiteral: raw introspection query
       `select indexname from pg_indexes where tablename = 'documents'`,
     );
     const rows = (res as unknown as { rows?: { indexname: string }[] }).rows ?? (res as unknown as { indexname: string }[]);
