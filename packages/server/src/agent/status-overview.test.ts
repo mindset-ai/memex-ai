@@ -21,6 +21,7 @@ const AC = (n: number) =>
 const facts = (over: Partial<StatusFacts> = {}): StatusFacts => ({
   handle: "spec-249",
   phase: "build",
+  supersededBy: null,
   decisionsTotal: 0,
   decisionsUnresolved: 0,
   openDecisions: [],

@@ -15,6 +15,10 @@ import {
   groundSpec,
 } from "../../services/documents.js";
 import {
+  supersedeSpec,
+  SUPERSESSION_NOTE_MAX_LENGTH,
+} from "../../services/supersession.js";
+import {
   ValidationError,
 } from "../../types/errors.js";
 import {
@@ -294,6 +298,92 @@ export const lifecycleTools: ToolSpec[] = [
       const freshRef = buildDocRef(slugs, fresh);
       const by = fresh.groundedByName ? ` by ${fresh.groundedByName}` : "";
       return `Spec ref: ${freshRef} marked code-grounded${by} at ${fresh.groundedAt?.toISOString() ?? "now"}.`;
+    },
+  },
+
+  // ── Supersession (spec-521 dec-5) ─────────────────────────
+  // Agent-callable BY DESIGN: the agent authoring the successor is the one who knows
+  // the predecessor was absorbed, and making this a tool is what gets the fact
+  // recorded instead of typed into a title. It withholds nothing — full content is
+  // still served under a lead line — which is precisely why it is safe for an agent
+  // to set, where archiving (which withholds) stays human-only (dec-6).
+  {
+    name: "supersede_spec",
+    annotations: { title: "Supersede Spec", readOnlyHint: false, destructiveHint: false },
+    description:
+      "Record that one Spec has been SUPERSEDED by another: it shipped, and a later Spec changed it. " +
+      "Use this when you author or discover a Spec that absorbs, replaces or re-architects an earlier one — instead of noting it in a title or a prose 'Reconciliation with…' section. " +
+      "Non-destructive: the superseded Spec keeps all its content and stays in listings, but every read of it (and of its decisions, ACs, tasks and comments) now opens with a line naming the successor, so nobody reconciles against stale intent. The successor carries the mirror. " +
+      "Pass `supersededBy: null` to CLEAR a pointer recorded in error — one call, no residue. " +
+      "Many Specs may point at one successor; cycles are refused. Doc-level only — an individual decision or section cannot be superseded. " +
+      "This is NOT archiving: archiving withholds a Spec from agents entirely and is a human-only action. If you think a Spec's premise is gone, register an Issue against it (type 'todo') while it is still live and let a person decide.",
+    schema: {
+      ref: z
+        .string()
+        .describe("Canonical ref to the Spec being superseded, e.g. `mindset/main/specs/spec-245`."),
+      supersededBy: z
+        .string()
+        .nullable()
+        .describe(
+          "Canonical ref to the SUCCESSOR Spec — the one that now carries current intent. Must be a Spec in the same Memex, and must not itself be archived or superseded. Pass null to clear an existing supersession record.",
+        ),
+      note: z
+        .string()
+        .optional()
+        .describe(
+          `Why it was superseded — a pointer, not an argument (max ${SUPERSESSION_NOTE_MAX_LENGTH} characters). E.g. "absorbed into the channel-aware footer projection".`,
+        ),
+      verbose: VERBOSE_FIELD,
+    },
+    async handler(input, ctx) {
+      const ref = input.ref as string;
+      const supersededByRef = input.supersededBy as string | null;
+      const note = (input.note as string | undefined) ?? null;
+
+      const resolved = await resolveRefArg(ctx, ref);
+      if (!isDocLikeKind(resolved.entity.kind)) {
+        throw new ValidationError(
+          `supersede_spec expects a doc-level ref; got ${resolved.entity.kind}.`,
+        );
+      }
+      const { memexId, slugs } = resolved;
+
+      // Resolving the successor through the SAME ctx is what enforces the
+      // same-Memex + caller-is-a-member half of ac-15 per surface: each surface's
+      // resolver applies its own tenancy/membership check, and an archived successor
+      // is refused by the dec-1 guard before we even get here. The service asserts
+      // the same-Memex invariant again in code (std-36: RLS is ENABLE not FORCE, so
+      // the policy is not what stands between these rows).
+      let successorDocId: string | null = null;
+      if (supersededByRef !== null) {
+        const successor = await resolveRefArg(ctx, supersededByRef, "supersededBy");
+        if (!isDocLikeKind(successor.entity.kind)) {
+          throw new ValidationError(
+            `supersededBy expects a doc-level ref; got ${successor.entity.kind}.`,
+          );
+        }
+        successorDocId = successor.doc.id;
+      }
+
+      const updated = await supersedeSpec(
+        memexId,
+        resolved.doc.id,
+        successorDocId,
+        note,
+        reqCtx(ctx),
+      );
+
+      if (ctx.verbose) {
+        const state = await fullDocState(memexId, resolved.doc.id);
+        const url = await ctx.workspaceUrl(memexId);
+        return await formatState(url, state, ctx);
+      }
+      const freshRef = buildDocRef(slugs, updated);
+      if (successorDocId === null) {
+        return `Spec ref: ${freshRef} is no longer marked superseded.`;
+      }
+      const successorDoc = await getDoc(memexId, successorDocId);
+      return `Spec ref: ${freshRef} is now superseded by ${successorDoc.handle}. Every read of it leads with that pointer; ${successorDoc.handle} carries the mirror.`;
     },
   },
 

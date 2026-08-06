@@ -28,6 +28,11 @@ import { eq, } from "drizzle-orm";
 import { db } from "../../db/connection.js";
 import { documents, docSections, taskDeps } from "../../db/schema.js";
 import {
+  formatReplacesLead,
+  formatSupersessionLead,
+  listPredecessors,
+} from "../../services/supersession.js";
+import {
   assertRefNotUuid,
   buildChildRef,
   memexSlugsById,
@@ -799,6 +804,58 @@ export async function renderFooterSignal(
   }
 }
 
+/**
+ * spec-521 dec-5 (ac-7) — compose the supersession lead for a doc, if it has one.
+ *
+ * Returns BOTH directions of the relationship, because a Spec can be on either side
+ * and a reader needs whichever applies:
+ *   * this Spec is superseded  → "⚠ SUPERSEDED BY spec-N (date): note"
+ *   * this Spec superseded others → "Replaces spec-A, spec-B." (one line, however
+ *     many predecessors — a Spec that absorbed five others must not open with five
+ *     lines of bookkeeping)
+ *
+ * Returns undefined when neither applies, which is the overwhelmingly common case,
+ * so an ordinary read pays one indexed lookup and gains no text.
+ */
+export async function composeSupersessionHeader(
+  memexId: string,
+  docId: string,
+): Promise<string | undefined> {
+  const doc = await db.query.documents.findFirst({
+    where: eq(documents.id, docId),
+    columns: {
+      docType: true,
+      supersededByDocId: true,
+      supersededAt: true,
+      supersessionNote: true,
+    },
+  });
+  if (!doc || doc.docType !== "spec") return undefined;
+
+  const lines: string[] = [];
+
+  if (doc.supersededByDocId) {
+    const successor = await db.query.documents.findFirst({
+      where: eq(documents.id, doc.supersededByDocId),
+      columns: { handle: true },
+    });
+    if (successor) {
+      lines.push(
+        formatSupersessionLead(successor.handle, doc.supersededAt, doc.supersessionNote),
+      );
+    }
+  }
+
+  // The mirror. Uses the partial index on superseded_by_doc_id (std-39) rather than
+  // scanning the Memex's documents.
+  const predecessors = await listPredecessors(memexId, docId);
+  if (predecessors.length > 0) {
+    lines.push(formatReplacesLead(predecessors.map((p) => p.handle).sort()));
+  }
+
+  return lines.length > 0 ? lines.join("\n") : undefined;
+}
+
 export async function composeGuidanceEnvelope(
   memexId: string,
   docId: string,
@@ -832,9 +889,31 @@ export async function composeGuidanceEnvelope(
     if (footerBody) env.footer = footerBody;
     return env;
   };
+  // spec-521 dec-5 (ac-7) — THE SUPERSESSION LEAD LINE.
+  //
+  // "The pointer is worthless if a read can miss it." This seat is the one place
+  // that runs on EVERY Spec-resolving tool response — terse and verbose, read and
+  // write, get_doc / list_acs / get_ac / list_tasks / list_comments alike — so
+  // composing the line here means a decision on a superseded Spec cannot be read
+  // without it. Per-handler injection was the alternative and is exactly how this
+  // Spec's own defect was born: a rule applied in most paths but not all.
+  //
+  // Deliberately composed BEFORE the docType guard below, and prepended to whatever
+  // header the phase logic goes on to produce, so it always leads.
+  let supersessionLead: string | undefined;
+  try {
+    supersessionLead = await composeSupersessionHeader(memexId, docId);
+  } catch {
+    supersessionLead = undefined;
+  }
+  const withLead = (header: string | undefined): string | undefined => {
+    if (!supersessionLead) return header;
+    return header ? `${supersessionLead}\n\n${header}` : `${supersessionLead}\n\n`;
+  };
+
   try {
     const state = await fullDocState(memexId, docId);
-    if (state.doc.docType !== "spec") return compose(undefined, undefined);
+    if (state.doc.docType !== "spec") return compose(withLead(undefined), undefined);
     const phase = state.doc.status as Phase;
     // spec-219 dec-5 (t-4): the seat's per-tool steer for this (tool, phase) — the
     // transition-keyed element of the footer. Folded BEFORE the general phase
@@ -927,7 +1006,7 @@ export async function composeGuidanceEnvelope(
       const bodyWithOverview =
         [orientOverview, body].filter((s): s is string => Boolean(s)).join("\n\n") ||
         undefined;
-      return compose(header, withSteer(bodyWithOverview));
+      return compose(withLead(header), withSteer(bodyWithOverview));
     }
 
     // TERSE build-loop calls — author a LEAN, situational footer here. This is
@@ -966,9 +1045,12 @@ export async function composeGuidanceEnvelope(
     const activity =
       ctx.toolName === "get_doc" ? await craftActivityBlock(memexId, docId, ctx.userId) : null;
     if (activity) lines.push(activity);
-    return compose(undefined, withSteer(lines.length > 0 ? lines.join("\n") : undefined));
+    return compose(withLead(undefined), withSteer(lines.length > 0 ? lines.join("\n") : undefined));
   } catch {
-    return compose(undefined, undefined);
+    // The phase/guidance composition failed — but the supersession lead is
+    // independent of it and must survive, or a reader of a superseded Spec loses
+    // the one line that tells them not to act on it.
+    return compose(withLead(undefined), undefined);
   }
 }
 
@@ -1149,6 +1231,11 @@ export interface StatusFacts {
   acsTotal: number; // active ACs
   untestedAcs: string[]; // ac-N handles, verificationState 'untested' (no test)
   failingAcs: string[]; // ac-N handles, verificationState 'failing' (red test)
+  // spec-521 dec-5 (ac-7): the successor's handle when this Spec has been
+  // superseded, else null. Present so the readiness roll-up can stop presenting a
+  // superseded Spec's open decisions and incomplete tasks as commitments — they are
+  // history, and nagging an agent to resolve them sends it to work nobody wants.
+  supersededBy: string | null;
 }
 
 /**
@@ -1158,6 +1245,15 @@ export interface StatusFacts {
  * spec is done it offers no forward action.
  */
 export function statusNextAction(f: StatusFacts): string {
+  // spec-521 dec-5 (ac-7) — a superseded Spec's open decisions and incomplete tasks
+  // STOP COUNTING AS COMMITMENTS. This short-circuits above the failing-AC rule
+  // deliberately: even a red test on a superseded Spec is not work to pick up, and
+  // pointing an agent at it is precisely the wasted reconciliation this Spec exists
+  // to stop. The census above still reports the true numbers; what changes is that
+  // none of them is presented as the next thing to do.
+  if (f.supersededBy) {
+    return `nothing here — superseded by ${f.supersededBy}; work from that Spec instead`;
+  }
   // ac-4 — a regression reads louder than an absence: failing wins everywhere.
   if (f.failingAcs.length > 0) {
     return `fix the failing test for ${f.failingAcs[0]}`;
@@ -1248,9 +1344,20 @@ export async function craftStatusOverview(
       ),
     );
     const liveDecs = state.decs.filter((d) => d.status !== "deleted");
+    // spec-521 (ac-7): resolve the successor's HANDLE (not its uuid — std-10) so the
+    // roll-up can name where the work actually lives now.
+    let supersededByHandle: string | null = null;
+    if (state.doc.supersededByDocId) {
+      const successor = await db.query.documents.findFirst({
+        where: eq(documents.id, state.doc.supersededByDocId),
+        columns: { handle: true },
+      });
+      supersededByHandle = successor?.handle ?? null;
+    }
     const facts: StatusFacts = {
       handle: state.doc.handle,
       phase,
+      supersededBy: supersededByHandle,
       decisionsTotal: liveDecs.length,
       decisionsUnresolved: liveDecs.filter(
         (d) => d.status === "open" || d.status === "candidate",

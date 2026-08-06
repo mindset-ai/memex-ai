@@ -1,6 +1,6 @@
 import { and, eq, ne, desc, count, isNull, inArray, or, exists, gt, sql, type SQL } from "drizzle-orm";
 import { db } from "../db/connection.js";
-import { documents, docSections, docComments, decisions, acs, users, tags, documentTags } from "../db/schema.js";
+import { documents, docSections, docComments, decisions, tasks, acs, users, tags, documentTags } from "../db/schema.js";
 import type { Doc, DocSection, Decision } from "../db/schema.js";
 import type { DocSummary } from "../types/index.js";
 import { NotFoundError, ValidationError } from "../types/errors.js";
@@ -344,6 +344,59 @@ export async function createDocDraft(
   );
 }
 
+// spec-521 t-2 (std-39 cl-5) — bulk per-doc child counts for the `list_docs`
+// listing.
+//
+// WHY THESE EXIST. The listing used to call `listDecisions(docId)` and
+// `listTasks(docId)` once per row — a textbook N+1 that was survivable while the
+// default set was the ~115 active Specs, and is not once dec-3 widens it to every
+// phase (several hundred rows → ~2 queries each). std-39 cl-5 requires per-request
+// DB work to be O(1) in the size of the workspace, and cl-24 says to replace a
+// per-item loop with a single bulk query rather than accept the fan-out. Widening
+// the set is what made this load-bearing, so it is fixed here rather than deferred.
+//
+// The filters mirror the list functions they replace exactly — non-deleted for
+// decisions, and `retired_at_version IS NULL` on both (spec-448) — so the counts a
+// caller sees are the same numbers the per-row calls produced.
+export async function decisionCountsByDoc(
+  memexId: string,
+  docIds: string[],
+): Promise<Map<string, number>> {
+  if (docIds.length === 0) return new Map();
+  const rows = await db
+    .select({ docId: decisions.docId, n: count() })
+    .from(decisions)
+    .where(
+      and(
+        eq(decisions.memexId, memexId),
+        inArray(decisions.docId, docIds),
+        ne(decisions.status, "deleted"),
+        isNull(decisions.retiredAtVersion),
+      ),
+    )
+    .groupBy(decisions.docId);
+  return new Map(rows.map((r) => [r.docId, Number(r.n)]));
+}
+
+export async function taskCountsByDoc(
+  memexId: string,
+  docIds: string[],
+): Promise<Map<string, number>> {
+  if (docIds.length === 0) return new Map();
+  const rows = await db
+    .select({ docId: tasks.docId, n: count() })
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.memexId, memexId),
+        inArray(tasks.docId, docIds),
+        isNull(tasks.retiredAtVersion),
+      ),
+    )
+    .groupBy(tasks.docId);
+  return new Map(rows.map((r) => [r.docId, Number(r.n)]));
+}
+
 export interface ListDocsOptions {
   docType?: string;
   // Default false — archived docs are hidden from the kanban. Set true to include them
@@ -479,6 +532,15 @@ export async function listDocs(
       // doc-12 t-1: archivedAt is already filtered out by default (see conditions
       // above) but projected so the client can defend the contract locally.
       archivedAt: documents.archivedAt,
+      // spec-521 (ac-5, ac-13): archive attribution + the supersession pointer ride on
+      // every DocSummary in the same bulk select — the archive view needs the reason
+      // and actor per row, and `list_docs` needs the successor to mark a superseded
+      // row. Projected here rather than fetched per row, so neither surface fans out.
+      archiveReason: documents.archiveReason,
+      archivedByName: documents.archivedByName,
+      supersededByDocId: documents.supersededByDocId,
+      supersededAt: documents.supersededAt,
+      supersessionNote: documents.supersessionNote,
       // spec-178 t-1 (ac-9): is_demo rides on every DocSummary (like archivedAt)
       // so the board can render the DEMO badge. Always projected — not behind an include opt.
       isDemo: documents.isDemo,
