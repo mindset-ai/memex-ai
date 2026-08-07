@@ -586,25 +586,15 @@ export async function resolveRefForUser(
   if ("notFound" in result) {
     throw new NotFoundError(`Ref "${ref}" not found (${result.reason})`);
   }
-  // spec-521 dec-2 (ac-1, ac-2, ac-3) — the DOC ref of an archived document on the
-  // coding-agent surface. Identical treatment to the in-app agent
-  // (agent/tools.ts::resolveRefForAgent) because both inherit the SAME guard from the
-  // canonical resolver (dec-1) and share ONE stub formatter. That symmetry is the
-  // point of the Spec: the defect was one surface carrying a guard the other lacked,
-  // so neither surface decides this for itself.
-  //
-  // Note this fires BEFORE the read-access check below. That ordering is safe under
-  // std-7 because the stub reveals nothing a member could not already see, and an
-  // archived doc in a Memex the caller cannot read still fails: `resolveCanonicalRef`
-  // is scoped by the namespace/memex slugs in the ref, so a non-member cannot name
-  // another tenant's doc without already knowing its Memex — and the doc-level read
-  // gate on every content path is unchanged.
-  if ("archivedDoc" in result) {
-    throw new ArchivedDocError(formatArchivedDocStub(result.doc, ref));
-  }
-
-  const entity = result.entity;
-  const doc = "doc" in entity ? entity.doc : entity.row;
+  // The archived-doc stub is rendered LAST, below every authorization guard — see
+  // the ordering note before the `archivedDoc` branch. The demo and read-access
+  // guards must therefore be able to inspect the doc for an archived result too,
+  // which carries its row directly instead of a ResolvedEntity.
+  const guardDoc = "archivedDoc" in result
+    ? result.doc
+    : "doc" in result.entity
+      ? result.entity.doc
+      : result.entity.row;
   // spec-178 t-11 / dec-11 (ac-37): a handhold demo spec is inert to the MCP
   // surface — a coding agent must not be able to read it (get_doc/export_doc)
   // or mutate against it (update_doc, add_section, decision/task writes, …),
@@ -612,10 +602,10 @@ export async function resolveRefForUser(
   // demo doc as not-found (std-7: missing, not forbidden) so the agent gets the
   // same answer as for a ref that doesn't exist. The board's REST getDoc path
   // is untouched — it never goes through resolveRefForUser.
-  if (doc.isDemo) {
+  if (guardDoc.isDemo) {
     throw new NotFoundError(`Ref "${ref}" not found.`);
   }
-  const memexId = doc.memexId;
+  const memexId = guardDoc.memexId;
   // orgFilter (b-31 dec-8) — undefined for PAT (skip), null for personal-only
   // OAuth, <orgId> for Org-scoped OAuth. The read gate enforces it (a private
   // memex outside the OAuth scope falls through to the membership check and
@@ -628,11 +618,32 @@ export async function resolveRefForUser(
     orgFilter,
   );
 
+  // spec-521 dec-2 (ac-1, ac-2, ac-3) — the DOC ref of an archived document on the
+  // coding-agent surface. Identical treatment to the in-app agent
+  // (agent/tools.ts::resolveRefForAgent) because both inherit the SAME guard from the
+  // canonical resolver (dec-1) and share ONE stub formatter. That symmetry is the
+  // point of the Spec: the defect was one surface carrying a guard the other lacked,
+  // so neither surface decides this for itself.
+  //
+  // ORDERING IS LOAD-BEARING: this sits BELOW `assertReadAccessForMemex` above, and
+  // must stay there. `resolveCanonicalRef` resolves purely from the caller-supplied
+  // ref string (namespace slug + memex slug + handle, `services/resolver.ts`) and
+  // takes no caller identity, so the read gate is the ONLY thing standing between a
+  // caller and another tenant's document — including the `orgFilter` scope this
+  // function exists to enforce (an Org-A token must not reach an Org-B entity by
+  // canonical ref). The stub emits real content — title, archiving actor, and the
+  // free-text reason — so rendering it above the gate would leak that to any
+  // authenticated caller who can guess a slug and a sequential `spec-N` handle.
+  // An archived doc the caller cannot read must be plain not-found, as a live one is.
+  if ("archivedDoc" in result) {
+    throw new ArchivedDocError(formatArchivedDocStub(result.doc, ref));
+  }
+
   // Slugs come from the parsed ref itself — no DB lookup needed for the
   // common case. memexSlugsById is the fallback for callers that build a
   // ResolvedRef from outside the parse path.
   const slugs = { namespace: parsed.ref.namespace, memex: parsed.ref.memex };
-  return { entity, memexId, doc, slugs, readOnly };
+  return { entity: result.entity, memexId, doc: guardDoc, slugs, readOnly };
 }
 
 // Suppress unused-import warning — `memexSlugsById` is part of the public

@@ -830,19 +830,16 @@ async function resolveRefForAgent(
   if ("notFound" in result) {
     throw new NotFoundError(`Ref "${ref}" not found (${result.reason})`);
   }
-  // spec-521 dec-2 (ac-1, ac-2, ac-3) — the DOC ref of an archived document. Serve
-  // the stub, never the content. Inherited from the canonical resolver rather than
-  // guarded here (dec-1), so this branch is response-rendering only: the decision
-  // that an archived doc is off-limits was already made upstream, for both surfaces
-  // at once. A doc-level WRITE lands here too and gets the same sentence, which is
-  // the correct answer — it names the Spec as archived so the agent stops instead of
-  // retrying (§5.3).
-  if ("archivedDoc" in result) {
-    throw new ArchivedDocError(formatArchivedDocStub(result.doc, ref));
-  }
-  const entity = result.entity;
-  const doc = "doc" in entity ? entity.doc : entity.row;
-  if (doc.memexId !== boundMemexId) {
+  // The archived-doc stub is rendered LAST, below every authorization guard — see
+  // the ordering note before the `archivedDoc` branch. Both the tenancy and demo
+  // guards must therefore be able to inspect the doc for an archived result too,
+  // which carries its row directly instead of a ResolvedEntity.
+  const guardDoc = "archivedDoc" in result
+    ? result.doc
+    : "doc" in result.entity
+      ? result.entity.doc
+      : result.entity.row;
+  if (guardDoc.memexId !== boundMemexId) {
     throw new NotFoundError(`Ref "${ref}" not found.`);
   }
   // spec-178 t-11 / dec-11 (ac-38): the in-app agents (the server Anthropic-SDK
@@ -853,13 +850,32 @@ async function resolveRefForAgent(
   // the whole agent surface. The bound current-doc context path (buildDocumentContext
   // → getDoc) is intentionally untouched: that's the doc the user explicitly opened,
   // analogous to the board's getDoc, and is out of scope for this exclusion.
-  if (doc.isDemo) {
+  if (guardDoc.isDemo) {
     throw new NotFoundError(`Ref "${ref}" not found.`);
   }
+  // spec-521 dec-2 (ac-1, ac-2, ac-3) — the DOC ref of an archived document. Serve
+  // the stub, never the content. Inherited from the canonical resolver rather than
+  // guarded here (dec-1), so this branch is response-rendering only: the decision
+  // that an archived doc is off-limits was already made upstream, for both surfaces
+  // at once. A doc-level WRITE lands here too and gets the same sentence, which is
+  // the correct answer — it names the Spec as archived so the agent stops instead of
+  // retrying (§5.3).
+  //
+  // ORDERING IS LOAD-BEARING: this sits BELOW the bound-memex check above, and must
+  // stay there. `resolveCanonicalRef` resolves purely from the caller-supplied ref
+  // string (namespace slug + memex slug + handle, `services/resolver.ts`) and takes
+  // no caller identity, so an agent bound to Memex A can name a doc in Memex B. The
+  // stub emits real content — title, archiving actor, and the free-text reason — so
+  // rendering it above the tenancy guard would leak another tenant's data to any
+  // caller who can guess a slug and a sequential `spec-N` handle. An archived doc
+  // outside the bound Memex must be plain not-found, exactly as a live one is.
+  if ("archivedDoc" in result) {
+    throw new ArchivedDocError(formatArchivedDocStub(result.doc, ref));
+  }
   return {
-    entity,
-    memexId: doc.memexId,
-    doc,
+    entity: result.entity,
+    memexId: guardDoc.memexId,
+    doc: guardDoc,
     slugs: { namespace: parsed.ref.namespace, memex: parsed.ref.memex },
   };
 }

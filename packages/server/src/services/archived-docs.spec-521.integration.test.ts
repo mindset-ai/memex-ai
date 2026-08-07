@@ -30,8 +30,8 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { db } from "../db/connection.js";
-import { documents } from "../db/schema.js";
-import { makeTestMemexWithDevAdmin } from "./test-helpers.js";
+import { documents, memexes, namespaces } from "../db/schema.js";
+import { makeTestMemex, makeTestMemexWithDevAdmin } from "./test-helpers.js";
 import { upsertUserByEmail } from "./users.js";
 import { createDocDraft, getDoc, archiveDoc, restoreDoc, listDocs } from "./documents.js";
 import { createAc } from "./acs.js";
@@ -65,7 +65,16 @@ let archivedDocId: string;
 let liveRef: string;
 let liveAcRef: string;
 
+// A SECOND, unrelated Memex — private (the schema default) with no membership for
+// devUserId — holding its own archived Spec. Used only by the authorization-ordering
+// block at the end of this file, which asserts the stub is never rendered ahead of
+// the tenancy / read-access guards.
+let foreignArchivedRef: string;
+
 const ARCHIVE_REASON = "absorbed into the successor spec";
+// Distinctive strings so a leak assertion can name exactly what must not appear.
+const FOREIGN_TITLE = "Another tenant's parked work that must stay invisible";
+const FOREIGN_REASON = "foreign tenant archive rationale";
 
 beforeAll(async () => {
   const made = await makeTestMemexWithDevAdmin("s521arch");
@@ -125,6 +134,37 @@ beforeAll(async () => {
   // Archive AFTER both Specs exist, with a reason and a real actor, so the stub has
   // every fact to render and the std-32 attribution is stamped at write.
   await archiveDoc(memexId, archived.id, { channel: "rest_ui", actorUserId: devUserId }, ARCHIVE_REASON);
+
+  // The foreign Memex. makeTestMemex creates ns + org + memex and enrolls NOBODY, and
+  // memexes.visibility defaults to 'private', so devUserId is a non-member with no
+  // read access. The doc is seeded through the service layer (which applies no authz)
+  // precisely so the ref is real and resolvable — the question under test is whether
+  // the RESOLVER surfaces refuse it, not whether it can be created.
+  const foreignMemexId = await makeTestMemex("s521foreign");
+  const foreignSlug = await db
+    .select({ slug: namespaces.slug })
+    .from(memexes)
+    .innerJoin(namespaces, eq(memexes.namespaceId, namespaces.id))
+    .where(eq(memexes.id, foreignMemexId))
+    .then((rows) => rows[0].slug);
+  const foreignArchived = await createDocDraft(
+    foreignMemexId,
+    FOREIGN_TITLE,
+    "Content belonging to a Memex the caller cannot read.",
+    "spec",
+    undefined,
+    undefined,
+    devUserId,
+    { channel: "rest_ui", actorUserId: devUserId },
+  );
+  createdDocIds.push(foreignArchived.id);
+  foreignArchivedRef = `${foreignSlug}/main/specs/${foreignArchived.handle}`;
+  await archiveDoc(
+    foreignMemexId,
+    foreignArchived.id,
+    { channel: "rest_ui", actorUserId: devUserId },
+    FOREIGN_REASON,
+  );
 });
 
 afterAll(async () => {
@@ -587,8 +627,11 @@ describe("ac-11 — one guard, in the shared resolver, with no escape hatch", ()
       expect(src).not.toMatch(/doc\.archivedAt/);
       expect(src).not.toMatch(/\.archivedAt\s*(!==|===|\?)/);
       // The isDemo guard IS duplicated in both — proving the scan would catch a
-      // duplicated archived check if one were ever added.
-      expect(src).toMatch(/doc\.isDemo/);
+      // duplicated archived check if one were ever added. Matched on the property
+      // rather than a fixed receiver name: both surfaces now read it off the
+      // `guardDoc` binding that the authorization-ordering fix introduced, and the
+      // canary is about the guard existing, not about what the variable is called.
+      expect(src).toMatch(/\.isDemo/);
     }
   });
 
@@ -702,5 +745,86 @@ describe("ac-4 — archiving is reversible and loses nothing", () => {
     createdDocIds.push(doc.id);
     const out = await restoreDoc(memexId, doc.id, { channel: "rest_ui", actorUserId: devUserId });
     expect(out.archivedAt).toBeNull();
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// ac-2 — the stub is rendered BELOW authorization, never above it
+// ══════════════════════════════════════════════════════════════════
+//
+// A defect found while reviewing this Spec's own diff. Both surfaces originally threw
+// the stub immediately after the resolver returned — the in-app agent ABOVE its
+// `doc.memexId !== boundMemexId` tenancy check, and the MCP surface ABOVE
+// `assertReadAccessForMemex` (the membership + OAuth `orgFilter` gate).
+//
+// That ordering leaks. `resolveRef` resolves purely from the caller-supplied ref
+// string — namespace slug, memex slug, handle — and takes no caller identity, so the
+// caller names the tenant. The stub is not an empty refusal: it carries the title, the
+// archiving actor's name and the free-text reason. Rendered ahead of the gate, any
+// authenticated caller could read those out of a Memex they have no access to, from a
+// guessable slug plus a sequential `spec-N` handle.
+//
+// std-7 settles what the answer must be: an archived doc the caller cannot read is
+// absent, exactly as a live one is — a plain NotFoundError, no stub. The Spec's own §2
+// says the same ("Archived and superseded state leaks nothing about existence beyond
+// what the caller could already see").
+//
+// Both surfaces are asserted, for the reason this whole file exists: the original bug
+// was one surface carrying a guard the other lacked.
+describe("ac-2 — an archived doc outside the caller's reach is absent, not stubbed", () => {
+  it("MCP surface: a non-member's ref to a private Memex's archived Spec is refused by the read gate", async () => {
+    tagAc(AC(2));
+    const err = await resolveRefForUser(devUserId, foreignArchivedRef).catch((e: Error) => e);
+    // The assertion is NOT ArchivedDocError: that class exists solely to carry the
+    // stub, so receiving it here would mean the stub was built before the read gate
+    // ran. Which refusal the caller does get is `assertReadAccessForMemex`'s existing,
+    // deliberately uniform answer (McpAuthError, worded so "does not exist" and
+    // "exists but you cannot see it" stay indistinguishable) — pre-existing behaviour
+    // this Spec neither changes nor asserts.
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(ArchivedDocError);
+  });
+
+  it("in-app agent surface: a ref outside the bound Memex is plain not-found", async () => {
+    tagAc(AC(2));
+    const err = await executeServerTool(
+      memexId,
+      "get_doc",
+      { ref: foreignArchivedRef },
+      devUserId,
+    ).catch((e: Error) => e);
+    // The in-app agent's tenancy guard is its own, and it IS a NotFoundError.
+    expect(err).toBeInstanceOf(NotFoundError);
+    expect(err).not.toBeInstanceOf(ArchivedDocError);
+  });
+
+  it("neither surface leaks the foreign Spec's title, reason or archiving actor", async () => {
+    tagAc(AC(2));
+    const mcpErr = await resolveRefForUser(devUserId, foreignArchivedRef).catch((e: Error) => e);
+    const agentErr = await executeServerTool(
+      memexId,
+      "get_doc",
+      { ref: foreignArchivedRef },
+      devUserId,
+    ).catch((e: Error) => e);
+    for (const err of [mcpErr, agentErr]) {
+      const msg = (err as Error).message;
+      expect(msg).not.toContain(FOREIGN_TITLE);
+      expect(msg).not.toContain(FOREIGN_REASON);
+      // The std-32 denormalised actor name the stub would otherwise carry.
+      expect(msg).not.toContain("dev@memex.ai");
+      // And it must not even admit the doc is archived.
+      expect(msg.toLowerCase()).not.toContain("archived");
+    }
+  });
+
+  it("the control holds: inside the caller's own Memex the stub IS still served", async () => {
+    tagAc(AC(2));
+    // Without this, all three assertions above would pass on a resolver that had
+    // simply stopped emitting stubs altogether.
+    await expect(resolveRefForUser(devUserId, archivedRef)).rejects.toThrow(ArchivedDocError);
+    await expect(
+      executeServerTool(memexId, "get_doc", { ref: archivedRef }, devUserId),
+    ).rejects.toThrow(ArchivedDocError);
   });
 });
