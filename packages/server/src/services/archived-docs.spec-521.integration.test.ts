@@ -749,7 +749,7 @@ describe("ac-4 — archiving is reversible and loses nothing", () => {
 });
 
 // ══════════════════════════════════════════════════════════════════
-// ac-2 — the stub is rendered BELOW authorization, never above it
+// ac-17 — the stub is rendered BELOW authorization, never above it
 // ══════════════════════════════════════════════════════════════════
 //
 // A defect found while reviewing this Spec's own diff. Both surfaces originally threw
@@ -771,9 +771,9 @@ describe("ac-4 — archiving is reversible and loses nothing", () => {
 //
 // Both surfaces are asserted, for the reason this whole file exists: the original bug
 // was one surface carrying a guard the other lacked.
-describe("ac-2 — an archived doc outside the caller's reach is absent, not stubbed", () => {
+describe("ac-17 — an archived doc outside the caller's reach is absent, not stubbed", () => {
   it("MCP surface: a non-member's ref to a private Memex's archived Spec is refused by the read gate", async () => {
-    tagAc(AC(2));
+    tagAc(AC(17));
     const err = await resolveRefForUser(devUserId, foreignArchivedRef).catch((e: Error) => e);
     // The assertion is NOT ArchivedDocError: that class exists solely to carry the
     // stub, so receiving it here would mean the stub was built before the read gate
@@ -786,7 +786,7 @@ describe("ac-2 — an archived doc outside the caller's reach is absent, not stu
   });
 
   it("in-app agent surface: a ref outside the bound Memex is plain not-found", async () => {
-    tagAc(AC(2));
+    tagAc(AC(17));
     const err = await executeServerTool(
       memexId,
       "get_doc",
@@ -799,7 +799,7 @@ describe("ac-2 — an archived doc outside the caller's reach is absent, not stu
   });
 
   it("neither surface leaks the foreign Spec's title, reason or archiving actor", async () => {
-    tagAc(AC(2));
+    tagAc(AC(17));
     const mcpErr = await resolveRefForUser(devUserId, foreignArchivedRef).catch((e: Error) => e);
     const agentErr = await executeServerTool(
       memexId,
@@ -819,7 +819,7 @@ describe("ac-2 — an archived doc outside the caller's reach is absent, not stu
   });
 
   it("the control holds: inside the caller's own Memex the stub IS still served", async () => {
-    tagAc(AC(2));
+    tagAc(AC(17));
     // Without this, all three assertions above would pass on a resolver that had
     // simply stopped emitting stubs altogether.
     await expect(resolveRefForUser(devUserId, archivedRef)).rejects.toThrow(ArchivedDocError);
