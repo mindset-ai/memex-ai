@@ -53,6 +53,19 @@ export interface DocSummary {
   // archived rows out by default, so the value is ~always null in current responses,
   // but exposing it keeps the wire shape honest if callers later opt into includeArchived.
   archivedAt: Date | null;
+  // spec-521 (ac-4, ac-5): WHY it was archived and WHO archived it, projected so the
+  // archive view can show the reason as a first-class column — "absorbed into
+  // spec-510" versus a blank row is the difference between an archive and a black
+  // hole. `archivedByName` is the denormalised std-32 snapshot, not a read-time join.
+  archiveReason?: string | null;
+  archivedByName?: string | null;
+  // spec-521 dec-5 (ac-13): the successor pointer, projected so `list_docs` can mark
+  // a superseded row inline and the Spec page can render its banner. A superseded
+  // Spec STAYS in every listing — the pointer does the work of telling you it was
+  // replaced, not a filter that hides it.
+  supersededByDocId?: string | null;
+  supersededAt?: Date | null;
+  supersessionNote?: string | null;
   // spec-178 t-1 (ac-9): demo flag — true on the five frozen spec-64 copies seeded into
   // a personal Memex for the Handhold onboarding walkthrough. Always projected by
   // listDocs; drives the DEMO badge client-side and the Pulse/analytics exclusion

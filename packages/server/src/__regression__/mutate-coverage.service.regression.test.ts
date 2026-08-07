@@ -101,7 +101,7 @@ const SERVICE_REGISTRY: RegistryEntry[] = [
   {
     name: "documents.archiveDoc",
     expected: { entity: "document", action: "updated" },
-    invoke: (f) => documentsSvc.archiveDoc(f.memexId, f.docId),
+    invoke: (f) => documentsSvc.archiveDoc(f.memexId, f.docId, { channel: "rest_ui" }),
   },
   // sections.ts
   {

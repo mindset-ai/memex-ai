@@ -76,6 +76,30 @@ export async function setDocStatus(opts: {
   return call("POST", "/set-doc-status", opts);
 }
 
+/** spec-521 t-5: seed supersession through the real supersedeSpec service. The web
+ *  offers no control for this by design (dec-4 — it is MCP-only), so a journey that
+ *  asserts the banner has to have the state seeded. Pass supersededByDocId: null to
+ *  clear. */
+export async function seedSupersede(opts: {
+  memexId: string;
+  docId: string;
+  supersededByDocId: string | null;
+  note?: string;
+}): Promise<{ docId: string; supersededByDocId: string | null }> {
+  return call("POST", "/seed-supersede", opts);
+}
+
+/** spec-521 t-4: archive a Spec through the real archiveDoc service, WITH a reason and
+ *  a real actor — for journeys that need an already-archived Spec rather than the one
+ *  they archive themselves through the dialog. */
+export async function seedArchive(opts: {
+  memexId: string;
+  docId: string;
+  reason?: string;
+}): Promise<{ docId: string; archivedAt: string | null }> {
+  return call("POST", "/seed-archive", opts);
+}
+
 /** spec-196: stamp narrativeLastConsolidatedAt = now() through the real
  *  markNarrativeConsolidated service (assess_spec consolidate's effect). */
 export async function consolidateNarrative(opts: {

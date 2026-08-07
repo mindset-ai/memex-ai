@@ -1,11 +1,12 @@
 import { and, eq, ne, desc, count, isNull, inArray, or, exists, gt, sql, type SQL } from "drizzle-orm";
 import { db } from "../db/connection.js";
-import { documents, docSections, docComments, decisions, acs, users, tags, documentTags } from "../db/schema.js";
+import { documents, docSections, docComments, decisions, tasks, acs, users, tags, documentTags } from "../db/schema.js";
 import type { Doc, DocSection, Decision } from "../db/schema.js";
 import type { DocSummary } from "../types/index.js";
 import { NotFoundError, ValidationError } from "../types/errors.js";
 import { mutate, type ChangeKey, type Mutated, type RequestCtx } from "./mutate.js";
 import { resolveActorColumns } from "./actor.js";
+import { ARCHIVE_REASON_MAX_LENGTH } from "./archived-docs.js";
 import { isUuid } from "./shared/identifiers.js";
 import { withSeqRetry } from "./shared/sequence.js";
 import { docAttribution } from "./shared/doc-attribution.js";
@@ -343,6 +344,59 @@ export async function createDocDraft(
   );
 }
 
+// spec-521 t-2 (std-39 cl-5) — bulk per-doc child counts for the `list_docs`
+// listing.
+//
+// WHY THESE EXIST. The listing used to call `listDecisions(docId)` and
+// `listTasks(docId)` once per row — a textbook N+1 that was survivable while the
+// default set was the ~115 active Specs, and is not once dec-3 widens it to every
+// phase (several hundred rows → ~2 queries each). std-39 cl-5 requires per-request
+// DB work to be O(1) in the size of the workspace, and cl-24 says to replace a
+// per-item loop with a single bulk query rather than accept the fan-out. Widening
+// the set is what made this load-bearing, so it is fixed here rather than deferred.
+//
+// The filters mirror the list functions they replace exactly — non-deleted for
+// decisions, and `retired_at_version IS NULL` on both (spec-448) — so the counts a
+// caller sees are the same numbers the per-row calls produced.
+export async function decisionCountsByDoc(
+  memexId: string,
+  docIds: string[],
+): Promise<Map<string, number>> {
+  if (docIds.length === 0) return new Map();
+  const rows = await db
+    .select({ docId: decisions.docId, n: count() })
+    .from(decisions)
+    .where(
+      and(
+        eq(decisions.memexId, memexId),
+        inArray(decisions.docId, docIds),
+        ne(decisions.status, "deleted"),
+        isNull(decisions.retiredAtVersion),
+      ),
+    )
+    .groupBy(decisions.docId);
+  return new Map(rows.map((r) => [r.docId, Number(r.n)]));
+}
+
+export async function taskCountsByDoc(
+  memexId: string,
+  docIds: string[],
+): Promise<Map<string, number>> {
+  if (docIds.length === 0) return new Map();
+  const rows = await db
+    .select({ docId: tasks.docId, n: count() })
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.memexId, memexId),
+        inArray(tasks.docId, docIds),
+        isNull(tasks.retiredAtVersion),
+      ),
+    )
+    .groupBy(tasks.docId);
+  return new Map(rows.map((r) => [r.docId, Number(r.n)]));
+}
+
 export interface ListDocsOptions {
   docType?: string;
   // Default false — archived docs are hidden from the kanban. Set true to include them
@@ -478,6 +532,15 @@ export async function listDocs(
       // doc-12 t-1: archivedAt is already filtered out by default (see conditions
       // above) but projected so the client can defend the contract locally.
       archivedAt: documents.archivedAt,
+      // spec-521 (ac-5, ac-13): archive attribution + the supersession pointer ride on
+      // every DocSummary in the same bulk select — the archive view needs the reason
+      // and actor per row, and `list_docs` needs the successor to mark a superseded
+      // row. Projected here rather than fetched per row, so neither surface fans out.
+      archiveReason: documents.archiveReason,
+      archivedByName: documents.archivedByName,
+      supersededByDocId: documents.supersededByDocId,
+      supersededAt: documents.supersededAt,
+      supersessionNote: documents.supersessionNote,
       // spec-178 t-1 (ac-9): is_demo rides on every DocSummary (like archivedAt)
       // so the board can render the DEMO badge. Always projected — not behind an include opt.
       isDemo: documents.isDemo,
@@ -746,6 +809,14 @@ export async function getDoc(
     // persisted flag (groundedInCode) rides along on `...doc`; this is the derived
     // companion the UI uses to render the "stale" state.
     groundedStale: boolean;
+    // spec-521 dec-5 (ac-14): the supersession relationship resolved to HANDLES so the
+    // page can render its banner and the mirror without a second round trip and
+    // without ever seeing a UUID (std-10). The raw columns ride along on `...doc`.
+    //   supersededByHandle — the successor, when this Spec has been superseded.
+    //   replacesHandles    — every Spec this one replaced (the mirror). Empty is the
+    //                        common case; the banner renders nothing for it.
+    supersededByHandle: string | null;
+    replacesHandles: string[];
   }
 > {
   const idMatch = isUuid(idOrHandle)
@@ -813,7 +884,33 @@ export async function getDoc(
 
   // spec-474: the spec-178 demo value-banner (demoValueCallout) was removed with the
   // demo walkthrough — no demo Specs are seeded any more and the UI banner is gone.
-  return { ...doc, sections, creator, checkoutHolder, groundedStale };
+  // spec-521 (ac-14): resolve both directions of supersession. Two cheap lookups on a
+  // single-doc read — the reverse one rides the partial index added by 0131 (std-39).
+  let supersededByHandle: string | null = null;
+  if (doc.supersededByDocId) {
+    const successor = await db.query.documents.findFirst({
+      where: eq(documents.id, doc.supersededByDocId),
+      columns: { handle: true },
+    });
+    supersededByHandle = successor?.handle ?? null;
+  }
+  const predecessors = await db
+    .select({ handle: documents.handle })
+    .from(documents)
+    .where(
+      and(eq(documents.memexId, memexId), eq(documents.supersededByDocId, doc.id)),
+    );
+  const replacesHandles = predecessors.map((p) => p.handle).sort();
+
+  return {
+    ...doc,
+    sections,
+    creator,
+    checkoutHolder,
+    groundedStale,
+    supersededByHandle,
+    replacesHandles,
+  };
 }
 
 export async function updateDocTitle(memexId: string, id: string, title: string): Promise<Mutated<Doc>> {
@@ -846,18 +943,105 @@ export async function updateDocTitle(memexId: string, id: string, title: string)
   );
 }
 
-export async function archiveDoc(memexId: string, id: string): Promise<Mutated<Doc>> {
+// spec-521 (ac-4, ac-12) — archive a document, recording WHY and WHO.
+//
+// The reason is not decoration. Before spec-521 archive recorded only a timestamp,
+// which made it a black hole: the board hid the Spec and nothing said whether it
+// was absorbed elsewhere, abandoned, or parked for a fortnight. Now that archiving
+// also makes a Spec inert to every agent surface (dec-1/dec-2), the reason is what
+// makes the state legible to the next person — and legible enough to reverse.
+//
+// `ctx` is REQUIRED rather than defaulted. std-32 forbids a silently-defaulted
+// channel ("a mutation that reaches the activity sink with no channel is a visible
+// defect, never silently defaulted to 'server'"), and the previous signature passed
+// a bare `{}` into mutate(), so archive writes arrived unattributed. Making the
+// parameter mandatory means a caller cannot forget it.
+export async function archiveDoc(
+  memexId: string,
+  id: string,
+  ctx: RequestCtx,
+  reason?: string,
+): Promise<Mutated<Doc>> {
   const doc = await db.query.documents.findFirst({
     where: and(eq(documents.id, id), eq(documents.memexId, memexId)),
   });
   if (!doc) {
     throw new NotFoundError(`Document ${id} not found`);
   }
+
+  // ac-12: capped at write so the agent-facing stub cannot become a back door for
+  // the content the archive exists to withhold. Trim first — a reason of pure
+  // whitespace is no reason, and storing it would render an empty "Reason:" line.
+  const trimmedReason = reason?.trim() || null;
+  if (trimmedReason && trimmedReason.length > ARCHIVE_REASON_MAX_LENGTH) {
+    throw new ValidationError(
+      `Archive reason must be ${ARCHIVE_REASON_MAX_LENGTH} characters or fewer (got ${trimmedReason.length}).`,
+    );
+  }
+
   // Idempotent: already-archived docs succeed without bumping the timestamp.
   // silent: true — no DB write, no observable state change, no need to emit.
   if (doc.archivedAt) {
     return mutate(
-      {},
+      ctx,
+      { memexId, docId: id, entity: "document", action: "updated" },
+      async () => doc,
+      { silent: true },
+    );
+  }
+
+  // std-32: actorName is the DENORMALISED snapshot stamped here at write, so a
+  // later rename or user deletion can never rewrite who archived this.
+  const actor = await resolveActorColumns(ctx);
+
+  return mutate(
+    ctx,
+    { memexId, docId: id, entity: "document", action: "updated" },
+    async () => {
+      const [updated] = await db
+        .update(documents)
+        .set({
+          archivedAt: new Date(),
+          archiveReason: trimmedReason,
+          archivedByUserId: actor.actorUserId,
+          archivedByName: actor.actorName,
+        })
+        .where(and(eq(documents.id, id), eq(documents.memexId, memexId)))
+        .returning();
+      return updated;
+    },
+  );
+}
+
+// spec-521 (ac-4) — restore an archived document. No unarchive route, service or
+// tool existed before this: archiving was one-way, which is precisely why nobody
+// used it. Archive on suspicion has to cost nothing, and that requires a way back.
+//
+// Restoring returns the doc to EXACTLY the phase and content it had, and does so by
+// simply clearing archivedAt — there is no phase to reinstate, because archivedAt is
+// orthogonal to `status` and archiving never moved it. The archive attribution is
+// cleared alongside, so a restored-then-rearchived doc carries the reason for the
+// CURRENT archive rather than a stale one.
+//
+// Human-only by design (ac-16, dec-6). This service is reachable from the web route
+// and from nowhere else — no MCP tool and no in-app-agent tool clears archivedAt,
+// because withholding content from an agent is a judgement that belongs to a person.
+export async function restoreDoc(
+  memexId: string,
+  id: string,
+  ctx: RequestCtx,
+): Promise<Mutated<Doc>> {
+  const doc = await db.query.documents.findFirst({
+    where: and(eq(documents.id, id), eq(documents.memexId, memexId)),
+  });
+  if (!doc) {
+    throw new NotFoundError(`Document ${id} not found`);
+  }
+  // Idempotent, mirroring archiveDoc's already-archived branch: restoring a live
+  // doc is a no-op success, not an error.
+  if (!doc.archivedAt) {
+    return mutate(
+      ctx,
       { memexId, docId: id, entity: "document", action: "updated" },
       async () => doc,
       { silent: true },
@@ -865,12 +1049,17 @@ export async function archiveDoc(memexId: string, id: string): Promise<Mutated<D
   }
 
   return mutate(
-    {},
+    ctx,
     { memexId, docId: id, entity: "document", action: "updated" },
     async () => {
       const [updated] = await db
         .update(documents)
-        .set({ archivedAt: new Date() })
+        .set({
+          archivedAt: null,
+          archiveReason: null,
+          archivedByUserId: null,
+          archivedByName: null,
+        })
         .where(and(eq(documents.id, id), eq(documents.memexId, memexId)))
         .returning();
       return updated;

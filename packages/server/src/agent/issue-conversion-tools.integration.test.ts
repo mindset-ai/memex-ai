@@ -74,6 +74,12 @@ function ctxFor(boundMemex: string, userId: string, verbose: boolean): ToolCtx {
       if ("notFound" in result) {
         throw new NotFoundError(`Ref "${ref}" not found (${result.reason})`);
       }
+      // spec-521 dec-2: this harness mirrors the production resolver wrapper, so it
+      // mirrors its archived-doc branch too. Unreachable here (no test in this file
+      // archives a doc) — present so the ResolveResult union stays exhaustively narrowed.
+      if ("archivedDoc" in result) {
+        throw new NotFoundError(`Ref "${ref}" not found.`);
+      }
       const entity = result.entity;
       const doc = "doc" in entity ? entity.doc : entity.row;
       if (doc.memexId !== boundMemex) {

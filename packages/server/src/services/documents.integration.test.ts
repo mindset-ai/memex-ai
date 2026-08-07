@@ -336,7 +336,7 @@ describe("archiveDoc", () => {
     const before = await listDocs(memexId);
     expect(before.some((d) => d.id === draft.id)).toBe(true);
 
-    const archived = await archiveDoc(memexId, draft.id);
+    const archived = await archiveDoc(memexId, draft.id, { channel: "rest_ui" });
     expect(archived.archivedAt).toBeInstanceOf(Date);
 
     const after = await listDocs(memexId);
@@ -349,7 +349,7 @@ describe("archiveDoc", () => {
     const draft = await createDocDraft(memexId, "Findable When Archived", "Purpose");
     createdDocIds.push(draft.id);
 
-    await archiveDoc(memexId, draft.id);
+    await archiveDoc(memexId, draft.id, { channel: "rest_ui" });
 
     const list = await listDocs(memexId, { includeArchived: true });
     expect(list.some((d) => d.id === draft.id)).toBe(true);
@@ -363,17 +363,17 @@ describe("archiveDoc", () => {
     const draft = await createDocDraft(memexId, "Double Archive", "Purpose");
     createdDocIds.push(draft.id);
 
-    const first = await archiveDoc(memexId, draft.id);
+    const first = await archiveDoc(memexId, draft.id, { channel: "rest_ui" });
     const firstTs = first.archivedAt!.getTime();
 
     await new Promise((r) => setTimeout(r, 5));
-    const second = await archiveDoc(memexId, draft.id);
+    const second = await archiveDoc(memexId, draft.id, { channel: "rest_ui" });
     expect(second.archivedAt!.getTime()).toBe(firstTs);
   });
 
   it("throws NotFoundError for non-existent id", async () => {
     await expect(
-      archiveDoc(memexId, "00000000-0000-0000-0000-000000000000")
+      archiveDoc(memexId, "00000000-0000-0000-0000-000000000000", { channel: "rest_ui" })
     ).rejects.toThrow(NotFoundError);
   });
 });

@@ -116,6 +116,7 @@ describe("GET /api/docs (tag filter)", () => {
       includeDriftCount: false,
       includeAcHealth: false,
       includeAssignees: false,
+      includeArchived: false,
       tags: [
         { scope: "priority", value: "high" },
         { scope: null, value: "bug" },
@@ -132,6 +133,7 @@ describe("GET /api/docs (tag filter)", () => {
       includeDriftCount: false,
       includeAcHealth: false,
       includeAssignees: false,
+      includeArchived: false,
       tags: [
         { scope: "priority", value: "low" },
         { scope: null, value: "flat" },
@@ -148,6 +150,9 @@ describe("GET /api/docs (tag filter)", () => {
       includeDriftCount: false,
       includeAcHealth: false,
       includeAssignees: false,
+      // spec-521 (ac-5): the archive view is the one caller that asks for archived
+      // rows; every other read passes false explicitly.
+      includeArchived: false,
     });
   });
 });

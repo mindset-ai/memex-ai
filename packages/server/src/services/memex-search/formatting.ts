@@ -104,7 +104,31 @@ export function formatSearchResults(
     // the [current doc] / verbose-score suffixes, so an agent reading the result
     // can attribute the hit ("who, when") without opening it.
     const byline = formatHitByline(hit, now);
-    lines.push(`### ${hit.path} — "${hit.title}" (${kindLabel}, ${hit.status})${byline}${selfTag}${scoreSuffix}`);
+    // spec-521 (ac-7, ac-9): the (kind, status) segment gains two clauses.
+    //
+    // SUPERSESSION first, because it is the stronger signal — somebody explicitly
+    // recorded that this Spec was replaced, so the reader should go elsewhere before
+    // they weigh how old it is.
+    //
+    // RECENCY second, and on EVERY hit (dec-7). §5 leaves the shape to build — label
+    // segment or separate field — but not whether it appears. It goes in the label
+    // rather than relying on the existing WHO/WHEN byline for two reasons: the byline
+    // degrades to nothing when no author or timestamp resolves, and it answers "who
+    // touched this, when", which for a decision is not the same date as "when was
+    // this settled" (ac-9 wants last-RESOLVED there).
+    //
+    // ac-10: no reference/citation count is computed or rendered here — recency is the
+    // only new signal, and it is read off a timestamp the row already carries, so the
+    // retrieval path gains no query.
+    const supersededClause = hit.supersededByHandle
+      ? ` · superseded by ${hit.supersededByHandle}`
+      : "";
+    const recencyClause = hit.recencyAt
+      ? ` · ${hit.recencyVerb} ${timeAgo(hit.recencyAt, now)}`
+      : "";
+    lines.push(
+      `### ${hit.path} — "${hit.title}" (${kindLabel}, ${hit.status}${supersededClause}${recencyClause})${byline}${selfTag}${scoreSuffix}`,
+    );
     if (hit.kind === "decision") {
       const via = hit.decisionMatchedVia ?? "fts";
       const snippet = hit.decisionSnippet ?? "";

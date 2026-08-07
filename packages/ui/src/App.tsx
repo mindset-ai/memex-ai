@@ -26,6 +26,9 @@ const Insights = lazy(() => import('./pages/Insights').then((m) => ({ default: m
 const QaReports = lazy(() => import('./pages/QaReports').then((m) => ({ default: m.QaReports })));
 const Decisions = lazy(() => import('./pages/Decisions').then((m) => ({ default: m.Decisions })));
 const SpecList = lazy(() => import('./pages/SpecList').then((m) => ({ default: m.SpecList })));
+// spec-521 t-4 (ac-5): the archive view — a destination reached from the board, not a
+// column on it, because archived work should be out of the way.
+const SpecArchive = lazy(() => import('./pages/SpecArchive').then((m) => ({ default: m.SpecArchive })));
 const IssuesList = lazy(() => import('./pages/IssuesList').then((m) => ({ default: m.IssuesList })));
 const NamespaceHome = lazy(() =>
   import('./pages/NamespaceHome').then((m) => ({ default: m.NamespaceHome })),
@@ -589,6 +592,9 @@ export function PostLoginRouter() {
             It renders inside TenantLayout → AppShell's sidebar layout (the AppShell
             doc-page match excludes the literal `tags` segment). */}
         <Route path="specs/tags" element={<ManageTags />} />
+        {/* spec-521 t-4 (ac-5): registered before `specs/:id` (like `specs/tags`) so
+            the literal `archive` segment is never resolved as a Spec handle. */}
+        <Route path="specs/archive" element={<SpecArchive />} />
         {/* spec-158 t-4: the Memex-level Issues page — the cross-Spec roll-up of
             every open issue, grouped under its parent Spec. A plain member
             surface (no feature gate), mounted in the standard AppShell. */}

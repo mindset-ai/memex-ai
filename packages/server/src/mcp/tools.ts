@@ -17,7 +17,8 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { listMemberships } from "../services/users.js";
-import { NotFoundError, ValidationError } from "../types/errors.js";
+import { ArchivedDocError, NotFoundError, ValidationError } from "../types/errors.js";
+import { formatArchivedDocStub } from "../services/archived-docs.js";
 import { formatMemexList } from "./formatters.js";
 import { listTopics } from "../services/guidance.js";
 import {
@@ -92,6 +93,12 @@ function textResult(text: string) {
 // Exported for unit testing — the createMcpServer path is integration-only.
 export function handleError(err: unknown) {
   if (err instanceof McpAuthError) return errorResult(err.message);
+  // spec-521 (ac-2): the archived-doc stub is emitted VERBATIM — no `Not found:`
+  // prefix. The stub's whole job is to say "this Spec exists, someone parked it, and
+  // here is why", so prefixing it with a contradiction would defeat it. Must sit
+  // ABOVE the NotFoundError branch to stay reachable if ArchivedDocError is ever
+  // reparented.
+  if (err instanceof ArchivedDocError) return errorResult(err.message);
   if (err instanceof NotFoundError) return errorResult(`Not found: ${err.message}`);
   if (err instanceof ValidationError) return errorResult(`Validation error: ${err.message}`);
   const requestId = randomUUID();
@@ -579,9 +586,15 @@ export async function resolveRefForUser(
   if ("notFound" in result) {
     throw new NotFoundError(`Ref "${ref}" not found (${result.reason})`);
   }
-
-  const entity = result.entity;
-  const doc = "doc" in entity ? entity.doc : entity.row;
+  // The archived-doc stub is rendered LAST, below every authorization guard — see
+  // the ordering note before the `archivedDoc` branch. The demo and read-access
+  // guards must therefore be able to inspect the doc for an archived result too,
+  // which carries its row directly instead of a ResolvedEntity.
+  const guardDoc = "archivedDoc" in result
+    ? result.doc
+    : "doc" in result.entity
+      ? result.entity.doc
+      : result.entity.row;
   // spec-178 t-11 / dec-11 (ac-37): a handhold demo spec is inert to the MCP
   // surface — a coding agent must not be able to read it (get_doc/export_doc)
   // or mutate against it (update_doc, add_section, decision/task writes, …),
@@ -589,10 +602,10 @@ export async function resolveRefForUser(
   // demo doc as not-found (std-7: missing, not forbidden) so the agent gets the
   // same answer as for a ref that doesn't exist. The board's REST getDoc path
   // is untouched — it never goes through resolveRefForUser.
-  if (doc.isDemo) {
+  if (guardDoc.isDemo) {
     throw new NotFoundError(`Ref "${ref}" not found.`);
   }
-  const memexId = doc.memexId;
+  const memexId = guardDoc.memexId;
   // orgFilter (b-31 dec-8) — undefined for PAT (skip), null for personal-only
   // OAuth, <orgId> for Org-scoped OAuth. The read gate enforces it (a private
   // memex outside the OAuth scope falls through to the membership check and
@@ -601,15 +614,45 @@ export async function resolveRefForUser(
   const { readOnly } = await assertReadAccessForMemex(
     userId,
     memexId,
-    undefined,
+    // std-10 cl-23/cl-47/cl-52 (drift std-10/comments/c-4) — `slugForError` is the
+    // label auth.ts interpolates into its refusals, and it falls back to the raw
+    // memex UUID when absent. Passing `undefined` here (as this call did) made every
+    // non-member / out-of-org-scope refusal on the ref-resolution path emit an
+    // internal primary key: `You are not a member of Memex "<uuid>"`. That inverts
+    // the refusal's purpose — the caller supplied these slugs in the ref, so echoing
+    // one back reveals nothing, whereas the UUID is something the caller did NOT
+    // hold. The `<namespace>/<memex>` form is also cl-34's `memex` argument shape,
+    // so the message is round-trippable per cl-48 instead of being a dead end.
+    `${parsed.ref.namespace}/${parsed.ref.memex}`,
     orgFilter,
   );
+
+  // spec-521 dec-2 (ac-1, ac-2, ac-3) — the DOC ref of an archived document on the
+  // coding-agent surface. Identical treatment to the in-app agent
+  // (agent/tools.ts::resolveRefForAgent) because both inherit the SAME guard from the
+  // canonical resolver (dec-1) and share ONE stub formatter. That symmetry is the
+  // point of the Spec: the defect was one surface carrying a guard the other lacked,
+  // so neither surface decides this for itself.
+  //
+  // ORDERING IS LOAD-BEARING: this sits BELOW `assertReadAccessForMemex` above, and
+  // must stay there. `resolveCanonicalRef` resolves purely from the caller-supplied
+  // ref string (namespace slug + memex slug + handle, `services/resolver.ts`) and
+  // takes no caller identity, so the read gate is the ONLY thing standing between a
+  // caller and another tenant's document — including the `orgFilter` scope this
+  // function exists to enforce (an Org-A token must not reach an Org-B entity by
+  // canonical ref). The stub emits real content — title, archiving actor, and the
+  // free-text reason — so rendering it above the gate would leak that to any
+  // authenticated caller who can guess a slug and a sequential `spec-N` handle.
+  // An archived doc the caller cannot read must be plain not-found, as a live one is.
+  if ("archivedDoc" in result) {
+    throw new ArchivedDocError(formatArchivedDocStub(result.doc, ref));
+  }
 
   // Slugs come from the parsed ref itself — no DB lookup needed for the
   // common case. memexSlugsById is the fallback for callers that build a
   // ResolvedRef from outside the parse path.
   const slugs = { namespace: parsed.ref.namespace, memex: parsed.ref.memex };
-  return { entity, memexId, doc, slugs, readOnly };
+  return { entity: result.entity, memexId, doc: guardDoc, slugs, readOnly };
 }
 
 // Suppress unused-import warning — `memexSlugsById` is part of the public

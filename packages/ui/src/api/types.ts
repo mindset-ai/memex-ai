@@ -99,6 +99,18 @@ export interface DocSummary {
    * future opt-in archive view.
    */
   archivedAt: string | null;
+  // spec-521 (ac-5): WHY it was archived and WHO archived it. Powers the archive
+  // view's load-bearing Reason column — "absorbed into spec-510" versus a blank row
+  // is the difference between an archive and a black hole. `archivedByName` is the
+  // std-32 denormalised snapshot stamped at write, not a read-time join.
+  archiveReason?: string | null;
+  archivedByName?: string | null;
+  // spec-521 dec-5 (ac-14): the supersession pointer, so the Spec page can render its
+  // banner and the board can mark a replaced Spec. Display-only on the web — nothing
+  // in the UI writes these (dec-4).
+  supersededByDocId?: string | null;
+  supersededAt?: string | null;
+  supersessionNote?: string | null;
   /**
    * spec-409 (ac-1): the standalone code-grounded flag + provenance, projected on
    * every board summary so the card can render the compact "Code-grounded" marker.
@@ -201,6 +213,20 @@ export interface Doc {
    * (never-versioned) by any UI that reads it — e.g. the version badge (ac-16).
    */
   version?: number;
+  /**
+   * spec-521 dec-5 (ac-14) — the supersession relationship, resolved server-side to
+   * HANDLES (std-10: no UUIDs cross this boundary).
+   *   supersededByHandle — the successor, when this Spec has been superseded.
+   *   replacesHandles    — every Spec this one replaced; the mirror renders ONE line
+   *                        however many there are. Empty is the common case.
+   * Both are DISPLAY-ONLY on the web (dec-4): nothing in the UI writes them, and
+   * supersession is recorded exclusively through the MCP tool.
+   * Optional so pre-spec-521 fixtures building a bare `Doc` keep type-checking.
+   */
+  supersededByHandle?: string | null;
+  replacesHandles?: string[];
+  supersededAt?: string | null;
+  supersessionNote?: string | null;
   sections: DocSection[];
 }
 

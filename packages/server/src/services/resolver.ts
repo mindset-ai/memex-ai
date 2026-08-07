@@ -101,7 +101,17 @@ export type ResolvedEntity =
 export type ResolveResult =
   | { found: true; entity: ResolvedEntity }
   | { redirected: true; newRef: string }
-  | { notFound: true; reason: string };
+  // spec-521 dec-2 (ac-12): `archivedParent` marks a child-ref miss caused by the
+  // PARENT being archived rather than the child being absent. It exists for
+  // server-side observability only (std-7 cl-6/cl-7 — the server may record what
+  // the response must not leak). `reason` is deliberately set to the byte-identical
+  // string a genuinely-absent doc produces, so the caller-visible message cannot
+  // distinguish the two cases. Never branch on this flag to change the response.
+  | { notFound: true; reason: string; archivedParent?: true }
+  // spec-521 dec-2 (ac-2): the DOC's own ref resolved to an archived document. The
+  // row rides along so the calling surface can render the stub without re-querying;
+  // it must serve nothing from it beyond the six stub facts.
+  | { archivedDoc: true; doc: Doc };
 
 // Extract the integer suffix from a section/comment handle like `s-3` or
 // `c-12`. The ref grammar in T-1 has already validated the form, so this
@@ -197,11 +207,48 @@ export async function resolveRef(
       eq(documents.handle, ref.docHandle),
     ),
   });
+  const docNotFoundReason = `doc_not_found: ${ref.docType}/${ref.docHandle} in ${ref.namespace}/${ref.memex}`;
   if (!doc) {
-    return fallback(
-      originalPath,
-      `doc_not_found: ${ref.docType}/${ref.docHandle} in ${ref.namespace}/${ref.memex}`,
-    );
+    return fallback(originalPath, docNotFoundReason);
+  }
+
+  // 4a. spec-521 dec-1 (ac-11) — THE ARCHIVED GUARD. Archive must mean forget.
+  //
+  // This function had no archived check at all, which was the entire defect: every
+  // doc-targeting agent tool (list_acs, get_ac, list_tasks, list_comments,
+  // get_issue, get_test_matrix, assess_spec — and every mutating handler) resolves
+  // its ref through here, so an archived Spec's decisions and ACs were served in
+  // full to both agent surfaces and could still be written to.
+  //
+  // WHY HERE, ONCE, WITH NO OPT-IN PARAMETER (dec-1). This function has exactly two
+  // value importers — agent/tools.ts (the in-app agent) and mcp/tools.ts (the coding
+  // agent) — and BOTH are surfaces that must be blocked. There is no third caller to
+  // over-block: the 35 REST route files import middleware/memex-resolver.js (an
+  // unrelated tenant resolver), and the web UI reads content through
+  // routes/documents.ts → getDoc/listDocs, which take an explicit `includeArchived`
+  // and are untouched by this guard. So the archive view and the Pulse rows keep
+  // working. An `includeArchived` escape hatch here would be dead code on day one.
+  //
+  // The duplicated `isDemo` guard in both surfaces is explicitly NOT the precedent
+  // (dec-1): a demo Spec must stay visible to the BOARD, so a shared-resolver guard
+  // would have been wrong for it. Archived docs have no such exception — and the
+  // `archivedAt` twin of that guard never being written is how this bug was born.
+  //
+  // TWO GRAINS (dec-2), and the asymmetry is deliberate — see formatArchivedDocStub.
+  if (doc.archivedAt) {
+    if (ref.child) {
+      // Child grain → indistinguishable from a ref that never existed. We reuse the
+      // EXACT reason string the `!doc` branch above produces, because both agent
+      // surfaces interpolate `reason` into their NotFoundError message; a bespoke
+      // reason here (`archived_parent: …`) would leak the parent's archived state
+      // through the error text and break ac-12. `archivedParent` carries that fact
+      // out-of-band for logging instead.
+      //
+      // No redirect fallback: unlike a real miss there is nothing to redirect TO —
+      // the doc exists, we are refusing to serve it.
+      return { notFound: true, reason: docNotFoundReason, archivedParent: true };
+    }
+    return { archivedDoc: true, doc };
   }
 
   // 5. Doc-only ref — return immediately.

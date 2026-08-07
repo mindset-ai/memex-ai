@@ -101,7 +101,10 @@ export function KanbanColumn(props: KanbanColumnProps) {
           // chip, no strip (b-66 Scope AC-4).
           const healthBorder = borderClassForHealth(d.acHealth);
           return (
-            <div key={d.id} className="relative group">
+            // spec-521 t-4: `spec-card` gives the e2e journeys a stable handle on one
+            // card (the archive journey has to open THIS card's overflow menu), rather
+            // than reaching through brittle class selectors.
+            <div key={d.id} data-testid="spec-card" className="relative group">
               <Link
                 to={tenantPath(`/specs/${d.handle}`)}
                 draggable={canWrite}
