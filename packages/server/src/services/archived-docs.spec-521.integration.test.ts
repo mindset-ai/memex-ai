@@ -815,6 +815,17 @@ describe("ac-17 — an archived doc outside the caller's reach is absent, not st
       expect(msg).not.toContain("dev@memex.ai");
       // And it must not even admit the doc is archived.
       expect(msg.toLowerCase()).not.toContain("archived");
+      // std-10 cl-23/cl-47/cl-52 — no UUID at the agent/MCP boundary. Asserted on a
+      // REFUSAL body specifically: the §5 regression gate
+      // (__regression__/ref-emission.regression.test.ts) probes each tool's SUCCESS
+      // response only, so error paths carry the rule unenforced. It matters most
+      // here of all places — the caller supplied the slugs in the ref, so echoing
+      // one back reveals nothing, but an internal primary key is something the
+      // caller did NOT hold, handed over by a message whose purpose is to reveal
+      // nothing. Drift recorded at std-10/comments/c-4.
+      expect(msg).not.toMatch(
+        /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i,
+      );
     }
   });
 

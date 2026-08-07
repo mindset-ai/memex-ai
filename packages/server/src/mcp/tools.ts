@@ -614,7 +614,16 @@ export async function resolveRefForUser(
   const { readOnly } = await assertReadAccessForMemex(
     userId,
     memexId,
-    undefined,
+    // std-10 cl-23/cl-47/cl-52 (drift std-10/comments/c-4) — `slugForError` is the
+    // label auth.ts interpolates into its refusals, and it falls back to the raw
+    // memex UUID when absent. Passing `undefined` here (as this call did) made every
+    // non-member / out-of-org-scope refusal on the ref-resolution path emit an
+    // internal primary key: `You are not a member of Memex "<uuid>"`. That inverts
+    // the refusal's purpose — the caller supplied these slugs in the ref, so echoing
+    // one back reveals nothing, whereas the UUID is something the caller did NOT
+    // hold. The `<namespace>/<memex>` form is also cl-34's `memex` argument shape,
+    // so the message is round-trippable per cl-48 instead of being a dead end.
+    `${parsed.ref.namespace}/${parsed.ref.memex}`,
     orgFilter,
   );
 
