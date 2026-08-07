@@ -116,6 +116,12 @@ function ctxForMemex(memexId: string, userId: string): ToolCtx {
       if ("notFound" in result) {
         throw new NotFoundError(`Ref "${ref}" not found (${result.reason})`);
       }
+      // spec-521 dec-2: this harness mirrors the production resolver wrapper, so it
+      // mirrors its archived-doc branch too. Unreachable here (no test in this file
+      // archives a doc) — present so the ResolveResult union stays exhaustively narrowed.
+      if ("archivedDoc" in result) {
+        throw new NotFoundError(`Ref "${ref}" not found.`);
+      }
       const entity = result.entity;
       const doc = "doc" in entity ? entity.doc : entity.row;
       if (doc.memexId !== memexId) {
@@ -145,6 +151,14 @@ const SKIPS = new Map<string, string>([
   // spec-340: the facets list verb returns the vocabulary listing (key/name/description),
   // a discovery output like list_docs — not an entity confirmation, so no `ref:` line.
   ["facets", "facet vocabulary listing — read tool, not entity-acting"],
+  // spec-521 dec-5: supersede_spec IS entity-acting and DOES emit a `ref:` line with no
+  // UUID — but probing it here needs a SECOND Spec ref (the successor), and it changes
+  // what every later read of the subject returns (a supersession lead line), so a probe
+  // on this harness's shared fixture doc would perturb sibling probes (std-37). Its
+  // `ref:`-emission and no-UUID behaviour is asserted directly in
+  // services/supersession.spec-521.integration.test.ts and exercised live over /mcp by
+  // the authed smoke probe.
+  ["supersede_spec", "entity-acting but needs a second Spec ref and alters sibling probes' reads; ref/no-UUID covered by supersession.spec-521.integration.test.ts + authed smoke"],
   // search_memex is the T-8 sister deliverable. It's a discovery tool whose
   // output mirrors list_memexes / list_docs; not an entity-acting tool, so
   // ref emission isn't required. Skip until T-8 confirms the shape.

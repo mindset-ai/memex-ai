@@ -14,12 +14,15 @@ import {
 import {
   createDocDraft,
   listDocs,
+  decisionCountsByDoc,
+  taskCountsByDoc,
   getDoc,
   updateDocStatus,
   updateDocTitle,
   DOC_STATUSES,
   promoteToSpec,
 } from "../../services/documents.js";
+import { successorHandlesByDoc } from "../../services/supersession.js";
 import {
   listDecisions,
 } from "../../services/decisions.js";
@@ -150,8 +153,18 @@ export const docsTools: ToolSpec[] = [
   {
     name: "list_docs",
     annotations: { title: "List documents", readOnlyHint: true, destructiveHint: false },
+    // spec-521 dec-3 (ac-6, ac-8, ac-13): the default is EVERY phase, with archived
+    // the only exclusion, and the response states what it withheld. The old default
+    // was a hardcoded specify/build/verify whitelist that silently dropped every
+    // draft and done Spec — so "what Specs tagged `testbash` mention login?" returned
+    // nothing and nothing said the set had been narrowed. The wrong answer looked
+    // exactly like a right one, which is the defect this fixes; the narrow filter was
+    // never the problem, its INVISIBILITY was.
     description:
-      "List active Specs in a Memex with decision/task counts and lineage. Active means status in specify/build/verify; archived/draft/done are hidden. Pass `docType` to filter by document type (defaults to 'spec'). Pass `tags` to narrow to Specs carrying the given tags — facet semantics: AND across different scopes, OR within one scope.",
+      "List Specs in a Memex with decision/task counts and lineage. " +
+      "By DEFAULT this returns Specs in EVERY phase — draft, specify, build, verify and done — and excludes only ARCHIVED ones. Superseded Specs are included, each row carrying its successor. " +
+      "The response header states how many Specs exist, how many are shown, and how many were withheld as archived, so an answer drawn from a filtered set is never mistaken for an answer drawn from all of them. " +
+      "Pass `statusIn` to NARROW to particular phases (e.g. the active working set). Pass `docType` to filter by document type (defaults to 'spec'). Pass `tags` to narrow to Specs carrying the given tags — facet semantics: AND across different scopes, OR within one scope.",
     schema: {
       memex: z.string().optional().describe(MEMEX_DESC),
       docType: z
@@ -159,6 +172,13 @@ export const docsTools: ToolSpec[] = [
         .optional()
         .describe(
           "Document type filter. Defaults to 'spec'. Other values (e.g. 'standard', 'document', 'execution_plan') filter directly.",
+        ),
+      statusIn: z
+        .array(z.string())
+        .optional()
+        .describe(
+          "Narrow to these phases. OMIT for the default, which is every phase except archived (draft, specify, build, verify, done). " +
+            'Pass e.g. ["specify","build","verify"] for just the active working set. Archived Specs are never returned regardless of what you pass here.',
         ),
       tags: z
         .array(z.string())
@@ -182,9 +202,16 @@ export const docsTools: ToolSpec[] = [
       const parsedTags: ParsedTag[] | undefined =
         tagFilter && tagFilter.length > 0 ? tagFilter.map(parseTagInput) : undefined;
 
-      const docs = await listDocs(memexId, {
+      // spec-521 dec-3: fetch the WHOLE set for this docType+tags ONCE, archived
+      // included, then partition in memory. One query rather than a second
+      // count-the-archived round trip (std-39 cl-5), and it is what lets the header
+      // report honest totals — you cannot say what you withheld if you never fetched
+      // it. `documents` has no index on `status`, so phase filtering was always a
+      // scan of this Memex's rows; doing it in memory costs nothing extra.
+      const statusNarrow = input.statusIn as string[] | undefined;
+      const everything = await listDocs(memexId, {
         docType: docTypeArg,
-        statusIn: ["specify", "build", "verify"],
+        includeArchived: true,
         // spec-178 t-11 / dec-11 (ac-37): the MCP/agent enumeration must NOT
         // surface handhold demo specs. The REST board route omits this flag so
         // its cards still show demo specs (with the DEMO badge); only this
@@ -192,6 +219,14 @@ export const docsTools: ToolSpec[] = [
         excludeDemo: true,
         ...(parsedTags ? { tags: parsedTags } : {}),
       });
+
+      const archivedCount = everything.filter((d) => d.archivedAt).length;
+      const live = everything.filter((d) => !d.archivedAt);
+      const docs =
+        statusNarrow && statusNarrow.length > 0
+          ? live.filter((d) => statusNarrow.includes(d.status))
+          : live;
+      const narrowedOut = live.length - docs.length;
 
       // spec-300 t-7 (dec-7, ac-29): on the primary Memex orient (the default
       // spec listing), append the active Skill catalogue to this early tool
@@ -205,27 +240,60 @@ export const docsTools: ToolSpec[] = [
           ? await formatSkillCatalogueAppendix(memexId)
           : "";
 
+      // spec-521 ac-8 — THE HONEST HEADER. Load-bearing, not decoration: it is the
+      // actual fix for the original defect. The response states what it contains AND
+      // what it is excluding, so an answer drawn from a filtered set can never again
+      // look like an answer drawn from all of it. The rule generalises — any limit
+      // added here later that hides a row MUST be visible in this line.
+      const header = (shown: number): string => {
+        const parts = [`${shown} of ${everything.length}`];
+        if (archivedCount > 0) parts.push(`${archivedCount} archived, hidden`);
+        if (narrowedOut > 0) {
+          parts.push(`${narrowedOut} outside statusIn ${JSON.stringify(statusNarrow)}`);
+        }
+        if (archivedCount === 0 && narrowedOut === 0) {
+          parts.push("nothing withheld");
+        } else if (!statusNarrow) {
+          parts.push('narrow with statusIn: ["specify","build","verify"]');
+        }
+        return `${docTypeArg === "spec" ? "Specs" : `${docTypeArg} docs`} in this Memex — ${parts.join("; ")}\n`;
+      };
+
       if (ctx.verbose) {
         const url = await ctx.workspaceUrl(memexId);
-        return formatSpecList(docs, url) + catalogue;
+        return header(docs.length) + formatSpecList(docs, url) + catalogue;
       }
 
-      if (docs.length === 0) return "No active specs in this Memex." + catalogue;
+      if (docs.length === 0) {
+        // Even the empty case states the totals — "no results" and "no results in
+        // the slice you asked for" are different answers, and the caller needs to
+        // know which one it got.
+        return `${header(0)}(none)${catalogue}`;
+      }
       const slugs = await memexSlugsById(memexId);
-      const enriched = await Promise.all(
-        docs.map(async (d) => {
-          const [decs, ts] = await Promise.all([
-            listDecisions(memexId, d.id),
-            listTasks(memexId, d.id),
-          ]);
-          return { d, decisionCount: decs.length, taskCount: ts.length };
-        }),
-      );
+      // std-39 cl-5: two bulk GROUP BY queries for the whole page, not two per row.
+      // The former per-doc listDecisions/listTasks fan-out was tolerable at ~115 rows
+      // and is not at several hundred, which is exactly what widening the default set
+      // produces — so the N+1 is retired here rather than multiplied.
+      const docIds = docs.map((d) => d.id);
+      const [decisionCounts, taskCounts, successorHandles] = await Promise.all([
+        decisionCountsByDoc(memexId, docIds),
+        taskCountsByDoc(memexId, docIds),
+        successorHandlesByDoc(memexId, docs),
+      ]);
       return (
-        enriched
-          .map(({ d, decisionCount, taskCount }) => {
+        header(docs.length) +
+        docs
+          .map((d) => {
             const ref = slugs ? buildDocRef(slugs, d) : d.handle;
-            return `- ref: ${ref} [${d.docType}, ${d.status}] "${d.title}" (${decisionCount} decisions, ${taskCount} tasks)`;
+            // ac-13: a superseded Spec STAYS in the set and carries its successor, so
+            // the list itself says which Specs have been replaced. Dropping them would
+            // be a second silent exclusion — the accretion dec-3 rules out.
+            const successor = successorHandles.get(d.id);
+            const supersededSeg = successor ? ` · superseded by ${successor}` : "";
+            const decisionCount = decisionCounts.get(d.id) ?? 0;
+            const taskCount = taskCounts.get(d.id) ?? 0;
+            return `- ref: ${ref} [${d.docType}, ${d.status}${supersededSeg}] "${d.title}" (${decisionCount} decisions, ${taskCount} tasks)`;
           })
           .join("\n") + catalogue
       );

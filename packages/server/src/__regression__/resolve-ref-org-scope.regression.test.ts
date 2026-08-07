@@ -38,6 +38,12 @@ const MEMEX_ID = "memex-A";
 const ORG_A = "org-acme";
 const ORG_B = "org-globex";
 const REF = "acme/work/specs/spec-1";
+// The 3rd positional arg (`slugForError`) is the label auth.ts interpolates into its
+// refusals. It is the `<namespace>/<memex>` prefix of REF, not a UUID: passing
+// `undefined` here used to make every refusal on this path emit the raw memex UUID,
+// breaching std-10 cl-23/cl-47/cl-52 (drift std-10/comments/c-4). Asserted by name so
+// a future edit cannot quietly revert to the UUID branch.
+const MEMEX_LABEL = "acme/work";
 
 function happyPathResolver() {
   // Mimic the resolver's "found" shape: an entity wrapping a doc with a memexId.
@@ -62,7 +68,7 @@ describe("regression: resolveRefForUser threads orgFilter (b-31 dec-8 × b-36)",
 
     await resolveRefForUser(USER_ID, REF /* orgFilter omitted */);
 
-    expect(assertReadAccessForMemex).toHaveBeenCalledWith(USER_ID, MEMEX_ID, undefined, undefined);
+    expect(assertReadAccessForMemex).toHaveBeenCalledWith(USER_ID, MEMEX_ID, MEMEX_LABEL, undefined);
   });
 
   it("OAuth personal-only — orgFilter=null → forwarded to assertReadAccessForMemex", async () => {
@@ -71,7 +77,7 @@ describe("regression: resolveRefForUser threads orgFilter (b-31 dec-8 × b-36)",
 
     await resolveRefForUser(USER_ID, REF, null);
 
-    expect(assertReadAccessForMemex).toHaveBeenCalledWith(USER_ID, MEMEX_ID, undefined, null);
+    expect(assertReadAccessForMemex).toHaveBeenCalledWith(USER_ID, MEMEX_ID, MEMEX_LABEL, null);
   });
 
   it("OAuth org-scoped — orgFilter=<orgId> → forwarded to assertReadAccessForMemex", async () => {
@@ -80,7 +86,7 @@ describe("regression: resolveRefForUser threads orgFilter (b-31 dec-8 × b-36)",
 
     await resolveRefForUser(USER_ID, REF, ORG_A);
 
-    expect(assertReadAccessForMemex).toHaveBeenCalledWith(USER_ID, MEMEX_ID, undefined, ORG_A);
+    expect(assertReadAccessForMemex).toHaveBeenCalledWith(USER_ID, MEMEX_ID, MEMEX_LABEL, ORG_A);
   });
 
   it("cross-Org leak prevention — assertReadAccessForMemex rejection bubbles up (load-bearing)", async () => {
@@ -102,7 +108,7 @@ describe("regression: resolveRefForUser threads orgFilter (b-31 dec-8 × b-36)",
     // The 4th positional argument is the OAuth Org scope — must be the same value
     // the caller passed. If a future edit silently drops this, the cross-Org check
     // becomes a no-op and the rejection above stops firing for the leak scenario.
-    expect(assertReadAccessForMemex).toHaveBeenCalledWith(USER_ID, MEMEX_ID, undefined, ORG_A);
+    expect(assertReadAccessForMemex).toHaveBeenCalledWith(USER_ID, MEMEX_ID, MEMEX_LABEL, ORG_A);
   });
 
   it("the orgFilter argument is positional — never invent a value the caller didn't pass", async () => {

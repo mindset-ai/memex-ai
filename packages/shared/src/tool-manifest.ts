@@ -92,9 +92,13 @@ export const toolManifest: ToolManifestEntry[] = [
   },
   {
     name: 'list_docs',
+    // spec-521 dec-3 (ac-13): std-16 requires the summary to STATE the default in
+    // words. The old summary said "active Specs" without saying that draft and done
+    // were being dropped, which is how a silently narrowed answer passed for a
+    // complete one.
     summary:
-      'List active Specs in a Memex with decision/task counts and lineage; filter by docType (defaults to spec) and/or tags.',
-    args: 'list_docs(memex?, docType?, tags?)',
+      'List Specs in a Memex with decision/task counts and lineage. Default is EVERY phase (draft, specify, build, verify, done) with archived the only exclusion; superseded Specs are included and marked with their successor. The response header states the total, the number shown, and what was withheld. Pass statusIn to narrow, docType (defaults to spec) and/or tags to filter.',
+    args: 'list_docs(memex?, docType?, statusIn?, tags?)',
     group: 'read',
     readOnlyHint: true,
     homePhase: null,
@@ -368,6 +372,17 @@ export const toolManifest: ToolManifestEntry[] = [
     summary:
       'Mark a Spec code-grounded (decisions verified against current source); MCP-only, requires codebase_present. Stamps who/when as a verification badge.',
     args: 'ground_spec(ref, codebase_present)',
+    group: 'planning',
+    readOnlyHint: false,
+    homePhase: null,
+  },
+  {
+    // spec-521 dec-5. homePhase: null — supersession is not phase-bound; a Spec can
+    // be superseded at any point in its life, including after it is done.
+    name: 'supersede_spec',
+    summary:
+      'Record that one Spec supersedes another (it shipped, a later Spec changed it). Non-destructive: content still served, but every read of the superseded Spec and its children leads with a pointer to the successor, which carries the mirror. Pass supersededBy: null to clear. Doc-level only; cycles refused. NOT archiving — archiving withholds content and is human-only.',
+    args: 'supersede_spec(ref, supersededBy, note?)',
     group: 'planning',
     readOnlyHint: false,
     homePhase: null,

@@ -86,6 +86,9 @@ function ctxFor(memexId: string, userId: string, verbose: boolean): ToolCtx {
       const result = await resolveCanonicalRef(parsed.ref);
       if ("redirected" in result) throw new ValidationError(`Ref redirected: "${ref}".`);
       if ("notFound" in result) throw new NotFoundError(`Ref "${ref}" not found (${result.reason})`);
+      // spec-521 dec-2: mirrors the production wrapper's archived-doc branch so the
+      // ResolveResult union stays exhaustively narrowed. Unreachable in this file.
+      if ("archivedDoc" in result) throw new NotFoundError(`Ref "${ref}" not found.`);
       const entity = result.entity;
       const doc = "doc" in entity ? entity.doc : entity.row;
       if (doc.memexId !== memexId) throw new NotFoundError(`Ref "${ref}" not found.`);

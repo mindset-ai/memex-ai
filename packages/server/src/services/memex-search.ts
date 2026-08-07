@@ -65,6 +65,7 @@ import { buildDocPath, kindForDocType } from "./memex-search/refs.js";
 import { mergeWithRrf } from "./memex-search/ranking.js";
 import {
   attachOpenComments,
+  attachSupersession,
   inScopeDocTypes,
   loadMemexSlugs,
   lookupByHandle,
@@ -241,7 +242,9 @@ export async function searchMemex(
 
   // spec-259 ac-12: enrich the (already-capped) result set with open-comment
   // indicators in one grouped query — batched over the result docs, never N+1.
-  return attachOpenComments(merged);
+  // spec-521 ac-7: the supersession pointer rides the same post-merge seat, for the
+  // same reason and at the same cost — one batched query over the capped set.
+  return attachSupersession(await attachOpenComments(merged));
 }
 
 // ── Jump-to lane (spec-64 t-2) ─────────────────────────
@@ -377,6 +380,13 @@ export async function resolveJumpTo(
       kind: kindForDocType(r.doc_type),
       path: buildDocPath(slugs, r.doc_type, r.doc_handle),
       title: r.doc_title,
+      // spec-521 ac-9: the jumpTo lane is the ⌘K omnibox's NAVIGATION tier (consumed
+      // by routes/search.ts, never by search_memex's markdown formatter), so it
+      // renders no label and carries no recency. ac-9 governs search_memex hit
+      // labels; adding a timestamp here would cost a query for something nothing
+      // displays.
+      recencyAt: null,
+      recencyVerb: "updated" as const,
       status: r.doc_status,
       // Title-substring is a weaker signal than an exact handle (score 1 above),
       // so it ranks below the handle hit but is still a deliberate jump target.
@@ -440,6 +450,10 @@ export async function resolveAssignedSpecs(
         title: r.title,
         status: r.status,
         score: 1,
+        // spec-521 ac-9: the `assigned` lane is another ⌘K navigation tier (see the
+        // jumpTo note above) — no label is rendered, so no recency is carried.
+        recencyAt: null,
+        recencyVerb: "updated" as const,
         // "assignment" isn't a search channel (it's a relation, not FTS/vector/
         // handle); the closest existing label is the direct, non-fuzzy "handle"
         // tier, so we reuse it rather than widening the SearchStrategy union for

@@ -1072,7 +1072,7 @@ const TOOL_RATIONALES: Record<string, string> = {
   list_memexes:
     'Cross-Memex orientation. The first tool a fresh MCP agent calls when more than one workspace is in scope.',
   list_docs:
-    'Spec discovery within a Memex — shows active Specs with decision/task counts and lineage. Returns no archived/paused content by default.',
+    'Spec discovery within a Memex — decision/task counts and lineage. spec-521 dec-3: the default set is every phase (draft through done) with ARCHIVED the only exclusion, and the header states the total, the number shown and what was withheld — because the old hardcoded specify/build/verify default dropped draft and done silently, so a tag-shaped question got a wrong answer that looked right. statusIn narrows; nothing narrows invisibly.',
   get_doc:
     'The primary read tool. Returns the full Spec picture — sections, decisions, tasks, comments, blockers, phase-aware guidance — in one call.',
   get_prompt:
@@ -1129,6 +1129,8 @@ const TOOL_RATIONALES: Record<string, string> = {
     'Transition a Spec out of draft. Refuses already-published Specs; the user owns the phase transition in both directions.',
   ground_spec:
     'Mark a Spec code-grounded after verifying its resolved decisions against current source. MCP-only, requires codebase_present; stamps who/when as a verification badge.',
+  supersede_spec:
+    'spec-521: record that a later Spec replaced this one. Non-destructive — content is still served, but every read of the superseded Spec and its children leads with a pointer to the successor, and the successor carries the mirror, so nobody reconciles against intent that has been overtaken. Agent-callable because the agent authoring the successor is the one who knows; archiving is the opposite case (it withholds content) and stays human-only.',
   create_task:
     'Create a build-phase task. Refuses tasks in draft/specify. Acceptance criteria are part of the contract for `complete`.',
   update_task:

@@ -109,6 +109,50 @@ export const documents = pgTable("documents", {
   // kanban lane when unarchived. All list/get queries filter out archived rows by
   // default — pass includeArchived to opt in.
   archivedAt: timestamp("archived_at", { withTimezone: true }),
+  // spec-521 (ac-2/ac-5/ac-12) — WHY a Spec was archived, and WHO archived it.
+  //
+  // `archived_at` alone made archive a black hole: the board hid the Spec and
+  // nothing recorded the intent. The reason is the load-bearing fact — "absorbed
+  // into spec-510" and "premise gone — voice loop removed" are the difference
+  // between an archive and a disappearance — so it is asked for at archive time,
+  // shown in the archive view, and served in the agent-facing stub.
+  //
+  // Capped at ARCHIVE_REASON_MAX_LENGTH (280) at the service layer, not by a DB
+  // constraint: the cap exists so the stub cannot become a back door for the
+  // content the archive is meant to withhold, and the service is where the
+  // user-facing ValidationError belongs.
+  //
+  // archivedByName is the DENORMALISED display snapshot stamped at write per
+  // std-32, so a later rename or user deletion can never rewrite historical
+  // attribution. Mirrors the groundedBy{UserId,Name} pair below — same shape, and
+  // like it (migration 0112) the provenance user id carries no FK.
+  //
+  // Phase-at-archive deliberately has NO column: archivedAt is orthogonal to
+  // `status` (see above), so the phase a Spec was in when archived IS its
+  // unchanged status, and restore is nulling archivedAt.
+  archiveReason: text("archive_reason"),
+  archivedByUserId: uuid("archived_by_user_id"),
+  archivedByName: text("archived_by_name"),
+  // spec-521 dec-5 (ac-15) — supersession, DOC-LEVEL ONLY.
+  //
+  // Answers the question archive cannot: "this shipped, and a later Spec changed
+  // it." Archive means dead and withholds content; supersession withholds nothing
+  // and only adds a pointer, which is why supersede_spec is agent-callable while
+  // archiving stays human-only (dec-6).
+  //
+  // supersededAt NULL = not superseded, mirroring archivedAt's convention.
+  // Many-to-one is allowed (several Specs may point at one successor) and chains
+  // are legal, but CYCLES ARE REJECTED AT WRITE by walking the chain in the
+  // service — there is no DB constraint that can express it.
+  //
+  // No decision, section or other child entity carries its own pointer (dec-5):
+  // decision-level supersession would have to be honoured in all thirteen
+  // decision read paths (agent/context-builder.ts among them, which builds the
+  // in-app agent's Document Context), and a marker absent from even one of them
+  // is worse than no marker.
+  supersededByDocId: uuid("superseded_by_doc_id"),
+  supersededAt: timestamp("superseded_at", { withTimezone: true }),
+  supersessionNote: text("supersession_note"),
   // Last time the Spec narrative was consolidated by the agent. NULL = never
   // consolidated. Spec-only.
   narrativeLastConsolidatedAt: timestamp("narrative_last_consolidated_at", { withTimezone: true }),
@@ -151,6 +195,15 @@ export const documents = pgTable("documents", {
 }, (table) => [
   unique("documents_memex_id_handle_unique").on(table.memexId, table.handle),
   index("documents_memex_id_idx").on(table.memexId),
+  // spec-521 (ac-15) — serves the REVERSE supersession question the successor's
+  // page asks ("what did I replace?") so the mirror line renders without a scan
+  // of the Memex's documents. PARTIAL (WHERE NOT NULL) because the overwhelming
+  // majority of rows are never superseded: smaller index, and no index entry
+  // maintained on the write path for any ordinary doc. std-39 cl-18/cl-19/cl-25
+  // reasoning is recorded in migration 0131.
+  index("documents_superseded_by_doc_id_idx")
+    .on(table.supersededByDocId)
+    .where(sql`${table.supersededByDocId} IS NOT NULL`),
   // Per dec-3 of doc-10 the Spec rename (`review`→`plan`, `implementation`→`build`,
   // plus new `verify`) applies to docType='spec' rows only. Non-Spec docTypes keep
   // the legacy values, so this CHECK is the union of old + new and stays that way.

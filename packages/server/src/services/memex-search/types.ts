@@ -87,6 +87,24 @@ export interface MemexSearchHit {
    *  object; rendered relative via timeAgo(). Omitted (undefined) when the hit
    *  has zero open comments, so the formatter renders no indicator line. */
   openComments?: { count: number; oldestCreatedAt: string };
+  /** spec-521 dec-7 (ac-9) — WHEN the hit's CONTENT was last meaningfully changed,
+   *  which is not the same question as the WHO/WHEN byline's `lastUpdatedAt`.
+   *
+   *  The point of this field is that a merely-stale Spec currently reads identically
+   *  to a fresh one. Supersession catches the case where somebody recorded the
+   *  replacement; recency catches the far commoner case where nobody did.
+   *
+   *  Per-kind source, per ac-9:
+   *    - decision hits → LAST-RESOLVED (`decisions.resolved_at`)
+   *    - spec / standard / document / issue hits → LAST-UPDATED
+   *  `recencyVerb` names which, so the rendered label never claims a decision was
+   *  "resolved" when it is still open. Absolute ISO here; rendered via timeAgo(). */
+  recencyAt: string | null;
+  recencyVerb: "resolved" | "updated";
+  /** spec-521 dec-5 (ac-7) — the successor's handle when this hit's OWNING Spec has
+   *  been superseded, else null. Enriched after the merge in one bulk lookup rather
+   *  than selected in all seven retrieval tiers. */
+  supersededByHandle?: string | null;
 }
 
 export interface SearchMemexOptions {
@@ -151,6 +169,12 @@ export interface DecisionRow {
   // is the only timestamp decisions carry (no updated_at — dec-2 fallback).
   author_name: string | null;
   created_at: string | Date;
+  // spec-521 dec-7 (ac-9): the decision's LAST-RESOLVED timestamp — the one the
+  // recency indicator uses for a decision hit, because "how old is this decision"
+  // means "when was this settled", not "when was the row first written". NULL for an
+  // unresolved decision, which falls back to created_at and is labelled `updated`
+  // rather than claiming a resolution that never happened.
+  resolved_at: string | Date | null;
   rank?: number;
   distance?: number;
 }

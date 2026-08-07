@@ -561,5 +561,102 @@ describe.skipIf(!SMOKE_MCP_TOKEN)(
       );
       expect(afterDelete).not.toContain(name);
     });
+    // ── Coverage for spec-521 (archive must mean forget + supersede_spec) ──────
+    //
+    // std-17 obligation for this Spec's new DEPLOYED surface. Two of the three new
+    // behaviours are reachable from an MCP-only client and are driven live here.
+    //
+    // The archived-doc GUARD is deliberately NOT probed here, and that is a
+    // consequence of the design rather than a gap in it: archiving is HUMAN-ONLY
+    // (spec-521 ac-16 / dec-6 — no MCP tool sets or clears archived_at), so a smoke
+    // client holding only an MCP token cannot create an archived Spec to point at.
+    // spec-521 §4 accordingly names the archived-ref check as a deliberate manual int
+    // step ("verify on int that a ref to an archived Spec's decision really does return
+    // not-found over MCP *and* through the in-app agent"). It is covered
+    // pre-merge by archived-docs.spec-521.integration.test.ts on BOTH surfaces.
+    it("supersede_spec records a pointer that every read leads with, and clears it (spec-521)", async () => {
+      const stamp = new Date().toISOString();
+      const predTitle = `[smoke] superseded predecessor ${stamp}`;
+      const succTitle = `[smoke] superseding successor ${stamp}`;
+
+      const pred = await callMcpTool("create_doc", {
+        memex: SMOKE_NAMESPACE,
+        title: predTitle,
+        purpose: "Post-deploy smoke journey — safe to delete.",
+      });
+      expect(pred.body.result?.isError).toBeFalsy();
+      const predRef = parseRef(mcpTextPayload(pred.body));
+      expect(predRef).toBeTruthy();
+
+      const succ = await callMcpTool("create_doc", {
+        memex: SMOKE_NAMESPACE,
+        title: succTitle,
+        purpose: "Post-deploy smoke journey — safe to delete.",
+      });
+      expect(succ.body.result?.isError).toBeFalsy();
+      const succRef = parseRef(mcpTextPayload(succ.body));
+      expect(succRef).toBeTruthy();
+
+      // SET — the tool exists on the deployed surface and accepts a ref pair + note.
+      const set = await callMcpTool("supersede_spec", {
+        ref: predRef!,
+        supersededBy: succRef!,
+        note: "absorbed by the smoke successor",
+      });
+      expect(set.status).toBe(200);
+      expect(set.body.result?.isError).toBeFalsy();
+
+      // READ — the predecessor's own read LEADS with the pointer, and its content is
+      // still served (a superseded Spec is history, not a secret).
+      const readPred = mcpTextPayload((await callMcpTool("get_doc", { ref: predRef! })).body);
+      expect(readPred).toContain("SUPERSEDED BY");
+      expect(readPred).toContain(predTitle);
+
+      // A CHILD read carries the same line — the pointer is worthless if a read can
+      // miss it, so list_acs must not be a way around it.
+      const readAcs = mcpTextPayload((await callMcpTool("list_acs", { ref: predRef! })).body);
+      expect(readAcs).toContain("SUPERSEDED BY");
+
+      // MIRROR — the successor says what it replaced.
+      const readSucc = mcpTextPayload((await callMcpTool("get_doc", { ref: succRef! })).body);
+      expect(readSucc).toContain("Replaces ");
+
+      // GUARD — a cycle is refused on the live surface, not just in unit tests.
+      const cycle = await callMcpTool("supersede_spec", {
+        ref: succRef!,
+        supersededBy: predRef!,
+      });
+      expect(!!cycle.body.error || cycle.body.result?.isError === true).toBe(true);
+
+      // CLEAR — one call removes the pointer and the lead line with it.
+      const cleared = await callMcpTool("supersede_spec", {
+        ref: predRef!,
+        supersededBy: null,
+      });
+      expect(cleared.body.result?.isError).toBeFalsy();
+      const afterClear = mcpTextPayload((await callMcpTool("get_doc", { ref: predRef! })).body);
+      expect(afterClear).not.toContain("SUPERSEDED BY");
+    });
+
+    it("list_docs states what it withheld, and returns draft Specs (spec-521)", async () => {
+      // ac-8's honest header, on the deployed surface. The defect this fixes was a
+      // response that looked complete while silently dropping every draft and done
+      // Spec, so the assertion is on the header's presence AND its arithmetic shape.
+      const listed = await callMcpTool("list_docs", { memex: SMOKE_NAMESPACE });
+      expect(listed.status).toBe(200);
+      expect(listed.body.result?.isError).toBeFalsy();
+      const text = mcpTextPayload(listed.body);
+      const header = text.split("\n")[0];
+      expect(header).toMatch(/\d+ of \d+/);
+      // Either it names what it withheld, or it says nothing was withheld — never
+      // silence, which is what made the original wrong answer look right.
+      expect(header).toMatch(/archived, hidden|nothing withheld|outside statusIn/);
+
+      // statusIn narrows, and says so.
+      const narrowed = mcpTextPayload(
+        (await callMcpTool("list_docs", { memex: SMOKE_NAMESPACE, statusIn: ["verify"] })).body,
+      );
+      expect(narrowed.split("\n")[0]).toMatch(/\d+ of \d+/);
+    });
   },
 );

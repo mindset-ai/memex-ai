@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { useSearchParams, useLocation } from 'react-router-dom';
-import { fetchDocs, archiveDoc } from '../api/client';
+import { Link, useSearchParams, useLocation } from 'react-router-dom';
+import { fetchDocs } from '../api/client';
 import { type DocSummary } from '../api/types';
 import { statusTextClass } from '../utils/statusStyles';
 import { useDocChangeStream } from '../hooks/useDocChangeStream';
@@ -11,8 +11,9 @@ import { type SpecMenuItem } from '../components/SpecMenu';
 import { TagFilter } from '../components/TagFilter';
 import { ShareModal } from '../components/ShareModal';
 import { RenameSpecDialog } from '../components/RenameSpecDialog';
+import { ArchiveSpecDialog } from '../components/ArchiveSpecDialog';
 import { MoveSpecDialog } from '../components/MoveSpecDialog';
-import { parseTenantFromPathname } from '../utils/tenantUrl';
+import { parseTenantFromPathname, tenantPath } from '../utils/tenantUrl';
 import { useAuth } from '../components/AuthContext';
 import { useMemexAccess } from '../hooks/useMemexAccess';
 import { CreateOrgBanner } from '../components/CreateOrgBanner';
@@ -212,6 +213,9 @@ export function SpecList() {
   const [landOnCreate, setLandOnCreate] = useState(false);
   const [shareDocId, setShareDocId] = useState<string | null>(null);
   const [renameDoc, setRenameDoc] = useState<DocSummary | null>(null);
+  // spec-521 t-4 (ac-4): the Spec awaiting an archive confirm, so the dialog can ask
+  // for a reason instead of a bare yes/no.
+  const [archiveDoc, setArchiveDoc] = useState<DocSummary | null>(null);
   const [moveDoc_, setMoveDoc] = useState<DocSummary | null>(null);
 
   // spec-303: the Home Canvas "Create your first spec" CTA deep-links here with
@@ -317,19 +321,15 @@ export function SpecList() {
     [assigneeFilter, user?.email],
   );
 
-  const handleArchive = useCallback(async (doc: DocSummary) => {
-    if (!window.confirm(`Archive "${doc.title}"? It'll be hidden from the board.`)) return;
-    const previous = docs;
-    // Optimistic removal — SSE will confirm for other clients.
-    setDocs((prev) => prev.filter((d) => d.id !== doc.id));
-    try {
-      await archiveDoc(doc.id);
-    } catch (err) {
-      console.error('Failed to archive', err);
-      setDocs(previous);
-      window.alert(err instanceof Error ? err.message : 'Failed to archive spec');
-    }
-  }, [docs]);
+  // spec-521 t-4 (ac-4): archiving now goes through a real confirm that ASKS WHY and
+  // states the actual consequence — Claude stops reading the Spec entirely, not just
+  // "it'll be hidden from the board". The old bare window.confirm carried neither.
+  // The optimistic removal moved into onArchived, which only fires once the request
+  // succeeded, so a failure no longer needs a rollback (the dialog reports it inline
+  // instead of a window.alert).
+  const handleArchived = useCallback((docId: string) => {
+    setDocs((prev) => prev.filter((d) => d.id !== docId));
+  }, []);
 
   const buildMenuItems = useCallback(
     (doc: DocSummary): SpecMenuItem[] => {
@@ -337,11 +337,11 @@ export function SpecList() {
         { label: 'Rename', onClick: () => setRenameDoc(doc) },
         { label: 'Share', onClick: () => setShareDocId(doc.id) },
         { label: 'Move to another memex', onClick: () => setMoveDoc(doc), separatorBefore: true },
-        { label: 'Archive', onClick: () => handleArchive(doc), danger: true, separatorBefore: true },
+        { label: 'Archive', onClick: () => setArchiveDoc(doc), danger: true, separatorBefore: true },
       ];
       return items;
     },
-    [handleArchive],
+    [],
   );
 
   // spec-482 (dec-4, ac-24): the create modal — shared by the ?new=1 onboarding
@@ -511,6 +511,16 @@ export function SpecList() {
             <span>Clear filters</span>
           </button>
         )}
+        {/* spec-521 t-4 (ac-5): the way TO the archive. A link out of the board, not
+            a column on it — archived work belongs out of the way. Pushed right so it
+            never competes with the filters. */}
+        <Link
+          to={tenantPath('/specs/archive')}
+          data-testid="archive-view-link"
+          className="ml-auto inline-flex items-center gap-1 rounded-md border border-edge px-2 py-1 text-xs text-muted hover:text-primary hover:border-accent transition-colors"
+        >
+          Archived specs
+        </Link>
       </div>
 
       {/* Board row. overflow-x-auto + a per-column min width: flex children
@@ -604,6 +614,14 @@ export function SpecList() {
           a tenant route, so openSpec's tenantPath('/specs/<handle>') fallback resolves. */}
       {newSpecModal}
       {shareDocId && <ShareModal docId={shareDocId} onClose={() => setShareDocId(null)} />}
+      {archiveDoc && (
+        <ArchiveSpecDialog
+          docId={archiveDoc.id}
+          title={archiveDoc.title}
+          onClose={() => setArchiveDoc(null)}
+          onArchived={() => handleArchived(archiveDoc.id)}
+        />
+      )}
       {renameDoc && (
         <RenameSpecDialog
           docId={renameDoc.id}
