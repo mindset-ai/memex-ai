@@ -375,16 +375,122 @@ REMOVE_CONVERSION_SECRETS="${REMOVE_CONVERSION_SECRETS#,}"  # strip leading comm
 # MERGE leaves the live setting intact rather than blanking it — a deploy from a
 # checkout that never set the value can't silently un-hide features (spec-168
 # dec-4). The ${var+...} form is safe under `set -u`.
+# ── Step 4a: the scale-down guard ─────────────────────────────
+#
+# WHY THIS EXISTS. On 2026-08-07 a prod deploy silently cut Cloud Run from
+# minScale 1 / maxScale 8 down to 0 / 3. Nothing errored and nothing was misconfigured
+# in any obvious way: the flags below substitute ${MIN_INSTANCES:-0} / ${MAX_INSTANCES:-3},
+# the two keys were absent from the env blob THIS deploy actually reads, so the defaults
+# applied and gcloud dutifully re-asserted them over the live values. The whole event is
+# invisible in the deploy log — MIN_INSTANCES/MAX_INSTANCES appear zero times.
+#
+# THE TRAP is that per-env scaling config lives in TWO stores and only one is read here:
+#   * CI writes scripts/deploy.<env>.env from the GitHub Actions environment secret
+#     DEPLOY_ENV_FILE (.github/workflows/deploy.yml) — this is what a deploy consumes.
+#   * The GCP Secret Manager secret memex-<env>-deploy-env is what a human inspects.
+# A key present in the second and absent from the first reads as "configured" and deploys
+# as "default". Verifying the wrong store is exactly how the 2026-08-07 reduction was
+# green-lit.
+#
+# So this guard deliberately does NOT validate config, and does not require the variables
+# to be set. It compares what is about to be ASSERTED against what is LIVE and refuses to
+# shrink capacity. That holds whatever the cause — an unset key, the wrong store, a typo,
+# a stale blob, or a scaling knob nobody has added a check for yet — which is why it is a
+# comparison against reality rather than a required-variable assertion. std-26 §6 cl-136 is
+# the rule it enforces: a deploy re-asserts everything, so anything it fails to restate is
+# silently destroyed.
+#
+# Scaling UP is always allowed. Only a reduction stops the deploy, and ALLOW_SCALE_DOWN=1
+# is the sanctioned way to mean it on purpose — an unoverridable guard gets deleted by the
+# first person who legitimately needs to scale down, which would leave nothing at all.
+RESOLVED_MIN_INSTANCES="${MIN_INSTANCES:-0}"
+RESOLVED_MAX_INSTANCES="${MAX_INSTANCES:-3}"
+if [ -n "${MIN_INSTANCES+set}" ]; then
+  MIN_INSTANCES_SOURCE="config"
+else
+  MIN_INSTANCES_SOURCE="DEFAULT — MIN_INSTANCES absent from scripts/deploy.${ENV}.env"
+fi
+if [ -n "${MAX_INSTANCES+set}" ]; then
+  MAX_INSTANCES_SOURCE="config"
+else
+  MAX_INSTANCES_SOURCE="DEFAULT — MAX_INSTANCES absent from scripts/deploy.${ENV}.env"
+fi
+echo "  scaling to assert: --min-instances ${RESOLVED_MIN_INSTANCES} [${MIN_INSTANCES_SOURCE}]"
+echo "                     --max-instances ${RESOLVED_MAX_INSTANCES} [${MAX_INSTANCES_SOURCE}]"
+
+# Read the LIVE annotations. `|| true` because a first-ever deploy has no service to
+# describe, and `set -e` would otherwise abort here rather than proceed to create it.
+_live_scale_annotation() {
+  gcloud run services describe "${SERVICE}" \
+    --region "${REGION}" \
+    --project "${GCP_PROJECT}" \
+    --format="value(spec.template.metadata.annotations['autoscaling.knative.dev/$1'])" \
+    2>/dev/null || true
+}
+LIVE_MIN_INSTANCES="$(_live_scale_annotation minScale)"
+LIVE_MAX_INSTANCES="$(_live_scale_annotation maxScale)"
+
+SCALE_DOWN_REPORT=""
+if [ -n "${LIVE_MIN_INSTANCES}" ] && [ "${RESOLVED_MIN_INSTANCES}" -lt "${LIVE_MIN_INSTANCES}" ]; then
+  SCALE_DOWN_REPORT="${SCALE_DOWN_REPORT}    min-instances: live ${LIVE_MIN_INSTANCES} → would become ${RESOLVED_MIN_INSTANCES}  [${MIN_INSTANCES_SOURCE}]
+"
+fi
+if [ -n "${LIVE_MAX_INSTANCES}" ] && [ "${RESOLVED_MAX_INSTANCES}" -lt "${LIVE_MAX_INSTANCES}" ]; then
+  SCALE_DOWN_REPORT="${SCALE_DOWN_REPORT}    max-instances: live ${LIVE_MAX_INSTANCES} → would become ${RESOLVED_MAX_INSTANCES}  [${MAX_INSTANCES_SOURCE}]
+"
+fi
+
+if [ -z "${LIVE_MIN_INSTANCES}${LIVE_MAX_INSTANCES}" ]; then
+  echo "  scale-down guard: no live scaling annotations on ${SERVICE} (first deploy?) — nothing to compare"
+elif [ -n "${SCALE_DOWN_REPORT}" ]; then
+  if [ "${ALLOW_SCALE_DOWN:-}" = "1" ]; then
+    echo "  ⚠ SCALE-DOWN GUARD OVERRIDDEN (ALLOW_SCALE_DOWN=1) — reducing ${ENV} capacity deliberately:"
+    printf '%s' "${SCALE_DOWN_REPORT}"
+  else
+    {
+      echo ""
+      echo "═══════════════════════════════════════════════"
+      echo "  ✗ SCALE-DOWN GUARD: refusing to reduce ${ENV} Cloud Run capacity"
+      echo "═══════════════════════════════════════════════"
+      printf '%s' "${SCALE_DOWN_REPORT}"
+      echo ""
+      echo "  A deploy re-asserts every scaling flag (std-26 §6 cl-136), so this would"
+      echo "  have destroyed the live value rather than left it alone."
+      echo ""
+      echo "  If a value reads as DEFAULT above, the key is missing from the blob THIS"
+      echo "  deploy reads. Note there are two stores and they can disagree:"
+      echo "    • CI  → the GitHub Actions '${ENV}' environment secret DEPLOY_ENV_FILE"
+      echo "            (written to scripts/deploy.${ENV}.env by .github/workflows/deploy.yml)"
+      echo "    • human-inspected → GCP Secret Manager 'memex-${ENV}-deploy-env'"
+      echo "  Setting it in the second WITHOUT the first is what caused the 2026-08-07"
+      echo "  prod reduction. Fix the store this deploy actually reads."
+      echo ""
+      echo "  Budget invariant before raising MAX_INSTANCES (spec-518, db/connection.ts):"
+      echo "    MAX_INSTANCES × (DB_POOL_MAX + 1 relay LISTEN) < the DB's usable ceiling"
+      echo "    (prod: max_connections 50 − 3 superuser ≈ 47)"
+      echo ""
+      echo "  To reduce capacity on purpose, re-run with ALLOW_SCALE_DOWN=1."
+      echo "═══════════════════════════════════════════════"
+    } >&2
+    exit 1
+  fi
+else
+  echo "  scale-down guard: OK (live ${LIVE_MIN_INSTANCES}/${LIVE_MAX_INSTANCES} → ${RESOLVED_MIN_INSTANCES}/${RESOLVED_MAX_INSTANCES})"
+fi
+
+# ── Step 4b: Deploy to Cloud Run ──────────────────────────────
 # Resource/scaling flags are re-asserted every deploy: gcloud reverts anything a deploy
 # doesn't restate, so a console-set value silently disappears on the next deploy (std-26 §6
 # cl-136, spec-489). --memory/--concurrency/--cpu-boost restate the current live values so they
 # survive. --min-instances/--max-instances are ENV-KEYED per-env (spec-518): MIN_INSTANCES /
 # MAX_INSTANCES come from the memex-<env>-deploy-env secret and default to 0/3 (today's
 # behaviour) when unset, so prod and int can differ and the live scaling can't drift from
-# config. Budget invariant (spec-518 / db/connection.ts:29): MAX_INSTANCES × (DB_POOL_MAX + 1
-# relay LISTEN) must stay under the DB's effective ceiling (prod ~47) — a value pair that
-# violates it can exhaust connections (the 2026-08-03 FATAL). DB_POOL_MAX is the per-env pool
-# cap (prod=4 under maxScale 8 → 8×(4+1)=40<47; spec-489/spec-518/spec-332); omitted when unset.
+# config. Both pass through the Step 4a scale-down guard above, so a default that would
+# shrink live capacity aborts the deploy instead of silently applying. Budget invariant
+# (spec-518 / db/connection.ts:29): MAX_INSTANCES × (DB_POOL_MAX + 1 relay LISTEN) must stay
+# under the DB's effective ceiling (prod ~47) — a value pair that violates it can exhaust
+# connections (the 2026-08-03 FATAL). DB_POOL_MAX is the per-env pool cap (prod=4 under
+# maxScale 8 → 8×(4+1)=40<47; spec-489/spec-518/spec-332); omitted when unset.
 gcloud run deploy "${SERVICE}" \
   --image "${IMAGE}" \
   --platform managed \
