@@ -1,6 +1,7 @@
 import { createMiddleware } from "hono/factory";
 import { and, eq } from "drizzle-orm";
 import { db } from "../db/connection.js";
+import { reservedApiRoots as resolveReservedApiRoots } from "../routes/api-roots.js";
 import { memexes, namespaces, orgMemberships } from "../db/schema.js";
 import type { Memex, Namespace } from "../db/schema.js";
 
@@ -89,66 +90,11 @@ interface PathPrefix {
 // namespace and "check" as a memex; same logic for every other API mount. The
 // reserved-slug list (services/shared/slug.ts) covers user-facing reservations;
 // this list covers internal API path roots.
-const RESERVED_API_ROOTS = new Set([
-  "health",
-  "share",
-  "auth",
-  "oauth",
-  "waitlist",
-  "cli",
-  "mcp",
-  "me",
-  "onboarding",
-  "orgs",
-  "namespaces",
-  "redirects",
-  "consent",
-  "invites",
-  "team",
-  "backstage",
-  "docs",
-  "comments",
-  "decisions",
-  "tasks",
-  "execution-plans",
-  "llm",
-  "drift",
-  "__test__",
-  // spec-171: the Stripe webhook receiver mounts at /api/stripe/webhook (public —
-  // the Stripe-Signature HMAC is the auth). Without this, parseMemexPath reads
-  // "/api/stripe/webhook" as namespace=stripe / memex=webhook and 404s before the
-  // webhook router runs, so Stripe deliveries fail and orgs never get their tier.
-  "stripe",
-  // spec-341: the Postmark delivery webhook mounts at /api/postmark/webhook
-  // (public — the Basic-auth credential is the auth). Without this, parseMemexPath
-  // reads "/api/postmark/webhook" as namespace=postmark / memex=webhook and 404s
-  // before the webhook router runs, so Postmark deliveries never update comms_log.
-  // (Same class of bug as spec-171's "stripe" entry.)
-  "postmark",
-  // spec-453 t-6: the machine lifecycle-tick mounts at /api/internal/lifecycle-tick
-  // (non-tenant; a shared bearer secret is the auth). Without this, parseMemexPath reads
-  // "/api/internal/lifecycle-tick" as namespace=internal / memex=lifecycle-tick and 404s
-  // before the router runs, so Cloud Scheduler could never trigger the drip / Day-12 pass.
-  // (Same class of bug as the stripe / postmark webhook entries above.)
-  "internal",
-  // spec-515: nine more flat `/api/<root>` mounts (app.ts) that were never added here,
-  // so parseMemexPath read `/api/<root>/<x>` as namespace=<root>/memex=<x> and 404'd
-  // before their router ran — the same recurring class as stripe/postmark/internal.
-  // The sharpest consequence: `/api/test-events/batch` 404'd, so the CI AC-emitter fell
-  // back to unbounded per-event POSTs (`emitBatch` 404 → Promise.all(single)) — ~11.6M
-  // INSERT/DELETE/upsert calls that drove prod Cloud SQL to ~100% CPU (2026-08). Also
-  // 404'd one-click unsubscribe (`/api/email/...`). The flat-mount scan test
-  // (reserved-api-roots.spec-515.test.ts) now fails CI if a flat root is ever left out.
-  "issues",
-  "acs",
-  "test-events",
-  "spec-checkout",
-  "live",
-  "telemetry",
-  "whats-new",
-  "email",
-  "hook-keys",
-]);
+// spec-515 — "is this root a tenant namespace?" has ONE definition, in
+// routes/api-roots.ts (zero imports, so the reserved-slug list can share it).
+// Re-exported here because this module is the historical home and several
+// callers still reach for it through the resolver.
+export { reservedApiRoots } from "../routes/api-roots.js";
 
 // Parses `/<namespace>/<memex>/...` or `/api/<namespace>/<memex>/...` from a
 // request path. Returns null when the path is a top-level reserved word
@@ -179,7 +125,7 @@ export function parseMemexPath(rawPath: string): PathPrefix | null {
   if (!SLUG_RE.test(second)) return null;
 
   // Path roots reserved for API mounts can't be tenant namespaces.
-  if (RESERVED_API_ROOTS.has(first)) return null;
+  if (resolveReservedApiRoots().has(first)) return null;
 
   return { namespaceSlug: first, memexSlug: second };
 }
@@ -192,6 +138,29 @@ export function parseMemexPath(rawPath: string): PathPrefix | null {
 // memex regardless of what URL they typed (a debugging footgun, not an IDOR).
 const ENCODED_PATH_SEPARATOR = /%2[Ff]|%5[Cc]/;
 
+/**
+ * The response header the resolver stamps on a request it EXEMPTS from tenant
+ * parsing (spec-515 dec-6). The post-deploy smoke check asserts its presence for
+ * every reserved root — see `__smoke__/flat-api-reachability.smoke.test.ts`.
+ */
+export const TENANT_EXEMPT_HEADER = "x-memex-tenant";
+
+/**
+ * The reserved API root this path is exempt under, or null.
+ *
+ * Deliberately narrower than "parseMemexPath returned null": a single-segment path,
+ * a malformed slug or a browser route also no-op the resolver, but they are not
+ * *exempt roots* and must not be marked. The marker's claim is precise so the smoke
+ * check cannot read a coincidence as reachability.
+ */
+export function exemptApiRoot(rawPath: string): string | null {
+  const path = rawPath.split("?")[0];
+  if (!path.startsWith("/api/")) return null;
+  const first = path.slice("/api/".length).split("/")[0];
+  if (!first) return null;
+  return resolveReservedApiRoots().has(first) ? first : null;
+}
+
 export const memexResolver = createMiddleware<MemexResolverEnv>(async (c, next) => {
   const path = c.req.path;
 
@@ -201,6 +170,20 @@ export const memexResolver = createMiddleware<MemexResolverEnv>(async (c, next) 
     return c.json({ error: "Malformed path" }, 400);
   }
 
+  // spec-515 dec-6 — stamp the requests we EXEMPT, never the ones whose tenant
+  // lookup fails. Marking a failure would distinguish "namespace does not exist"
+  // (resolver 404s) from "memex exists but is private" (resolver passes, a later
+  // layer 404s) — the namespace enumeration std-7 exists to prevent. Marking the
+  // exemption says only "this word is an API root", which the route surface already
+  // makes public, and never appears on a tenant path.
+  if (exemptApiRoot(path) !== null) {
+    c.header(TENANT_EXEMPT_HEADER, "exempt");
+  }
+
+  // NOTE the ordering: the marker is set BEFORE the fast-path loop below, which
+  // `return next()`s for anything in NON_TENANT_API_PREFIXES. Setting it after would
+  // silently skip ~10 roots (health, cli, mcp, __test__, onboarding, …) and the smoke
+  // check would report them unreachable while they are perfectly healthy.
   // Fast path for /api routes that are intentionally non-tenant. Without this
   // skip, /api/health and /api/auth/login would try to resolve "auth/login" as
   // a (namespace, memex) pair — wasted DB query that always returns null.

@@ -6,6 +6,8 @@
 // sessionMiddleware auto-resolve a single-membership user to their own memex
 // regardless of what URL they actually typed).
 
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, it, expect, vi } from "vitest";
 
 vi.mock("../db/connection.js", () => ({
@@ -19,7 +21,7 @@ vi.mock("../db/connection.js", () => ({
 
 import { Hono } from "hono";
 import { tagAc } from "@memex-ai-ac/vitest";
-import { memexResolver, parseMemexPath } from "./memex-resolver.js";
+import { memexResolver, parseMemexPath, reservedApiRoots } from "./memex-resolver.js";
 
 const app = new Hono();
 app.use("/*", memexResolver);
@@ -120,5 +122,167 @@ describe("memexResolver malformed-path guard (b-38 A4)", () => {
     // (mocked DB returns null → 404).
     const res = await app.request("/foo/bar");
     expect(res.status).toBe(404);
+  });
+});
+
+// spec-515 t-2 / ac-8 — every flat `/api/<root>` mount must be exempt from
+// tenant parsing.
+//
+// memexResolver is registered as `app.use("*", …)` BEFORE any route, so it sees
+// the path first. parseMemexPath reads `/api/<a>/<b>` as a tenant address, which
+// means a flat mount whose root is missing from RESERVED_API_ROOTS has its
+// SUBPATHS swallowed: the resolver looks up a namespace that doesn't exist and
+// returns 404 per std-7 before the router ever runs.
+//
+// The bare mount always works — `/api/test-events` has one segment after /api,
+// so parseMemexPath returns null on the length check. Only the subpath breaks.
+// That asymmetry is why this shipped unnoticed: see the `stripe`, `postmark` and
+// `internal` comments in memex-resolver.ts, each describing this same failure.
+//
+// Measured against prod on 2026-07-27: nine mounts unguarded.
+// `/api/email/unsubscribe` (the RFC 8058 one-click target carried on every
+// lifecycle email) had 404'd since 2026-07-01, and `/api/test-events/batch` had
+// silently disabled spec-489's CI-burst batching, driving Cloud SQL CPU to 100%.
+//
+// Derived from app.ts source rather than a hardcoded list, so a NEW flat mount is
+// covered the day it lands. Deliberately NOT written with `app.request(...)`:
+// this file mocks db/connection.js (top of file), and that mock is precisely why
+// six batch-route tests pass in routes/test-events.test.ts while production 404s.
+// A route-level assertion here would inherit the same blind spot.
+const APP_SRC = readFileSync(
+  fileURLToPath(new URL("../app.ts", import.meta.url)),
+  "utf8",
+);
+
+// Matches the mount forms app.ts actually uses: `mountFlatApi(app, "<root>", …)`
+// (spec-515 t-6 — the helper that ties a mount to its exemption) and any surviving
+// `app.use("/api/<root>/*", …)` middleware pairing. The character class excludes `:`
+// and `*`, so tenant-prefixed mounts and the catch-all (`/api/*`) are skipped.
+const FLAT_API_MOUNT_ROOTS = [
+  ...new Set(
+    [
+      ...APP_SRC.matchAll(
+        /mountFlatApi\(\s*app\s*,\s*"([a-z0-9-]+)"|app\.(?:route|use)\(\s*"\/api\/([a-z0-9-]+)(?:\/\*)?"/g,
+      ),
+    ].map((m) => m[1] ?? m[2]),
+  ),
+].sort();
+
+describe("flat /api/<root> mounts survive tenant resolution (spec-515)", () => {
+  it("finds the flat mounts it is meant to guard", () => {
+    // Guards the guard: if the regex stops matching after a refactor changes how
+    // mounts are registered, the assertions below would vacuously pass.
+    expect(FLAT_API_MOUNT_ROOTS.length).toBeGreaterThan(20);
+    expect(FLAT_API_MOUNT_ROOTS).toContain("test-events");
+    expect(FLAT_API_MOUNT_ROOTS).toContain("email");
+  });
+
+  it("returns null for a subpath under every flat mount root", () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-515/acs/ac-8");
+    const swallowed = FLAT_API_MOUNT_ROOTS.filter(
+      (root) => parseMemexPath(`/api/${root}/anything`) !== null,
+    );
+    // Named rather than counted so a failure says WHICH mount is unreachable.
+    expect(swallowed).toEqual([]);
+  });
+
+  it("still resolves a genuine two-segment tenant path", () => {
+    // The fix must not over-reach: a real `/api/<ns>/<mx>/…` must still parse.
+    expect(
+      parseMemexPath("/api/mindset-prod/memex-building-itself/docs"),
+    ).toEqual({
+      namespaceSlug: "mindset-prod",
+      memexSlug: "memex-building-itself",
+    });
+  });
+
+  // Named anchors for the five paths observed 404ing in production, so a future
+  // regression reports the user-visible consequence, not just a bare root.
+  it.each([
+    ["/api/email/unsubscribe", "RFC 8058 one-click unsubscribe target"],
+    ["/api/test-events/batch", "spec-489 CI-burst batch ingest"],
+    ["/api/acs/doc/some-uuid", "AC lookup by doc"],
+    ["/api/issues/some-uuid", "issue lookup"],
+    ["/api/hook-keys/some-uuid/revoke", "hook-key revoke"],
+  ])("does not swallow %s (%s)", (path) => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-515/acs/ac-8");
+    expect(parseMemexPath(path)).toBeNull();
+  });
+});
+
+// spec-515 t-9 / dec-6 / ac-12, ac-17 — the exemption marker.
+//
+// WHY A MARKER AT ALL. The post-deploy smoke check has to prove every flat
+// `/api/<root>` mount is reachable on the deployed host. It cannot do that from the
+// response body: `{"error":"Not found"}` is emitted by at least six code paths
+// (memexResolver ×3, session.ts, permissions.ts, hook-key-or-session.ts, plus
+// NotFoundError), so a router legitimately reporting "no such id" is byte-identical
+// to the resolver swallowing the route. Measured during t-2: after the fix,
+// `/api/issues/x` and an unmounted control root returned the same bytes.
+//
+// WHY IT MARKS THE EXEMPTION, NOT THE FAILURE (dec-6). memexResolver performs no
+// membership check — it does two lookups and 404s if either misses; authorization is
+// enforced later. Marking the FAILURE would therefore have split two cases std-7
+// requires to be indistinguishable: a nonexistent namespace (resolver 404s → marked)
+// versus a private-but-existing memex (resolver passes; a later layer 404s → not
+// marked). That is namespace enumeration, and std-7 exists to prevent it.
+//
+// Marking the exemption leaks nothing: the header only says "this word is an API
+// root", which the route surface already makes public, and it never appears on a
+// tenant path.
+describe("exemption marker x-memex-tenant (spec-515 t-9 / dec-6)", () => {
+  const AC_SMOKE = "mindset-prod/memex-building-itself/specs/spec-515/acs/ac-12";
+  const AC_NOLEAK = "mindset-prod/memex-building-itself/specs/spec-515/acs/ac-17";
+
+  it("marks every reserved API root, driven from the shared declaration", async () => {
+    tagAc(AC_SMOKE);
+    const unmarked: string[] = [];
+    for (const root of reservedApiRoots()) {
+      const res = await app.request(`/api/${root}/probe`);
+      if (res.headers.get("x-memex-tenant") !== "exempt") unmarked.push(root);
+    }
+    expect(unmarked).toEqual([]);
+  });
+
+  it("survives a downstream handler that builds its own response", async () => {
+    // The catch-all above answers with c.json(...), i.e. a NEW Response object. A
+    // header set by middleware before next() has to survive that or the smoke check
+    // would read as 'unreachable' on a perfectly healthy route.
+    tagAc(AC_SMOKE);
+    const res = await app.request("/api/test-events/batch");
+    expect(res.status).toBe(200); // the test catch-all, not the real router
+    expect(res.headers.get("x-memex-tenant")).toBe("exempt");
+  });
+
+  it("marks a single-segment reserved root too", async () => {
+    tagAc(AC_SMOKE);
+    const res = await app.request("/api/health");
+    expect(res.headers.get("x-memex-tenant")).toBe("exempt");
+  });
+
+  it("does NOT mark a tenant path — nonexistent and private stay indistinguishable", async () => {
+    // The std-7 claim. The mocked DB returns null for the namespace lookup, so this
+    // is the "namespace does not exist" branch — the one a failure-marker would have
+    // singled out. It must look exactly like any other 404.
+    tagAc(AC_NOLEAK);
+    const res = await app.request("/api/mindset/memex-app/docs");
+    expect(res.status).toBe(404);
+    expect(res.headers.get("x-memex-tenant")).toBeNull();
+  });
+
+  it("does NOT mark a path that fails tenant parsing for other reasons", async () => {
+    // The claim is "this root is exempt", not "this wasn't a tenant path". A browser
+    // route and a malformed slug both no-op the resolver without being exempt.
+    tagAc(AC_NOLEAK);
+    for (const path of ["/login", "/api/UPPER/case/docs"]) {
+      const res = await app.request(path);
+      expect(res.headers.get("x-memex-tenant")).toBeNull();
+    }
+  });
+
+  it("does NOT mark an unreserved root that looks tenant-shaped", async () => {
+    tagAc(AC_NOLEAK);
+    const res = await app.request("/api/zzznotreserved/thing");
+    expect(res.headers.get("x-memex-tenant")).toBeNull();
   });
 });

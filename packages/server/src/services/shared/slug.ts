@@ -7,6 +7,7 @@
 import { eq, lt, sql } from "drizzle-orm";
 import { db } from "../../db/connection.js";
 import { namespaces, namespaceSlugReservations } from "../../db/schema.js";
+import { reservedApiRoots } from "../../routes/api-roots.js";
 
 // std-3 — reserved slugs fall in two groups:
 //   1. App-utility paths (login, api, mcp, …) that collide with the app's own
@@ -19,7 +20,7 @@ import { namespaces, namespaceSlugReservations } from "../../db/schema.js";
 //      these slugs on the apex, so we reserve them to prevent the conflict up
 //      front. Keep this group in sync with the top-level routes in
 //      memex-website/src/lib/routes.ts.
-export const RESERVED_SLUGS = new Set([
+const APP_AND_MARKETING_SLUGS = new Set([
   // group 1 — app-utility paths
   "login",
   "signup",
@@ -50,6 +51,21 @@ export const RESERVED_SLUGS = new Set([
   "coding-agents",
   "get-started",
   "branding",
+]);
+
+// spec-515 t-7 / std-3 cl-7 — COMPOSED, not enumerated by hand.
+//
+// The reserved list is the union of the words above and the `/api` root vocabulary
+// (routes/api-roots.ts). Declaring an API root therefore makes its slug unclaimable
+// in the same edit, with no second list to remember.
+//
+// Required in BOTH directions: a slug that shadows an API root sends that route's
+// subpaths into tenant resolution (they 404 before the handler runs — the spec-515
+// defect), and an API root claimed as a slug makes that tenant unroutable. Before
+// this, the two lists were hand-synced and shared only 6 entries out of 27 and 28.
+export const RESERVED_SLUGS: ReadonlySet<string> = new Set([
+  ...APP_AND_MARKETING_SLUGS,
+  ...reservedApiRoots(),
 ]);
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,38}$/;
