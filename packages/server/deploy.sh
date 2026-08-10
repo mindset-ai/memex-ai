@@ -294,8 +294,17 @@ RUNTIME_DB_PASS_ENC=$(python3 -c "import urllib.parse,sys; print(urllib.parse.qu
 # backfills in Step 5, a collision here means a live tenant is about to go
 # unroutable. Exit 2 ("could not check") is treated exactly like exit 1: an
 # unverified deploy is not a verified one.
+#
+# Invoked through the package's own `check-reserved-roots` script, matching every
+# sibling one-off in packages/server (`db:backfill-*`, `db:seed*`). The first
+# attempt was `pnpm --filter @memex/server tsx <file>`, which pnpm reads as "run
+# the script NAMED tsx" — there is none, so it died with
+# ERR_PNPM_RECURSIVE_RUN_NO_SCRIPT and, because this gate is fail-closed, aborted
+# the whole deploy on its first real run. A named script keeps the deploy calling
+# exactly what a developer can call locally, and deploy-script-parity.test.ts now
+# asserts every script deploy.sh invokes actually exists.
 echo "  1·pre. reserved-root collision check (spec-515)..."
-if ! DATABASE_URL="${DB_URL}" pnpm --filter @memex/server tsx scripts/check-reserved-root-collisions.ts; then
+if ! DATABASE_URL="${DB_URL}" pnpm --filter @memex/server check-reserved-roots; then
   echo ""
   echo "ERROR: reserved-root collision check did not pass — aborting before migrations."
   kill ${PROXY_PID} 2>/dev/null || true
