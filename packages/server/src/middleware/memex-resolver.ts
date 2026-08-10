@@ -1,7 +1,10 @@
 import { createMiddleware } from "hono/factory";
 import { and, eq } from "drizzle-orm";
 import { db } from "../db/connection.js";
-import { reservedApiRoots as resolveReservedApiRoots } from "../routes/api-roots.js";
+import {
+  reservedApiRoots as resolveReservedApiRoots,
+  TENANT_EXEMPT_HEADER,
+} from "../routes/api-roots.js";
 import { memexes, namespaces, orgMemberships } from "../db/schema.js";
 import type { Memex, Namespace } from "../db/schema.js";
 
@@ -139,11 +142,14 @@ export function parseMemexPath(rawPath: string): PathPrefix | null {
 const ENCODED_PATH_SEPARATOR = /%2[Ff]|%5[Cc]/;
 
 /**
- * The response header the resolver stamps on a request it EXEMPTS from tenant
- * parsing (spec-515 dec-6). The post-deploy smoke check asserts its presence for
- * every reserved root — see `__smoke__/flat-api-reachability.smoke.test.ts`.
+ * Re-exported for the callers that already import it from here. The constant now
+ * LIVES in routes/api-roots.js — the zero-import vocabulary module — because a
+ * post-deploy smoke check that only needs the header NAME must not be forced to
+ * import this file, which pulls `db/connection` and therefore demands
+ * DATABASE_URL at module load. Both spec-515 smoke files did exactly that and
+ * died on import against int, before their own skip guards could run.
  */
-export const TENANT_EXEMPT_HEADER = "x-memex-tenant";
+export { TENANT_EXEMPT_HEADER };
 
 /**
  * The reserved API root this path is exempt under, or null.

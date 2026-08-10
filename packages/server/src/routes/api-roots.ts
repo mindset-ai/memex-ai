@@ -102,3 +102,18 @@ export const NON_FLAT_RESERVED_ROOTS: ReadonlySet<string> = new Set([
 export function reservedApiRoots(): ReadonlySet<string> {
   return new Set([...NON_FLAT_RESERVED_ROOTS, ...FLAT_API_MOUNT_ROOTS]);
 }
+
+/**
+ * The response header the tenant resolver stamps on a request it EXEMPTS from
+ * tenant parsing (spec-515 dec-6), asserted for every reserved root by the
+ * post-deploy smoke check (`__smoke__/flat-api-reachability.smoke.test.ts`).
+ *
+ * It lives HERE, in the zero-import module, for the same reason the root
+ * declaration does. It first lived in `middleware/memex-resolver.ts`, so a smoke
+ * check that needed nothing but the header NAME had to import the resolver —
+ * which imports `db/connection` and therefore demands DATABASE_URL at module
+ * load. Both spec-515 smoke files died on import against a live int deploy,
+ * before their own skip guards could run, for want of a string constant. The
+ * resolver re-exports it, so existing importers are unaffected.
+ */
+export const TENANT_EXEMPT_HEADER = "x-memex-tenant";

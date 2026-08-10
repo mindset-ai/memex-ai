@@ -26,7 +26,7 @@
 
 import { describe, expect, it } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
-import { reservedApiRoots, TENANT_EXEMPT_HEADER } from "../middleware/memex-resolver.js";
+import { reservedApiRoots, TENANT_EXEMPT_HEADER } from "../routes/api-roots.js";
 import { SMOKE_BASE_URL } from "./smoke-env.js";
 
 const AC = "mindset-prod/memex-building-itself/specs/spec-515/acs/ac-12";
