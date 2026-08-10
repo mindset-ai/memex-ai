@@ -38,15 +38,36 @@ const SPEC_515_ROOTS = [
   "hook-keys",
 ];
 
-// Every literal `/api/<root>` mount (app.route/use/get/post/...). Tenant mounts start
-// `/api/:namespace/...`; the leading char class excludes ':' so those are NOT captured —
-// they ARE tenant paths and must stay resolvable.
+// Every literal `/api/<root>` mount. Tenant mounts start `/api/:namespace/...`; the
+// leading char class excludes ':' so those are NOT captured — they ARE tenant paths and
+// must stay resolvable.
+//
+// TWO mount forms are recognised, because spec-515 t-6 introduced a helper AFTER this
+// test was written:
+//   1. `mountFlatApi(app, "<root>", …)` — the current form. The helper also refuses to
+//      mount an undeclared root at boot, so this scan is now the second line of defence
+//      rather than the only one.
+//   2. `app.route|use|get|... ("/api/<root>"` — still used by deep mounts
+//      (`/api/stripe/webhook`) and direct handlers (`app.get("/api/health")`), which the
+//      helper does not cover.
+//
+// The guard-the-guard assertion below is what caught the t-6 restructure: when the
+// helper landed, form 1 was invisible here and the count fell from 36 to 7, failing
+// loudly instead of passing vacuously. Keep that assertion.
+//
+// A broader sibling lives in __regression__/flat-api-mount-invariant.spec-515.regression.test.ts
+// (both halves of the invariant, plus a no-raw-app.route scan). The overlap is deliberate:
+// this class of defect recurred six times, so two independent readings are worth their cost.
 function flatApiRoots(src: string): string[] {
-  const re =
-    /app\.(?:route|use|get|post|put|patch|delete)\(\s*["'`]\/api\/([a-z0-9][a-z0-9-]*)/g;
+  const patterns = [
+    /mountFlatApi\(\s*app\s*,\s*["'`]([a-z0-9][a-z0-9-]*)/g,
+    /app\.(?:route|use|get|post|put|patch|delete)\(\s*["'`]\/api\/([a-z0-9][a-z0-9-]*)/g,
+  ];
   const roots = new Set<string>();
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(src)) !== null) roots.add(m[1]);
+  for (const re of patterns) {
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(src)) !== null) roots.add(m[1]);
+  }
   return [...roots].sort();
 }
 
