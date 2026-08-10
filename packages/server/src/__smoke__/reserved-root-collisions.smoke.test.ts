@@ -29,7 +29,7 @@
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
-import { reservedApiRoots } from "../middleware/memex-resolver.js";
+import { reservedApiRoots } from "../routes/api-roots.js";
 import { SMOKE_DATABASE_URL, SMOKE_ENV } from "./smoke-env.js";
 
 const AC = "mindset-prod/memex-building-itself/specs/spec-515/acs/ac-6";
