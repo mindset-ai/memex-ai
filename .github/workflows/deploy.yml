@@ -16,9 +16,20 @@ name: deploy
 # `github-deployer` service account holds standing deploy roles — a recorded
 # exception to the humans-use-PAM posture in scripts/deploy-config.sh.
 #
-# Per-env config: the gitignored scripts/deploy.<env>.env is injected from the
-# environment-scoped DEPLOY_ENV_FILE secret and written to disk before the
-# deploy runs — CI and laptops share one config mechanism, zero drift.
+# Per-env config: the CANONICAL source is the Secret Manager secret
+# `memex-<env>-deploy-env`, fetched by scripts/deploy-config.sh on every deploy
+# (DEPLOY_CONFIG_SOURCE / DEPLOY_CONFIG_PROJECT on the deploy step below).
+#
+# This header used to read "CI and laptops share one config mechanism, zero
+# drift." That sentence was wrong in a way that cost an outage, and it is worth
+# keeping the correction visible: CI and laptops shared a config FILE while
+# obeying different SOURCES. Writing scripts/deploy.<env>.env made
+# deploy-config.sh take its local-override branch — documented "ad-hoc testing
+# only" — so the canonical secret was never read in production. It already held
+# MAX_INSTANCES=8 while prod kept deploying at 3 (spec-518 dec-4).
+#
+# The DEPLOY_ENV_FILE blob is now a stale snapshot kept for one rollout so the
+# switch can be reverted in a line; it is retired in spec-518 ac-17.
 
 on:
   push:
@@ -129,6 +140,13 @@ jobs:
         # The gitignored scripts/deploy.<env>.env, exactly as a deployer's
         # laptop has it (DB_PASS is fetched from Secret Manager at source
         # time, so the secret holds coordinates, not credentials).
+        #
+        # spec-518 dec-4: this file is NO LONGER what the deploy reads. Writing it
+        # made deploy-config.sh take its LOCAL-OVERRIDE branch — documented "ad-hoc
+        # testing only" — on every CI deploy, so the canonical secret was never
+        # fetched in production. The step is kept for one rollout only, so the
+        # switch below can be reverted in one line; it is retired once both
+        # environments have deployed clean from the canonical secret (ac-17).
         env:
           DEPLOY_ENV_FILE: ${{ secrets.DEPLOY_ENV_FILE }}
         run: |
@@ -151,6 +169,24 @@ jobs:
         # checks verify their ACs on every deploy). Without it the smoke still
         # runs — emissions are just silently rejected 401.
         env:
+          # spec-518 dec-4 / t-6 — obey the CANONICAL config source.
+          #
+          # deploy-config.sh (spec-168) defines `memex-<env>-deploy-env` in Secret
+          # Manager as canonical, and a PRESENT scripts/deploy.<env>.env as an opt-in
+          # override for "ad-hoc testing only". The step above writes that file on every
+          # CI run, so every deploy silently took the override branch and the canonical
+          # secret was NEVER read in production. It already held the right values —
+          # MAX_INSTANCES=8, MIN_INSTANCES=1, DB_POOL_MAX=4 — while prod deployed at the
+          # 3-instance ceiling and shed 2000+ requests on 2026-08-11.
+          #
+          # These two lines are the whole fix. DEPLOY_CONFIG_PROJECT was referenced only
+          # INSIDE deploy-config.sh and supplied nowhere, so the canonical branch had
+          # never executed in CI even once — it would have aborted on the missing
+          # pointer. The fetch fails closed: an unreadable secret stops the deploy loudly
+          # rather than shipping stale config. github-deployer holds
+          # roles/secretmanager.secretAccessor at project level in both projects.
+          DEPLOY_CONFIG_SOURCE: secret
+          DEPLOY_CONFIG_PROJECT: memex-ai-${{ github.ref_name == 'main' && 'prod' || 'int' }}
           SMOKE_MCP_TOKEN: ${{ secrets.SMOKE_MCP_TOKEN }}
           SMOKE_SESSION_TOKEN: ${{ secrets.SMOKE_SESSION_TOKEN }}
           MEMEX_EMIT_KEY: ${{ secrets.MEMEX_EMIT_KEY }}
