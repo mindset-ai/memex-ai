@@ -13,6 +13,8 @@ import {
   type QueuedFakeResponse,
 } from "../agent/anthropic-fake.js";
 import { db } from "../db/connection.js";
+import { unsubscribeUrl } from "../services/email/unsubscribe-token.js";
+import { isLifecycleEmailUnsubscribed } from "../services/users.js";
 import {
   users,
   namespaces,
@@ -248,6 +250,38 @@ const seedSpecSchema = z.object({
   // (spec-178 seeds 5 per Memex) do NOT count toward the hasSpec milestone / landing.
   isDemo: z.boolean().optional(),
 });
+// spec-515 t-10 / ac-2 — the one-click unsubscribe journey needs the real
+// unsubscribe URL, and a Playwright test cannot mint it: the token is an HMAC over
+// the userId signed with a server-side secret (services/email/unsubscribe-token.ts).
+// Handing the URL out here is what lets the journey exercise the SAME link a mail
+// client would follow, instead of a hand-rolled approximation that could pass while
+// the real link stays broken — which is exactly the defect spec-515 is fixing.
+const unsubscribeUrlSchema = z.object({ email: z.string() });
+testOnlyRouter.post("/unsubscribe-url", async (c) => {
+  const parsed = unsubscribeUrlSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const user = await getUserByEmail(parsed.data.email);
+  if (!user) return c.json({ error: `User ${parsed.data.email} not found` }, 404);
+  return c.json({ url: unsubscribeUrl(user.id) });
+});
+
+// The suppression state the unsubscribe is supposed to produce — the same column the
+// pre-send gate reads (isLifecycleEmailUnsubscribed, consumed by sendLifecycleEmail at
+// services/email/lifecycle-send.ts:38). Read through the service, not the column, so
+// the journey asserts what the SEND PATH will see rather than a schema detail.
+const unsubscribedStateSchema = z.object({ email: z.string() });
+testOnlyRouter.post("/lifecycle-unsubscribed", async (c) => {
+  const parsed = unsubscribedStateSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const user = await getUserByEmail(parsed.data.email);
+  if (!user) return c.json({ error: `User ${parsed.data.email} not found` }, 404);
+  return c.json({ unsubscribed: await isLifecycleEmailUnsubscribed(user.id) });
+});
+
 testOnlyRouter.post("/seed-spec", async (c) => {
   const body = await c.req.json().catch(() => null);
   const parsed = seedSpecSchema.safeParse(body);

@@ -502,3 +502,35 @@ export async function seedComment(opts: {
 }): Promise<{ commentId: string; seq: number }> {
   return call("POST", "/seed-comment", opts);
 }
+
+/**
+ * spec-515 t-10 / ac-2 — the REAL one-click unsubscribe URL for a seeded user.
+ *
+ * Minted server-side because the token is an HMAC over the userId signed with a
+ * secret the browser never sees (services/email/unsubscribe-token.ts). Asking the
+ * server for the same URL `unsubscribeUrl()` puts in every lifecycle email is what
+ * makes the journey exercise the actual link a mail client follows — a hand-built
+ * approximation could pass while the shipped link stays broken, which is precisely
+ * the defect spec-515 exists to fix.
+ */
+export async function getUnsubscribeUrl(email: string): Promise<string> {
+  const { url } = await call<{ url: string }>("POST", "/unsubscribe-url", { email });
+  return url;
+}
+
+/**
+ * Whether the lifecycle-email PRE-SEND GATE would suppress this user.
+ *
+ * Read through `isLifecycleEmailUnsubscribed` — the same function
+ * `sendLifecycleEmail` consults before any activation/win-back send
+ * (services/email/lifecycle-send.ts) — so the journey asserts what the send path
+ * will actually see, not a schema column.
+ */
+export async function isLifecycleUnsubscribed(email: string): Promise<boolean> {
+  const { unsubscribed } = await call<{ unsubscribed: boolean }>(
+    "POST",
+    "/lifecycle-unsubscribed",
+    { email },
+  );
+  return unsubscribed;
+}

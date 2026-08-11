@@ -77,7 +77,14 @@ export default defineConfig({
           // `reuseExistingServer` below silently adopts another worktree's server
           // and every journey runs against that branch's code while reporting a
           // pass. e2e/global-setup.ts refuses to proceed on a mismatch.
-          command: `GOOGLE_CLIENT_ID="" MEMEX_ANTHROPIC_FAKE=1 JOURNEY_PREVIEW_DOMAINS="memex.ai" SLACK_TOKEN_ENCRYPTION="${process.env.SLACK_TOKEN_ENCRYPTION ?? "plaintext"}" DATABASE_URL="${DATABASE_URL}" MEMEX_WORKSPACE_ID="${process.env.MEMEX_WORKSPACE_ID ?? ""}" PORT=${SERVER_PORT} pnpm --filter @memex/server dev`,
+          // APP_BASE_URL: spec-515 t-10. Server-side URL builders read it, and it is
+          // NOT in packages/server/.env, so it would default to `https://memex.ai`
+          // (services/email/unsubscribe-token.ts). A journey that follows a
+          // product-built link would then navigate to PRODUCTION instead of the
+          // build under test — silently green while proving nothing. Pin it to the
+          // e2e API origin: the unsubscribe pages are server-rendered, so no Vite
+          // proxy hop is needed for them.
+          command: `GOOGLE_CLIENT_ID="" MEMEX_ANTHROPIC_FAKE=1 JOURNEY_PREVIEW_DOMAINS="memex.ai" APP_BASE_URL="http://localhost:${SERVER_PORT}" SLACK_TOKEN_ENCRYPTION="${process.env.SLACK_TOKEN_ENCRYPTION ?? "plaintext"}" DATABASE_URL="${DATABASE_URL}" MEMEX_WORKSPACE_ID="${process.env.MEMEX_WORKSPACE_ID ?? ""}" PORT=${SERVER_PORT} pnpm --filter @memex/server dev`,
           url: `http://localhost:${SERVER_PORT}/api/health`,
           reuseExistingServer: !process.env.CI,
           timeout: 60_000,

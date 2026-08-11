@@ -127,10 +127,29 @@ export async function emit(
   args: EmitArgs,
   transport: typeof fetch = globalThis.fetch,
 ): Promise<void> {
-  if (!isEmissionEnabled()) return;
+  await emitOnce(args, transport);
+}
+
+/**
+ * What one emission did. `emit()` deliberately discards this — its documented
+ * contract is `Promise<void>` that never throws, and the `ac-emission-bootstrap`
+ * topic describes that shape for other languages to copy, so it must not change.
+ *
+ * The 404 fallback needs the outcome for one reason only: a 401 means the key is
+ * refused, so every remaining event in the flush will be refused too and sending
+ * them is pure waste (spec-515 ac-14).
+ */
+type EmitOutcome = "ok" | "auth-refused" | "failed";
+
+/** `emit()` with the outcome reported instead of swallowed. Never throws. */
+async function emitOnce(
+  args: EmitArgs,
+  transport: typeof fetch = globalThis.fetch,
+): Promise<EmitOutcome> {
+  if (!isEmissionEnabled()) return "ok";
 
   const url = deriveEventsUrl(args.ac_uid);
-  if (url === null) return;
+  if (url === null) return "ok";
 
   const payload = buildPayload(args);
 
@@ -160,7 +179,7 @@ export async function emit(
       // tagged test — the one thing the fail-safe contract forbids. 5s keeps
       // well under the hook budget; the abort lands in the catch below and
       // degrades to the documented warn-and-continue.
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(PER_REQUEST_TIMEOUT_MS),
     });
     if (!res.ok) {
       // spec-333: surface the server's RESPONSE BODY, not just the status code, so the
@@ -184,11 +203,120 @@ export async function emit(
         `[ac-emit] server warning for ac_uid=${args.ac_uid}: ${warning}`,
       );
     }
+    // 401 is the only DEFINITIVE refusal: same key, same server, so the rest of
+    // the flush cannot succeed either. A 5xx is transient and per-event — treat it
+    // as a plain failure so a flaky server never silently drops the whole buffer.
+    if (res.status === 401) return "auth-refused";
+    return res.ok ? "ok" : "failed";
   } catch (err) {
     // eslint-disable-next-line no-console
     console.warn(
       `[ac-emit] POST ${url} failed for ac_uid=${args.ac_uid}:`,
       err instanceof Error ? err.message : err,
+    );
+    return "failed";
+  }
+}
+
+/**
+ * How many single-event POSTs the 404 fallback may hold in flight at once
+ * (spec-515 ac-13).
+ *
+ * Was unbounded: `Promise.all` over the whole file buffer, multiplied by however
+ * many vitest workers flushed at the same moment. Observed on prod 2026-07-24 at
+ * ~1,800 POSTs/min.
+ *
+ * The binding constraint is not CPU but the server's connection pool —
+ * `DB_POOL_MAX=10` × `maxScale 3` = 30 slots, shared with real user traffic. This
+ * cap is per flush and several workers can flush together, so it has to leave
+ * headroom rather than merely be finite: 4 keeps even a simultaneous multi-worker
+ * flush in the same order of magnitude as the pool instead of hundreds of times
+ * over it. Exported so the test asserts the real value, not a copy.
+ */
+export const MAX_FALLBACK_CONCURRENCY = 4;
+
+/**
+ * Client-side bound on ONE request (both the batch POST and each fallback POST).
+ *
+ * A hung server is as dangerous as a failed one: an unbounded awaited fetch rides
+ * past vitest's hook budget and fails the tagged test, which swallowing errors alone
+ * cannot prevent.
+ */
+export const PER_REQUEST_TIMEOUT_MS = 5000;
+
+/**
+ * How long the fallback may keep STARTING new requests (spec-515 t-12 / ac-15).
+ *
+ * Bounding concurrency (ac-13) made total time linear in the buffer: measured at 40ms
+ * per request with a cap of 4, 12 events took 144ms and 120 took 1240ms. Against a
+ * HUNG server, per-request latency becomes PER_REQUEST_TIMEOUT_MS, so 120 events
+ * would take 120/4 × 5s = 150 SECONDS — where the old unbounded fan-out failed the
+ * same case in ~5s. Bounding alone therefore traded a connection-pool problem for a
+ * guaranteed hook-timeout, which the fail-safe contract forbids.
+ *
+ * This deadline gates when the LAST request may start; each request is itself
+ * bounded, so worst-case total ≤ 4000 + 5000 = 9s, inside vitest's 10s default
+ * hookTimeout with ~1s of headroom for the rest of afterAll. Generous enough that a
+ * healthy-but-slow server (200ms/request) still lands ~80 events before the cut.
+ *
+ * The trade-off is deliberate and asymmetric: truncating some emissions loses
+ * verification signal, while overrunning the hook FAILS the consumer's test run. The
+ * contract ranks those, so the deadline wins and the drop is warned about loudly.
+ */
+export const FALLBACK_START_DEADLINE_MS = 4000;
+
+/**
+ * Post `entries` one at a time through `emitOnce`, at most
+ * {@link MAX_FALLBACK_CONCURRENCY} in flight, stopping early if the server refuses
+ * the emission key.
+ *
+ * Never throws: `emitOnce` swallows everything, so the `Promise.all` below cannot
+ * reject and the fail-safe contract survives (spec-515 ac-15 / t-12).
+ */
+export async function runBoundedFallback(
+  entries: EmitArgs[],
+  transport: typeof fetch,
+  startDeadlineMs: number = FALLBACK_START_DEADLINE_MS,
+): Promise<void> {
+  let cursor = 0;
+  let authRefused = false;
+  const startedAt = Date.now();
+  let deadlineHit = false;
+
+  const worker = async (): Promise<void> => {
+    while (!authRefused) {
+      if (Date.now() - startedAt >= startDeadlineMs) {
+        deadlineHit = true;
+        return;
+      }
+      const index = cursor++;
+      if (index >= entries.length) return;
+      if ((await emitOnce(entries[index], transport)) === "auth-refused") {
+        authRefused = true;
+      }
+    }
+  };
+
+  const width = Math.min(MAX_FALLBACK_CONCURRENCY, entries.length);
+  await Promise.all(Array.from({ length: width }, () => worker()));
+
+  if (deadlineHit) {
+    const dropped = Math.max(0, entries.length - cursor);
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[ac-emit] fallback deadline (${startDeadlineMs}ms) reached — dropped ${dropped} ` +
+        "of this file's events rather than overrun the test runner's hook budget. " +
+        "The server has no /batch route AND is responding slowly; fix either and the " +
+        "whole buffer lands in one request.",
+    );
+  }
+
+  if (authRefused && cursor < entries.length) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[ac-emit] emission key refused (401) — abandoned ${entries.length - cursor} ` +
+        "of this file's remaining events rather than sending requests that cannot " +
+        "succeed. Provision a fresh key (provision_ac_emission) and re-run.",
     );
   }
 }
@@ -261,7 +389,7 @@ export async function emitBatch(
         // Bound the request client-side for the same reason emit() does: a hung
         // server must abort into the catch below rather than ride past vitest's
         // hook timeout and fail the run.
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.timeout(PER_REQUEST_TIMEOUT_MS),
       });
 
       // ROLLOUT SAFETY (spec-489, std-22): a 404/405 means this server has no
@@ -271,9 +399,9 @@ export async function emitBatch(
       // /batch route itself only ever returns 200/400/401, so 404/405 is an
       // unambiguous "route absent" signal, not a per-request error.
       if (res.status === 404 || res.status === 405) {
-        await Promise.all(
-          bucket.map((entry) => emit(entry, transport)),
-        );
+        // spec-515 ac-13/ac-14: bounded, and abandoned early if the key is refused.
+        // Was `Promise.all(bucket.map(emit))` — every event of the file at once.
+        await runBoundedFallback(bucket, transport);
         continue;
       }
 
