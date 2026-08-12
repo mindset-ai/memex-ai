@@ -226,12 +226,23 @@ async function emitOnce(
  * many vitest workers flushed at the same moment. Observed on prod 2026-07-24 at
  * ~1,800 POSTs/min.
  *
- * The binding constraint is not CPU but the server's connection pool —
- * `DB_POOL_MAX=10` × `maxScale 3` = 30 slots, shared with real user traffic. This
- * cap is per flush and several workers can flush together, so it has to leave
- * headroom rather than merely be finite: 4 keeps even a simultaneous multi-worker
- * flush in the same order of magnitude as the pool instead of hundreds of times
- * over it. Exported so the test asserts the real value, not a copy.
+ * The binding constraint is not CPU but the server's connection pool. The
+ * arithmetic here originally read `DB_POOL_MAX=10 × maxScale 3 = 30`, which was
+ * never the deployed shape and is further adrift now: the pool default is 5
+ * (`db/connection.ts`), prod overrides it to 4, and spec-518 raised prod's
+ * ceiling to 8 instances — so the real prod budget is 8 × (4+1 relay LISTEN) =
+ * 40 slots, shared with real user traffic. The conclusion is unchanged, which is
+ * why the value stays 4: this cap is per flush and several workers can flush
+ * together, so it has to leave headroom rather than merely be finite, and 4 keeps
+ * even a simultaneous multi-worker flush in the same order of magnitude as the
+ * pool instead of hundreds of times over it. Exported so the test asserts the
+ * real value, not a copy.
+ *
+ * Note for whoever revisits this number: it is a CLIENT-side bound and cannot be
+ * derived from the server's pool, because a published package has no idea which
+ * deployment it is talking to (std-22). It is deliberately conservative for that
+ * reason. The server-side bound that does not depend on client goodwill is
+ * spec-525's admission cap.
  */
 export const MAX_FALLBACK_CONCURRENCY = 4;
 
