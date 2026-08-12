@@ -120,13 +120,27 @@ try {
     return `${targets.length} targets`;
   });
 
-  check("no workspace-only development condition survived into the published exports", () => {
+  // Names the ONE condition that must never ship, rather than counting conditions.
+  // An earlier draft asserted "exactly two leaves per entry point", which is an
+  // incidental fact about today's manifest, not an invariant: adding `require` for a
+  // CJS dual-publish, or `browser` for the jsdom consumers ac-4 is about, would red a
+  // perfectly good release. Constraining shapes we have not seen yet is the same
+  // reflex ac-10 forbids — and the leaf-existence check above already catches any
+  // leaked condition, named or not, because its target would be absent from the tarball.
+  check("no workspace-only `development` condition survived into the published exports", () => {
+    const keys = (node, out = []) => {
+      if (node && typeof node === "object" && !Array.isArray(node)) {
+        for (const [k, v] of Object.entries(node)) {
+          if (!k.startsWith(".")) out.push(k);
+          keys(v, out);
+        }
+      }
+      return out;
+    };
     const json = JSON.stringify(manifest.exports ?? {});
     if (json.includes("/src")) throw new Error(`exports still reference ./src — ${json}`);
-    if (leaves(manifest.exports ?? {}).length !== Object.keys(manifest.exports ?? {}).length * 2) {
-      // Two leaves per entry point (types + default) is the published shape. A third
-      // means an extra condition leaked, even if it doesn't happen to say "src".
-      throw new Error(`unexpected condition count in exports — ${json}`);
+    if (keys(manifest.exports ?? {}).includes("development")) {
+      throw new Error(`published exports still carry a \`development\` condition — ${json}`);
     }
   });
 

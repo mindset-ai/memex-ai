@@ -151,7 +151,8 @@ non-pnpm publisher and prints the fix. The rule is written here because knowing
 If pnpm objects that your branch is not the publish branch, the answer is
 `--publish-branch develop`, **not `--no-git-checks`** — that flag also disables the
 clean-tree and up-to-date checks, so it would let you publish an unreviewed working
-tree. The repo's root `.npmrc` sets `publish-branch=develop` so it should not come up.
+tree. Once the root `.npmrc` added in PR #592 has landed it sets `publish-branch=develop`
+and this stops coming up.
 
 Then run `pnpm run verify:published` (`scripts/verify-published-artifact.mjs`). It
 installs the package **from the registry into an empty directory** and imports it
