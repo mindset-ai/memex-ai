@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { tagAc } from "./index.js";
 import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
@@ -77,5 +78,41 @@ describe("package resolution config (spec-129 ac-23)", () => {
     expect(pkg.files).toBeDefined();
     expect(pkg.files).not.toContain("src");
     expect(pkg.files).toContain("dist");
+  });
+
+  // spec-489 issue-1 / 0.3.1 — the override above is only APPLIED by pnpm.
+  //
+  // 0.3.0 shipped broken on 2026-08-10 because it was published with `npm publish`,
+  // which ignores publishConfig field overrides: the repo-only `development ->
+  // ./src` condition reached the registry, ./src is not in `files`, and every
+  // external Vitest consumer failed with "Failed to resolve import". Every other
+  // layer held — the override, the prepublish gate, the assertions above, and a
+  // README saying not to remove either. The gate could not see it, because it
+  // inspects what *pnpm* would ship.
+  //
+  // So the publisher itself is now a guarded precondition, and this asserts the
+  // guard exists rather than trusting prose: documentation is precisely what
+  // failed here, and firmer documentation would repeat it.
+  // Asserts the gate's BEHAVIOUR, not its source text. Two earlier drafts of this
+  // test grepped the script and both broke on regex escaping — and a text match
+  // would pass just as happily on a gate that printed a warning and continued.
+  // Running it is the only thing that proves it aborts.
+  it("the prepublish gate refuses a non-pnpm publisher", () => {
+    tagAc(`${AC}/ac-23`);
+    const gate = fileURLToPath(
+      new URL("../scripts/verify-publish-artifact.mjs", import.meta.url),
+    );
+
+    const run = spawnSync(process.execPath, [gate], {
+      encoding: "utf8",
+      // What `npm publish` sets. The gate must reject it BEFORE packing anything,
+      // so this path is fast and touches no registry.
+      env: { ...process.env, npm_config_user_agent: "npm/10.9.0 node/v22.14.0 linux x64" },
+    });
+
+    expect(run.status, "gate must exit non-zero to abort the publish").toBe(1);
+    expect(run.stderr).toContain("WRONG PUBLISHER");
+    // It must name the fix, not just refuse: whoever hits this is mid-publish.
+    expect(run.stderr).toContain("pnpm publish");
   });
 });
