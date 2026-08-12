@@ -138,8 +138,16 @@ describe('spec-448 — version badge (ac-16)', () => {
     renderAt('/n/m/specs/spec-448');
 
     await screen.findByText('Document versioning');
-    await waitFor(() => expect(screen.getByTestId('version-badge')).toBeInTheDocument());
-    expect(screen.getByTestId('version-badge')).toHaveTextContent('V2 · First cut');
+    // Wait for the CONTENT, not merely the element. The badge (DocDocument.tsx
+    // ~1169) composes two independent async sources: `V{n}` from `doc`, and
+    // ` · {name}` from the separate versions list. So the element exists — reading
+    // just "V2" — as soon as `doc` lands, which satisfies a toBeInTheDocument gate
+    // while the name is still in flight; a synchronous assertion on the full text
+    // then races the second fetch and reds under CI load. This is strictly the
+    // stronger check: getByTestId still throws if the badge is absent.
+    await waitFor(() =>
+      expect(screen.getByTestId('version-badge')).toHaveTextContent('V2 · First cut'),
+    );
   });
 
   it('treats a doc with no version field as v1 (no badge) — legacy-fixture safety', async () => {
