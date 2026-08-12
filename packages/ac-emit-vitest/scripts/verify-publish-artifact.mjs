@@ -40,6 +40,41 @@ const leaves = (node, out = []) => {
   return out;
 };
 
+// ── CHECK 0: refuse the wrong publisher ───────────────────────────────────────
+// `publishConfig.exports` — the thing that strips the workspace-only
+// `development` condition — is a field override applied by **pnpm**. `npm publish`
+// IGNORES it and ships `exports` verbatim, so the leaked `development -> ./src`
+// condition reappears and every external Vitest consumer breaks on
+// "Failed to resolve import".
+//
+// That is not hypothetical: 0.3.0 was published with `npm publish` on 2026-08-10
+// and is broken on npm for exactly this reason. Every other layer held — the
+// override, this gate, `src/package-resolution.test.ts`, and a README that says
+// not to remove either. The defence was in depth; the entry point was wrong, and
+// the checks below could not see it because they inspect what *pnpm* would ship.
+//
+// So this check comes FIRST and needs no tarball: documentation already failed
+// once here, and replacing it with firmer documentation would repeat the mistake.
+const ua = process.env.npm_config_user_agent ?? "";
+if (ua && !/\bpnpm\//.test(ua)) {
+  console.error("✗ WRONG PUBLISHER — aborting publish\n");
+  console.error(`  detected: ${ua}`);
+  console.error("  This package MUST be published with `pnpm publish`.\n");
+  console.error("  `publishConfig.exports` strips the repo-only `development` export");
+  console.error("  condition (which points at ./src, and ./src is not in `files`).");
+  console.error("  pnpm applies that override; npm does not — so `npm publish` ships a");
+  console.error("  tarball whose exports point at files it does not contain, and every");
+  console.error("  external Vitest consumer fails with \"Failed to resolve import\".");
+  console.error("  This is how 0.3.0 shipped broken.\n");
+  console.error("  Run:  pnpm publish");
+  process.exit(1);
+}
+if (!ua) {
+  // Direct `node scripts/verify-publish-artifact.mjs` — a deliberate local run of
+  // the gate, not a publish. The artifact checks below still apply.
+  console.log("• no npm_config_user_agent — running the artifact checks only (not a publish)");
+}
+
 const tmp = mkdtempSync(join(tmpdir(), "ac-emit-verify-"));
 let failed = false;
 try {
