@@ -2,7 +2,7 @@ import { and, eq, ne, desc, count, isNull, inArray, or, exists, gt, sql, type SQ
 import { db } from "../db/connection.js";
 import { documents, docSections, docComments, decisions, tasks, acs, users, tags, documentTags } from "../db/schema.js";
 import type { Doc, DocSection, Decision } from "../db/schema.js";
-import type { DocSummary } from "../types/index.js";
+import type { DocSummary, TaskProgress } from "../types/index.js";
 import { NotFoundError, ValidationError } from "../types/errors.js";
 import { mutate, type ChangeKey, type Mutated, type RequestCtx } from "./mutate.js";
 import { resolveActorColumns } from "./actor.js";
@@ -397,6 +397,55 @@ export async function taskCountsByDoc(
   return new Map(rows.map((r) => [r.docId, Number(r.n)]));
 }
 
+/**
+ * spec-529 t-2 (ac-11): the ceiling on `?handles=`. A document body can name an
+ * unbounded number of handles, and the resolution request is driven by that body,
+ * so the cap is what keeps one page view from becoming one unbounded query. Sized
+ * far above any real document (the worked example names five) and far below
+ * anything that would strain the index.
+ */
+export const MAX_HANDLE_FILTER = 100;
+
+/**
+ * spec-529 t-2: per-doc task progress for the reference pill and its card.
+ *
+ * ONE grouped query over (docId, status) — the same `tasks` rows and the same
+ * `retiredAtVersion` restraint `taskCountsByDoc` uses, so the pill's fraction and
+ * the Spec page's own task list are computed from one source and cannot disagree
+ * for the same Spec (spec-529 dec-2). Docs with no tasks are absent from the map;
+ * absence means "no tasks", which the pill renders as no fraction at all rather
+ * than as 0/0.
+ */
+export async function taskProgressByDoc(
+  memexId: string,
+  docIds: string[],
+): Promise<Map<string, TaskProgress>> {
+  if (docIds.length === 0) return new Map();
+  const rows = await db
+    .select({ docId: tasks.docId, status: tasks.status, n: count() })
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.memexId, memexId),
+        inArray(tasks.docId, docIds),
+        isNull(tasks.retiredAtVersion),
+      ),
+    )
+    .groupBy(tasks.docId, tasks.status);
+
+  const out = new Map<string, TaskProgress>();
+  for (const r of rows) {
+    const n = Number(r.n);
+    const p = out.get(r.docId) ?? { total: 0, complete: 0, inProgress: 0, notStarted: 0 };
+    p.total += n;
+    if (r.status === "complete") p.complete += n;
+    else if (r.status === "in_progress") p.inProgress += n;
+    else p.notStarted += n;
+    out.set(r.docId, p);
+  }
+  return out;
+}
+
 export interface ListDocsOptions {
   docType?: string;
   // Default false — archived docs are hidden from the kanban. Set true to include them
@@ -417,6 +466,16 @@ export interface ListDocsOptions {
   // zero active ACs ALSO leave `acHealth` unset (absence-of-signal, b-66 Scope
   // AC-4) so the UI's "no commitments" branch trips naturally.
   includeAcHealth?: boolean;
+  // spec-529 t-2 (ac-10): restrict the result to these doc HANDLES. This is what
+  // lets a document view resolve every `spec-N` its body mentions in ONE request
+  // instead of a fetch per reference. Handles are per-memex [per std-10 cl-14], so
+  // the filter is naturally scoped by the memexId already in play — a handle from
+  // another Memex simply matches nothing, which is the same absent response an
+  // unreadable one gets [per std-7].
+  handles?: readonly string[];
+  // spec-529 t-2 (ac-10): attach `taskProgress` per Spec, from the same aggregation
+  // the Spec page reads. Off by default so callers that don't ask don't pay.
+  includeTaskProgress?: boolean;
   // spec-118 ac-18: when set, attach an `assignees` array per Spec so the board
   // can render assignee avatar(s) on each card (more prominent than the creator)
   // in one round-trip. Specs with no assignees leave `assignees` unset → the card
@@ -510,6 +569,16 @@ export async function listDocs(
   if (opts.excludeDemo) {
     const notDemo = or(isNull(documents.isDemo), ne(documents.isDemo, true));
     if (notDemo) conditions.push(notDemo);
+  }
+  // spec-529 t-2 (ac-11): the handle set is UNTRUSTED and unbounded — a body can
+  // name any number of handles. Cap it here rather than letting a pathological
+  // document turn one page view into an unbounded IN (...) query. An empty set
+  // after the cap still filters to nothing rather than silently listing the Memex.
+  if (opts.handles) {
+    const capped = opts.handles.slice(0, MAX_HANDLE_FILTER);
+    conditions.push(
+      capped.length > 0 ? inArray(documents.handle, capped as string[]) : sql`false`,
+    );
   }
   if (opts.statusIn && opts.statusIn.length > 0) {
     conditions.push(inArray(documents.status, opts.statusIn as string[]));
@@ -635,6 +704,20 @@ export async function listDocs(
         // the wire shape sparse means the same response works for legacy
         // clients that don't know about acHealth at all.
         if (h && h.totalActive > 0) s.acHealth = h;
+      }
+    }
+  }
+
+  if (opts.includeTaskProgress && summaries.length > 0) {
+    // Tasks are a Spec-only concept, so mirror the includeAcHealth restraint and
+    // filter to Spec docIds before aggregating. A Spec with no tasks is left with
+    // `taskProgress` unset — absence is the signal, exactly as it is for acHealth.
+    const specIds = summaries.filter((s) => s.docType === "spec").map((s) => s.id);
+    if (specIds.length > 0) {
+      const byDoc = await taskProgressByDoc(memexId, specIds);
+      for (const s of summaries) {
+        const p = byDoc.get(s.id);
+        if (p && p.total > 0) s.taskProgress = p;
       }
     }
   }

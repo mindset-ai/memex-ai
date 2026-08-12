@@ -30,6 +30,18 @@ export interface DocSummaryAssignee {
   email: string | null;
 }
 
+/**
+ * spec-529: the task roll-up behind a reference pill's `4/8 tasks` and its
+ * card's split. Derived by `taskProgressByDoc` from the same rows the Spec's
+ * own task list reads.
+ */
+export interface TaskProgress {
+  total: number;
+  complete: number;
+  inProgress: number;
+  notStarted: number;
+}
+
 export interface DocSummary {
   id: string;
   memexId: string;
@@ -91,6 +103,13 @@ export interface DocSummary {
   // Scope AC-3). Specs with zero active ACs get the field OMITTED (absence-of-signal,
   // b-66 Scope AC-4) so the UI's "no commitments" branch trips naturally.
   acHealth?: AcHealth;
+  /**
+   * spec-529 (ac-10): per-Spec task progress, populated only when listDocs is
+   * called with `includeTaskProgress`. Absent when the Spec has no tasks —
+   * absence is the signal (the pill renders no fraction rather than `0/0`),
+   * matching how `acHealth` treats a Spec with no commitments.
+   */
+  taskProgress?: TaskProgress;
   // Set when ?include=assignees is requested (spec-118 ac-18). The Spec's current
   // assignee(s); OMITTED when the Spec has no assignees so the card's "Unassigned"
   // branch trips. Independent of role — an assignee is not necessarily an editor.
