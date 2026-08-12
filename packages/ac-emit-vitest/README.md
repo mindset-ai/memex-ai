@@ -130,6 +130,45 @@ no `src/`) stays `dist`-only and unaffected. Do not remove the `development`
 condition or the `publishConfig` override; `src/package-resolution.test.ts`
 (spec-129 ac-23) locks both in place.
 
+## Maintainers: releasing
+
+```bash
+pnpm publish                                  # NEVER `npm publish`
+pnpm run verify:published                     # then prove the registry copy imports
+```
+
+**`pnpm publish`, never `npm publish`.** `publishConfig.exports` — the thing that
+strips the `development` condition above — is a field override applied by *pnpm*.
+`npm publish` ignores it and ships `exports` verbatim, so `development -> ./src`
+reaches the registry, `./src` is not in `files`, and every external Vite/Vitest
+consumer fails on `Failed to resolve import`. That is not hypothetical: **0.3.0
+shipped exactly this way** and is deprecated on npm as a result (spec-526).
+
+You should not have to remember any of that — `prepublishOnly` now refuses a
+non-pnpm publisher and prints the fix. The rule is written here because knowing
+*why* stops someone from "helpfully" removing the guard.
+
+If pnpm objects that your branch is not the publish branch, the answer is
+`--publish-branch develop`, **not `--no-git-checks`** — that flag also disables the
+clean-tree and up-to-date checks, so it would let you publish an unreviewed working
+tree. Once the root `.npmrc` added in PR #592 has landed it sets `publish-branch=develop`
+and this stops coming up.
+
+Then run `pnpm run verify:published` (`scripts/verify-published-artifact.mjs`). It
+installs the package **from the registry into an empty directory** and imports it
+under `--conditions=development`, the resolver Vite and Vitest use. Both halves
+matter: the pre-publish gate packs locally, and this repo reaches the package
+through a workspace symlink where `./src` really exists — so a packaging fault of
+this kind is invisible from inside the repo by construction. Verifying a tarball's
+*contents* is not verifying that the package can be *imported*; 0.3.0's contents
+were checked and were correct.
+
+Pass a version to check any release: `pnpm run verify:published 0.3.0` fails, as it
+should. If a published version turns out broken, **supersede it** — bump the patch,
+republish, and `npm deprecate` the bad one. Never unpublish: consumers already
+locked to it lose the dependency outright, npm will not let you reuse the version
+number, and a deprecation can be undone.
+
 ## Requirements
 
 - Node.js 20 or later (uses native `fetch`)
