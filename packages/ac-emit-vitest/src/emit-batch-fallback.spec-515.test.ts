@@ -10,10 +10,12 @@
 // buffered event of a file simultaneously, and vitest runs files across parallel
 // workers, so in-flight requests were (events per file) × (workers), uncapped.
 // Measured consequence on prod 2026-07-24: ~1,800 single POSTs/min. The sharpest
-// risk is not DB CPU but CONNECTION-POOL STARVATION — DB_POOL_MAX=10 × maxScale 3
-// = 30 slots total, against which one 50-test file across 7 workers can put ~350
-// concurrent requests, queueing CI traffic ahead of real users. Verbatim what
-// spec-489 ac-3 set out to prevent.
+// risk is not DB CPU but CONNECTION-POOL STARVATION — prod's budget is 8 instances
+// × (DB_POOL_MAX 4 + 1 relay LISTEN) = 40 slots total (spec-518; this comment used
+// to cite a `DB_POOL_MAX=10 × maxScale 3 = 30` shape that was never deployed),
+// against which one 50-test file across 7 workers can put ~350 concurrent requests,
+// queueing CI traffic ahead of real users. Verbatim what spec-489 ac-3 set out to
+// prevent.
 //
 // AND: a 401 on the first fallback POST guarantees the rest will also 401 — same
 // key, same server — but they were already in flight, and nothing watched the first
@@ -115,9 +117,9 @@ describe("emitBatch 404 fallback — bounded concurrency (spec-515 ac-13)", () =
   });
 
   it("the cap is small enough to respect the server's connection pool", async () => {
-    // DB_POOL_MAX=10 × maxScale 3 = 30 slots, shared with real user traffic. The
-    // cap is per flush and several vitest workers can flush together, so it has to
-    // leave headroom rather than merely be finite.
+    // Prod's budget is 8 instances × (DB_POOL_MAX 4 + 1 relay LISTEN) = 40 slots,
+    // shared with real user traffic. The cap is per flush and several vitest workers
+    // can flush together, so it has to leave headroom rather than merely be finite.
     tagAc(AC_BOUNDED);
     expect(MAX_FALLBACK_CONCURRENCY).toBeLessThanOrEqual(5);
     expect(MAX_FALLBACK_CONCURRENCY).toBeGreaterThanOrEqual(2);
