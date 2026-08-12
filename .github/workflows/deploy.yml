@@ -136,25 +136,30 @@ jobs:
             https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.14.2/cloud-sql-proxy.linux.amd64
           chmod +x /usr/local/bin/cloud-sql-proxy
 
-      - name: Write per-env deploy config
-        # The gitignored scripts/deploy.<env>.env, exactly as a deployer's
-        # laptop has it (DB_PASS is fetched from Secret Manager at source
-        # time, so the secret holds coordinates, not credentials).
-        #
-        # spec-518 dec-4: this file is NO LONGER what the deploy reads. Writing it
-        # made deploy-config.sh take its LOCAL-OVERRIDE branch — documented "ad-hoc
-        # testing only" — on every CI deploy, so the canonical secret was never
-        # fetched in production. The step is kept for one rollout only, so the
-        # switch below can be reverted in one line; it is retired once both
-        # environments have deployed clean from the canonical secret (ac-17).
-        env:
-          DEPLOY_ENV_FILE: ${{ secrets.DEPLOY_ENV_FILE }}
-        run: |
-          if [ -z "$DEPLOY_ENV_FILE" ]; then
-            echo "::error::DEPLOY_ENV_FILE secret is not set on the '${ENV}' environment"
-            exit 1
-          fi
-          printf '%s\n' "$DEPLOY_ENV_FILE" > "scripts/deploy.${ENV}.env"
+      # RETIRED 2026-08-12 (spec-518 t-6, the "retire the blob last" third).
+      #
+      # A "Write per-env deploy config" step used to materialise the gitignored
+      # scripts/deploy.<env>.env from the DEPLOY_ENV_FILE secret. That file was
+      # spec-518's original defect: writing it made deploy-config.sh take its
+      # LOCAL-OVERRIDE branch — documented "ad-hoc testing only" — on every CI
+      # deploy, so the canonical Secret Manager config was never read in
+      # production, and prod's scaling silently reverted to deploy.sh's defaults.
+      #
+      # It was kept deliberately for one rollout as a one-line revert path, on the
+      # condition (ac-17) that BOTH environments first deploy clean from the
+      # canonical secret. That condition is now met and verified in the logs:
+      #   int  — run 31606716124: [deploy-config] source=SECRET-MANAGER secret=memex-int-deploy-env
+      #   prod — run 31615268013: [deploy-config] source=SECRET-MANAGER secret=memex-prod-deploy-env
+      #
+      # Removing it is not tidying. While the file existed, the ONLY thing keeping
+      # the deploy on the canonical config was `DEPLOY_CONFIG_SOURCE: secret` below:
+      # deploy-config.sh's unset-source branch is `[[ -f "$ENV_FILE" ]] && use_local=1`,
+      # so deleting or renaming that one env line would have silently restored the
+      # original bug — quietly, on the next deploy, with a green run. No file, no gun.
+      #
+      # The DEPLOY_ENV_FILE secret still exists on both GitHub Environments and is
+      # now unread; delete it there once this has shipped (nothing in the repo
+      # references it any more).
 
       - name: Deploy (server + UI + smoke)
         # SMOKE_MCP_TOKEN + SMOKE_SESSION_TOKEN enable the authed write tier of
