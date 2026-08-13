@@ -65,7 +65,7 @@ describe("spec-525 ac-12: the ceiling is derived from the resolved pool, not typ
   it("a gate built from a pool exposes a ceiling that is strictly less than the pool", () => {
     tagAc(AC_DERIVED);
     for (const poolMax of [2, 4, 5, 8, 16]) {
-      const gate = new EmissionGate({ poolMax });
+      const gate = new EmissionGate({ mode: "enforcing", poolMax });
       expect(gate.ceiling).toBeLessThan(poolMax);
       expect(gate.ceiling).toBeGreaterThanOrEqual(1);
     }
@@ -77,7 +77,7 @@ describe("spec-525 ac-12: the ceiling is derived from the resolved pool, not typ
     // A per-key slice equal to the ceiling would let one key take everything, which is
     // ac-10's failure. Strictly-below is what leaves room for a second credential.
     for (const poolMax of [4, 5, 8, 16]) {
-      const gate = new EmissionGate({ poolMax });
+      const gate = new EmissionGate({ mode: "enforcing", poolMax });
       expect(gate.perKeySlice).toBeLessThan(gate.ceiling);
       expect(gate.perKeySlice).toBeGreaterThanOrEqual(1);
       expect(derivePerKeySlice(gate.ceiling)).toBe(gate.perKeySlice);
@@ -88,7 +88,7 @@ describe("spec-525 ac-12: the ceiling is derived from the resolved pool, not typ
 describe("spec-525 ac-9: keyed on the presented token, by string handling alone", () => {
   it("admits two distinct tokens independently, with neither resolved to a memex", () => {
     tagAc(AC_PER_KEY);
-    const gate = new EmissionGate({ poolMax: 8 }); // ceiling 4, slice 3
+    const gate = new EmissionGate({ mode: "enforcing", poolMax: 8 }); // ceiling 4, slice 3
     const a = gate.tryAcquire("mxk_alpha");
     const b = gate.tryAcquire("mxk_beta");
     expect(a.ok).toBe(true);
@@ -100,7 +100,7 @@ describe("spec-525 ac-9: keyed on the presented token, by string handling alone"
 
   it("never stores the presented token in the clear", () => {
     tagAc(AC_PER_KEY);
-    const gate = new EmissionGate({ poolMax: 8 });
+    const gate = new EmissionGate({ mode: "enforcing", poolMax: 8 });
     const secret = "mxk_this_must_not_be_retrievable";
     const a = gate.tryAcquire(secret);
     expect(a.ok).toBe(true);
@@ -113,7 +113,7 @@ describe("spec-525 ac-9: keyed on the presented token, by string handling alone"
 
   it("treats the same token as the same key, and different tokens as different keys", () => {
     tagAc(AC_PER_KEY);
-    const gate = new EmissionGate({ poolMax: 4 }); // ceiling 2, slice 1
+    const gate = new EmissionGate({ mode: "enforcing", poolMax: 4 }); // ceiling 2, slice 1
     const first = gate.tryAcquire("same-token");
     expect(first.ok).toBe(true);
     // Same token again → its slice (1) is full.
@@ -127,7 +127,7 @@ describe("spec-525 ac-9: keyed on the presented token, by string handling alone"
     // The gate runs before authentication, so an unauthenticated caller reaches it.
     // Bucketing them all under one key means they contend with each other, never with
     // a real credential's slice, and can never bypass the bound by omitting the header.
-    const gate = new EmissionGate({ poolMax: 4 });
+    const gate = new EmissionGate({ mode: "enforcing", poolMax: 4 });
     expect(gate.tryAcquire("").ok).toBe(true);
     expect(gate.tryAcquire("")).toMatchObject({ ok: false });
   });
@@ -136,7 +136,7 @@ describe("spec-525 ac-9: keyed on the presented token, by string handling alone"
 describe("spec-525 ac-10: one loud credential cannot consume another's share", () => {
   it("a key that saturates its slice is shed while a second key is still admitted", () => {
     tagAc(AC_FAIRNESS);
-    const gate = new EmissionGate({ poolMax: 8 }); // ceiling 4, slice 3
+    const gate = new EmissionGate({ mode: "enforcing", poolMax: 8 }); // ceiling 4, slice 3
     const loud = acquireN(gate, "mxk_loud", 10);
     expect(loud).toHaveLength(gate.perKeySlice); // it got its slice and no more
 
@@ -155,7 +155,7 @@ describe("spec-525 ac-10: one loud credential cannot consume another's share", (
     // Those mean opposite things — one emitter over-emitting, versus the instance
     // genuinely saturated — and drive opposite responses (ac-14 labels the counter
     // with this).
-    const gate = new EmissionGate({ poolMax: 4 }); // ceiling 2, slice 1
+    const gate = new EmissionGate({ mode: "enforcing", poolMax: 4 }); // ceiling 2, slice 1
     gate.tryAcquire("a");
     expect(gate.tryAcquire("a")).toMatchObject({ cause: "key_slice_full" });
 
@@ -167,7 +167,7 @@ describe("spec-525 ac-10: one loud credential cannot consume another's share", (
     tagAc(AC_FAIRNESS);
     // Per-key slices SUM, so without an overall ceiling the pool is unprotected once
     // enough credentials appear. Twenty keys must not open twenty connections' worth.
-    const gate = new EmissionGate({ poolMax: 8 }); // ceiling 4
+    const gate = new EmissionGate({ mode: "enforcing", poolMax: 8 }); // ceiling 4
     let admitted = 0;
     for (let i = 0; i < 20; i++) {
       if (gate.tryAcquire(`key-${i}`).ok) admitted++;
@@ -178,7 +178,7 @@ describe("spec-525 ac-10: one loud credential cannot consume another's share", (
 
   it("releasing returns the slot to both bounds", () => {
     tagAc(AC_FAIRNESS);
-    const gate = new EmissionGate({ poolMax: 4 }); // ceiling 2, slice 1
+    const gate = new EmissionGate({ mode: "enforcing", poolMax: 4 }); // ceiling 2, slice 1
     const a = gate.tryAcquire("a");
     const b = gate.tryAcquire("b");
     expect(gate.tryAcquire("c")).toMatchObject({ ok: false });
@@ -191,7 +191,7 @@ describe("spec-525 ac-10: one loud credential cannot consume another's share", (
     tagAc(AC_FAIRNESS);
     // A middleware with an error path can plausibly call release twice; if that
     // decremented twice the gate would drift open under exactly the load it guards.
-    const gate = new EmissionGate({ poolMax: 4 });
+    const gate = new EmissionGate({ mode: "enforcing", poolMax: 4 });
     const a = gate.tryAcquire("a");
     expect(a.ok).toBe(true);
     if (a.ok) {
@@ -208,7 +208,7 @@ describe("spec-525 ac-10: one loud credential cannot consume another's share", (
 describe("spec-525 ac-11: the per-key structure cannot grow without limit", () => {
   it("holds no entry for a key with nothing in flight", () => {
     tagAc(AC_BOUNDED);
-    const gate = new EmissionGate({ poolMax: 8 });
+    const gate = new EmissionGate({ mode: "enforcing", poolMax: 8 });
     const a = gate.tryAcquire("transient");
     expect(gate.trackedKeys).toBe(1);
     if (a.ok) a.release();
@@ -220,7 +220,7 @@ describe("spec-525 ac-11: the per-key structure cannot grow without limit", () =
 
   it("driving far more distinct keys than the ceiling holds the structure's size", () => {
     tagAc(AC_BOUNDED);
-    const gate = new EmissionGate({ poolMax: 8 }); // ceiling 4
+    const gate = new EmissionGate({ mode: "enforcing", poolMax: 8 }); // ceiling 4
     for (let i = 0; i < 50_000; i++) gate.tryAcquire(`rotating-key-${i}`);
     // A rotating-token flood is the attack: mint distinct credentials, grow the map.
     // Size is bounded by what is actually in flight, never by how many keys were seen.
@@ -230,7 +230,7 @@ describe("spec-525 ac-11: the per-key structure cannot grow without limit", () =
 
   it("a refused acquisition leaves no trace", () => {
     tagAc(AC_BOUNDED);
-    const gate = new EmissionGate({ poolMax: 4 }); // ceiling 2
+    const gate = new EmissionGate({ mode: "enforcing", poolMax: 4 }); // ceiling 2
     acquireN(gate, "holder-a", 1);
     acquireN(gate, "holder-b", 1);
     const before = gate.trackedKeys;
@@ -243,7 +243,7 @@ describe("spec-525 ac-11: the per-key structure cannot grow without limit", () =
     // The structural bound above is the real defence. This asserts the gate ALSO
     // states an explicit maximum, so a future change that retains state past release
     // (a wait queue, a rate window) cannot quietly reintroduce unbounded growth.
-    const gate = new EmissionGate({ poolMax: 8 });
+    const gate = new EmissionGate({ mode: "enforcing", poolMax: 8 });
     expect(gate.maxTrackedKeys).toBeGreaterThanOrEqual(gate.ceiling);
     expect(Number.isFinite(gate.maxTrackedKeys)).toBe(true);
   });

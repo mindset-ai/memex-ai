@@ -49,7 +49,7 @@ function saturate(gate: EmissionGate): Array<() => void> {
 describe("spec-525 ac-15: a full cap makes the caller wait, it does not refuse on arrival", () => {
   it("serves a waiter when a slot frees part-way through the interval", async () => {
     tagAc(AC_WAIT);
-    const gate = new EmissionGate({ poolMax: 4, waitMs: 200 });
+    const gate = new EmissionGate({ mode: "enforcing", poolMax: 4, waitMs: 200 });
     const held = saturate(gate);
 
     const pending = gate.acquire("late-arrival");
@@ -63,7 +63,7 @@ describe("spec-525 ac-15: a full cap makes the caller wait, it does not refuse o
 
   it("refuses only once the interval has elapsed, and says which bound blocked it", async () => {
     tagAc(AC_WAIT);
-    const gate = new EmissionGate({ poolMax: 4, waitMs: 60 });
+    const gate = new EmissionGate({ mode: "enforcing", poolMax: 4, waitMs: 60 });
     const held = saturate(gate); // nothing will free
 
     const startedAt = Date.now();
@@ -82,7 +82,7 @@ describe("spec-525 ac-15: a full cap makes the caller wait, it does not refuse o
 
   it("does not wait at all when there is room — the fast path stays fast", async () => {
     tagAc(AC_WAIT);
-    const gate = new EmissionGate({ poolMax: 8, waitMs: 5_000 });
+    const gate = new EmissionGate({ mode: "enforcing", poolMax: 8, waitMs: 5_000 });
     const startedAt = Date.now();
     const result = await gate.acquire("uncontended");
     expect(result.ok).toBe(true);
@@ -97,7 +97,7 @@ describe("spec-525 ac-15: a full cap makes the caller wait, it does not refuse o
     // Waiting must respect both bounds. If the freed slot went to the longest-waiting
     // caller regardless of its per-key slice, a loud credential could be handed slots it
     // is not entitled to simply by queueing first — ac-10's fairness undone by the wait.
-    const gate = new EmissionGate({ poolMax: 4, waitMs: 300 }); // ceiling 2, slice 1
+    const gate = new EmissionGate({ mode: "enforcing", poolMax: 4, waitMs: 300 }); // ceiling 2, slice 1
     const loudFirst = gate.tryAcquire("loud");
     const other = gate.tryAcquire("other");
     expect(loudFirst.ok && other.ok).toBe(true);
@@ -145,7 +145,7 @@ describe("spec-525 ac-19: the waiter set is bounded, and past it the gate hard-s
 
   it("refuses the excess PROMPTLY rather than holding it", async () => {
     tagAc(AC_WAITERS);
-    const gate = new EmissionGate({ poolMax: 4, waitMs: 400, maxWaiters: 3 });
+    const gate = new EmissionGate({ mode: "enforcing", poolMax: 4, waitMs: 400, maxWaiters: 3 });
     const held = saturate(gate);
 
     const queued = [0, 1, 2].map((i) => gate.acquire(`waiter-${i}`));
@@ -169,7 +169,7 @@ describe("spec-525 ac-19: the waiter set is bounded, and past it the gate hard-s
     tagAc(AC_WAITERS);
     // A leaked waiter slot would ratchet the gate into permanent flood mode: the bound
     // fills with ghosts and every later caller is hard-shed while the instance is idle.
-    const gate = new EmissionGate({ poolMax: 4, waitMs: 40, maxWaiters: 2 });
+    const gate = new EmissionGate({ mode: "enforcing", poolMax: 4, waitMs: 40, maxWaiters: 2 });
     const held = saturate(gate);
     await Promise.all([gate.acquire("a"), gate.acquire("b")]); // both time out
     expect(gate.waiting).toBe(0);
@@ -181,7 +181,7 @@ describe("spec-525 ac-19: the waiter set is bounded, and past it the gate hard-s
 
   it("reports how many are waiting, so the flood regime is observable", () => {
     tagAc(AC_WAITERS);
-    const gate = new EmissionGate({ poolMax: 4, waitMs: 5_000, maxWaiters: 4 });
+    const gate = new EmissionGate({ mode: "enforcing", poolMax: 4, waitMs: 5_000, maxWaiters: 4 });
     const held = saturate(gate);
     expect(gate.waiting).toBe(0);
     const queued = [gate.acquire("x"), gate.acquire("y")];
@@ -216,7 +216,7 @@ describe("spec-525 ac-18: the interval stays inside the CLIENT's own bounds", ()
     tagAc(AC_CLIENT_BOUNDS);
     // Misconfiguration must not silently turn a server-side wait into client-side
     // truncation. Clamp rather than obey — the caller's contract outranks our setting.
-    const gate = new EmissionGate({ poolMax: 4, waitMs: 30_000 });
+    const gate = new EmissionGate({ mode: "enforcing", poolMax: 4, waitMs: 30_000 });
     expect(gate.waitMs).toBeLessThan(FALLBACK_START_DEADLINE_MS);
   });
 });

@@ -55,6 +55,41 @@ export type Acquisition =
  * dimension alongside {@link ShedCause}.
  */
 
+/**
+ * What the gate DOES with its decision.
+ *
+ * `shadow` — the whole mechanism runs (bounds, queue, timeouts) against its own counters,
+ *   every would-be refusal is counted with its cause, and the caller is admitted anyway.
+ *   This is the mode the first deploy runs: it cannot refuse anything, so it cannot make
+ *   anything worse, and it is what produces the number ac-2 requires.
+ * `enforcing` — the decision is the answer.
+ *
+ * Switching is configuration, never a code change (ac-17): the rollout's second deploy is
+ * meant to be a config-only revision.
+ */
+export type GateMode = "shadow" | "enforcing";
+
+/**
+ * SHADOW, deliberately.
+ *
+ * t-6 must wire `MEMEX_EMISSION_GATE_MODE` into both `deploy.sh` and the canonical
+ * `memex-<env>-deploy-env` secret. Miss either edit and prod silently takes this default —
+ * so the default has to be the direction that under-protects rather than the one that
+ * enforces limits nobody has measured yet. An unrecognised value falls here too.
+ */
+export const DEFAULT_GATE_MODE: GateMode = "shadow";
+
+/** Read the mode from the environment. Anything but an exact `enforcing` means shadow. */
+export function resolveGateMode(env: Record<string, string | undefined> = process.env): GateMode {
+  return env.MEMEX_EMISSION_GATE_MODE === "enforcing" ? "enforcing" : DEFAULT_GATE_MODE;
+}
+
+/** What shadow mode observed: how many emissions enforcing would have refused, and why. */
+export interface WouldShedCount {
+  readonly total: number;
+  readonly byCause: Record<ShedCause, number>;
+}
+
 /** Default interval a caller may be held while waiting for a slot. */
 export const DEFAULT_WAIT_MS = 250;
 
@@ -203,6 +238,8 @@ export interface EmissionGateOptions {
   readonly maxWaiters?: number;
   /** Assumed slot occupancy per write, used to derive the waiter bound. */
   readonly serviceMs?: number;
+  /** Shadow (count only) or enforcing. Defaults to the resolved environment. */
+  readonly mode?: GateMode;
 }
 
 interface Waiter {
@@ -236,10 +273,14 @@ export class EmissionGate {
   /** How many callers may queue at once, past which the gate hard-sheds. */
   readonly maxWaiters: number;
 
+  /** Shadow (count only) or enforcing. Exposed so t-9's smoke can assert what is running. */
+  readonly mode: GateMode;
+
   readonly #queue: Waiter[] = [];
 
   constructor(options: EmissionGateOptions = {}) {
     const env = resolveWaitConfig();
+    this.mode = options.mode ?? resolveGateMode();
     const poolMax = options.poolMax ?? resolvePoolMax();
     this.ceiling = deriveCeiling(poolMax);
     this.perKeySlice = derivePerKeySlice(this.ceiling);
@@ -258,14 +299,42 @@ export class EmissionGate {
     return this.#queue.length;
   }
 
-  /** Slots currently held across all credentials. */
+  /**
+   * What enforcing WOULD have refused, by cause. Zero outside shadow mode — an enforcing
+   * gate does not count counterfactuals, it just refuses. t-5 reads this onto the shared
+   * OTEL meter; ac-14's labels are the keys of `byCause`, deliberately the same
+   * {@link ShedCause} vocabulary the enforcing path returns, so a week of shadow data
+   * stays comparable the moment enforcement goes on.
+   */
+  get wouldShed(): WouldShedCount {
+    return { total: this.#wouldShedTotal, byCause: { ...this.#wouldShedByCause } };
+  }
+
+  #wouldShedTotal = 0;
+  #wouldShedByCause: Record<ShedCause, number> = {
+    key_slice_full: 0,
+    instance_ceiling_full: 0,
+  };
+
+  // Real occupancy, tracked separately ONLY in shadow — where the caller is admitted
+  // regardless of what the simulation decided, so the two diverge. In enforcing they
+  // would be identical, so the gate does not keep them.
+  readonly #realHeld = new Map<string, number>();
+  #realInFlight = 0;
+
+  /**
+   * Slots currently held across all credentials — what is ACTUALLY in flight.
+   *
+   * In shadow this exceeds {@link ceiling} routinely, because nothing is held back; the
+   * bounded simulation is a separate set. In enforcing the two are the same thing.
+   */
   get inFlight(): number {
-    return this.#inFlight;
+    return this.mode === "shadow" ? this.#realInFlight : this.#inFlight;
   }
 
   /** Distinct credentials currently holding at least one slot. */
   get trackedKeys(): number {
-    return this.#held.size;
+    return this.mode === "shadow" ? this.#realHeld.size : this.#held.size;
   }
 
   /**
@@ -299,7 +368,66 @@ export class EmissionGate {
    */
   acquire(presentedToken: string): Promise<Acquisition> {
     const key = keyOf(presentedToken);
+    return this.mode === "shadow" ? this.#admitAndSimulate(key) : this.#decide(key);
+  }
 
+  /**
+   * Shadow: let the caller through untouched, and run the full gate beside it.
+   *
+   * Three readings of "shadow" were available and they measure different things. Counting
+   * contention at arrival is cheap but never sees the wait, so it would describe HARD shed
+   * — the mechanism dec-4 rejected — and ac-2's budget would come from the wrong
+   * distribution. Actually waiting and then admitting measures the truth but adds the full
+   * interval to real requests, breaking the property that makes the first deploy safe.
+   *
+   * So the whole mechanism — bounds, queue, timeouts, the fairness rule that skips a
+   * waiter whose own slice is full — runs against the gate's own counters while the caller
+   * is resolved immediately. The would-shed count is the genuine counterfactual, timeouts
+   * included, at zero cost to the caller.
+   *
+   * The simulation is deliberately NOT awaited: awaiting it would reintroduce exactly the
+   * latency this design exists to avoid.
+   */
+  #admitAndSimulate(key: string): Promise<Acquisition> {
+    this.#realInFlight += 1;
+    this.#realHeld.set(key, (this.#realHeld.get(key) ?? 0) + 1);
+
+    // The simulated slot, if the simulation ends up granting one. It may resolve after the
+    // caller has already released, so the two are reconciled rather than assumed ordered.
+    let simRelease: (() => void) | null = null;
+    let callerReleased = false;
+
+    void this.#decide(key).then((simulated) => {
+      if (simulated.ok) {
+        // Give the slot straight back if the real request is already finished — otherwise
+        // the simulation would hold state for a request that no longer exists, and the
+        // per-key map would stop being bounded by what is in flight (ac-11).
+        if (callerReleased) simulated.release();
+        else simRelease = simulated.release;
+      } else {
+        this.#wouldShedTotal += 1;
+        this.#wouldShedByCause[simulated.cause] += 1;
+      }
+    });
+
+    let released = false;
+    const release = (): void => {
+      if (released) return;
+      released = true;
+      callerReleased = true;
+      this.#realInFlight -= 1;
+      const remaining = (this.#realHeld.get(key) ?? 1) - 1;
+      if (remaining <= 0) this.#realHeld.delete(key);
+      else this.#realHeld.set(key, remaining);
+      simRelease?.();
+      simRelease = null;
+    };
+
+    return Promise.resolve({ ok: true, release, waited: false });
+  }
+
+  /** The decision itself: bounds, then a bounded wait, then a refusal. */
+  #decide(key: string): Promise<Acquisition> {
     const immediate = this.#take(key);
     if (immediate.ok) {
       return Promise.resolve({ ok: true, release: immediate.release, waited: false });
