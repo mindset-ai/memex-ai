@@ -42,6 +42,16 @@ export interface TaskProgress {
   notStarted: number;
 }
 
+/**
+ * spec-529: WHEN a Spec last changed and WHAT changed, read from the activity log
+ * because `documents` carries no general updated-at column.
+ */
+export interface LastActivity {
+  at: Date;
+  narrative: string;
+  actorName: string | null;
+}
+
 export interface DocSummary {
   id: string;
   memexId: string;
@@ -110,6 +120,11 @@ export interface DocSummary {
    * matching how `acHealth` treats a Spec with no commitments.
    */
   taskProgress?: TaskProgress;
+  /**
+   * spec-529 (ac-2): the Spec's most recent logged activity, populated only under
+   * `includeLastActivity`. Absent when nothing has been logged against it.
+   */
+  lastActivity?: LastActivity;
   // Set when ?include=assignees is requested (spec-118 ac-18). The Spec's current
   // assignee(s); OMITTED when the Spec has no assignees so the card's "Unassigned"
   // branch trips. Independent of role — an assignee is not necessarily an editor.

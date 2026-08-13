@@ -131,6 +131,14 @@ export interface DocSummary {
    *  same `deriveVerificationState` helper the AC tab calls, so card-state and
    *  tab-state never disagree for the same Spec. (b-66) */
   acHealth?: AcHealth;
+  /** spec-529: per-Spec task roll-up, populated only under `include: ['taskProgress']`.
+   *  Absent when the Spec has no tasks — absence is the signal, so the pill renders
+   *  no fraction rather than `0/0` (same restraint as `acHealth`). */
+  taskProgress?: TaskProgress;
+  /** spec-529: the Spec's most recent logged activity, under `include: ['lastActivity']`.
+   *  Absent when nothing has been logged — the card omits the line rather than
+   *  inventing one. `at` is ISO-8601 on the wire. */
+  lastActivity?: LastActivity;
   /** Set when fetchDocs is called with `{ include: ['assignees'] }` (spec-118
    *  ac-18) — the Spec's current assignee(s), rendered on the board card more
    *  prominently than the creator. Undefined/absent means "Unassigned".
@@ -166,6 +174,26 @@ export interface DocSummaryAssignee {
  * (b-66 dec-3); the four-way split survives one level down on the progress
  * strip via AcPill's `STATE_DOT` / `STATE_PILL` / `STATE_LABEL` maps.
  */
+/**
+ * spec-529: the task roll-up behind a reference pill's `4/8 tasks` and the split
+ * its card shows. Derived server-side from the same rows the Spec's own task list
+ * reads, so the two can never disagree for one Spec.
+ */
+/** spec-529: WHEN a Spec last changed and WHAT changed. Read from the activity
+ *  log, because `documents` has no general updated-at column. */
+export interface LastActivity {
+  at: string;
+  narrative: string;
+  actorName: string | null;
+}
+
+export interface TaskProgress {
+  total: number;
+  complete: number;
+  inProgress: number;
+  notStarted: number;
+}
+
 export interface AcHealth {
   totalActive: number;
   covered: number;

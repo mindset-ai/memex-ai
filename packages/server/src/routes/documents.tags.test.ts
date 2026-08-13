@@ -117,6 +117,7 @@ describe("GET /api/docs (tag filter)", () => {
       includeAcHealth: false,
       includeAssignees: false,
       includeTaskProgress: false,
+      includeLastActivity: false,
       includeArchived: false,
       tags: [
         { scope: "priority", value: "high" },
@@ -135,6 +136,7 @@ describe("GET /api/docs (tag filter)", () => {
       includeAcHealth: false,
       includeAssignees: false,
       includeTaskProgress: false,
+      includeLastActivity: false,
       includeArchived: false,
       tags: [
         { scope: "priority", value: "low" },
@@ -153,6 +155,7 @@ describe("GET /api/docs (tag filter)", () => {
       includeAcHealth: false,
       includeAssignees: false,
       includeTaskProgress: false,
+      includeLastActivity: false,
       // spec-521 (ac-5): the archive view is the one caller that asks for archived
       // rows; every other read passes false explicitly.
       includeArchived: false,

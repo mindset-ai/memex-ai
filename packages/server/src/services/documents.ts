@@ -1,8 +1,8 @@
 import { and, eq, ne, desc, count, isNull, inArray, or, exists, gt, sql, type SQL } from "drizzle-orm";
 import { db } from "../db/connection.js";
-import { documents, docSections, docComments, decisions, tasks, acs, users, tags, documentTags } from "../db/schema.js";
+import { documents, docSections, docComments, decisions, tasks, acs, users, tags, documentTags, activityLog } from "../db/schema.js";
 import type { Doc, DocSection, Decision } from "../db/schema.js";
-import type { DocSummary, TaskProgress } from "../types/index.js";
+import type { DocSummary, TaskProgress, LastActivity } from "../types/index.js";
 import { NotFoundError, ValidationError } from "../types/errors.js";
 import { mutate, type ChangeKey, type Mutated, type RequestCtx } from "./mutate.js";
 import { resolveActorColumns } from "./actor.js";
@@ -446,6 +446,49 @@ export async function taskProgressByDoc(
   return out;
 }
 
+/**
+ * spec-529 t-5: the most recent activity per Spec — WHEN it last changed and
+ * WHAT changed — for the reference card's "last activity" line.
+ *
+ * `documents` carries no general updated-at column, so a truthful answer has to
+ * come from the activity log itself. One `DISTINCT ON` over the existing
+ * `(brief_id, created_at)` index gives the newest row per Spec in a single pass;
+ * a Spec with no logged activity is absent from the map and the card omits the
+ * line rather than inventing one.
+ */
+export async function lastActivityByDoc(
+  memexId: string,
+  docIds: string[],
+): Promise<Map<string, LastActivity>> {
+  if (docIds.length === 0) return new Map();
+  const rows = await db
+    .selectDistinctOn([activityLog.briefId], {
+      docId: activityLog.briefId,
+      at: activityLog.createdAt,
+      narrative: activityLog.narrative,
+      actorName: activityLog.actorName,
+    })
+    .from(activityLog)
+    .where(
+      and(
+        eq(activityLog.memexId, memexId),
+        inArray(activityLog.briefId, docIds),
+      ),
+    )
+    .orderBy(activityLog.briefId, desc(activityLog.createdAt));
+
+  const out = new Map<string, LastActivity>();
+  for (const r of rows) {
+    if (!r.docId) continue;
+    out.set(r.docId, {
+      at: r.at,
+      narrative: r.narrative,
+      actorName: r.actorName ?? null,
+    });
+  }
+  return out;
+}
+
 export interface ListDocsOptions {
   docType?: string;
   // Default false — archived docs are hidden from the kanban. Set true to include them
@@ -476,6 +519,10 @@ export interface ListDocsOptions {
   // spec-529 t-2 (ac-10): attach `taskProgress` per Spec, from the same aggregation
   // the Spec page reads. Off by default so callers that don't ask don't pay.
   includeTaskProgress?: boolean;
+  // spec-529 t-5 (ac-2): attach `lastActivity` per Spec for the reference card's
+  // "last activity" line. Separate token from taskProgress so a caller that only
+  // needs the pill face doesn't pay for the activity-log pass.
+  includeLastActivity?: boolean;
   // spec-118 ac-18: when set, attach an `assignees` array per Spec so the board
   // can render assignee avatar(s) on each card (more prominent than the creator)
   // in one round-trip. Specs with no assignees leave `assignees` unset → the card
@@ -718,6 +765,17 @@ export async function listDocs(
       for (const s of summaries) {
         const p = byDoc.get(s.id);
         if (p && p.total > 0) s.taskProgress = p;
+      }
+    }
+  }
+
+  if (opts.includeLastActivity && summaries.length > 0) {
+    const specIds = summaries.filter((s) => s.docType === "spec").map((s) => s.id);
+    if (specIds.length > 0) {
+      const byDoc = await lastActivityByDoc(memexId, specIds);
+      for (const s of summaries) {
+        const a = byDoc.get(s.id);
+        if (a) s.lastActivity = a;
       }
     }
   }

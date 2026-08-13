@@ -210,6 +210,8 @@ docs.get("/", async (c) => {
   // opt-in `?include=` convention as acHealth so a caller that doesn't ask doesn't
   // pay for the aggregation.
   const includeTaskProgress = includes.includes("taskProgress");
+  // spec-529 (ac-2): the card's "last activity" line.
+  const includeLastActivity = includes.includes("lastActivity");
   // spec-529 (ac-10, ac-11): `?handles=spec-1,spec-2` — resolve exactly the Specs a
   // document body mentions, in ONE request. Deliberately a filter on the EXISTING
   // list route rather than a new endpoint (dec-2): the board card, the reference pill
@@ -234,6 +236,7 @@ docs.get("/", async (c) => {
     includeAssignees,
     includeArchived,
     includeTaskProgress,
+    includeLastActivity,
     ...(tagFilter ? { tags: tagFilter } : {}),
     ...(handleFilter ? { handles: handleFilter } : {}),
   });

@@ -7,6 +7,8 @@ import { ChatSectionLink } from './ChatSectionLink';
 import { ChatTaskCard } from './ChatTaskCard';
 import { Badge } from '../ui';
 import { rehypeRefLinkifier } from './refLinkifier';
+import { specRefComponents } from '../specRef/specRefAnchor';
+import { rehypeSpecRefLinkifier } from './specRefLinkifier';
 
 /**
  * Renders assistant markdown with embedded MDX components.
@@ -14,6 +16,7 @@ import { rehypeRefLinkifier } from './refLinkifier';
  */
 export function ChatMarkdown({ content }: { content: string }) {
   const components = {
+    a: specRefComponents.a,
     decisioncard: ({ id }: { id?: string }) =>
       id ? <ChatDecisionCard id={id} /> : null,
     sectionlink: ({ id }: { id?: string }) =>
@@ -39,7 +42,7 @@ export function ChatMarkdown({ content }: { content: string }) {
     >
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeRaw, rehypeHighlight, rehypeRefLinkifier]}
+        rehypePlugins={[rehypeRaw, rehypeHighlight, rehypeRefLinkifier, rehypeSpecRefLinkifier]}
         components={components as any}
       >
         {content}

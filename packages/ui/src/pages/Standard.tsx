@@ -14,6 +14,8 @@ import { Spinner } from '../components/Spinner';
 import { useDocChangeStream } from '../hooks/useDocChangeStream';
 import { DecisionLink } from '../components/DecisionLink';
 import { rehypeRefLinkifier } from '../components/chat/refLinkifier';
+import { specRefComponents } from '../components/specRef/specRefAnchor';
+import { rehypeSpecRefLinkifier } from '../components/chat/specRefLinkifier';
 import { tenantPath } from '../utils/tenantUrl';
 import { ClauseStatusDot } from '../components/ClauseStatusDot';
 import { FacetPills } from '../components/FacetPills';
@@ -260,7 +262,7 @@ function encodeDecisionRefs(content: string): string {
 }
 
 const remarkPlugins = [remarkGfm];
-const rehypePlugins = [rehypeRaw, rehypeHighlight, rehypeRefLinkifier];
+const rehypePlugins = [rehypeRaw, rehypeHighlight, rehypeRefLinkifier, rehypeSpecRefLinkifier];
 
 function StandardSection({
   section,
@@ -277,6 +279,8 @@ function StandardSection({
   // `decisionref` override accepted alongside the standard HTML element keys. The
   // ChatMarkdown component does the same.
   const components: Record<string, unknown> = {
+    // spec-529: bare `spec-N` → the live pill; other anchors untouched.
+    a: specRefComponents.a,
     decisionref: ({ handle }: { handle?: string }) =>
       // b-42 t-2: scope bare-handle resolution to the standard's parent doc so
       // memexes with dec-1 in multiple Specs don't 409 on `[per dec-N]` links.
@@ -340,6 +344,8 @@ export function StandardClauseList({
   parentDocId: string | undefined;
 }): React.JSX.Element {
   const components: Record<string, unknown> = {
+    // spec-529: bare `spec-N` → the live pill; other anchors untouched.
+    a: specRefComponents.a,
     decisionref: ({ handle }: { handle?: string }) =>
       handle ? <DecisionLink handle={handle} parentDocId={parentDocId} /> : null,
   };

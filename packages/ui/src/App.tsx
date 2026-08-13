@@ -1,13 +1,13 @@
+import { Fragment, Suspense, lazy, useState, useEffect, useRef } from "react";
 import {
-  Fragment,
-  Suspense,
-  lazy,
-  useState,
-  useEffect,
-  useRef,
-} from 'react';
-import { Routes, Route, useLocation, useParams, Navigate, Outlet } from 'react-router-dom';
-import { emailPreviewEnabled } from './utils/devTools';
+  Routes,
+  Route,
+  useLocation,
+  useParams,
+  Navigate,
+  Outlet,
+} from "react-router-dom";
+import { emailPreviewEnabled } from "./utils/devTools";
 // spec-351: route-level code-splitting. Every top-level routed page is loaded
 // as its own lazy chunk so the entry bundle no longer eagerly pulls all ~35
 // page surfaces (and their heavy transitive deps — nivo charts, pixi, the
@@ -17,24 +17,42 @@ import { emailPreviewEnabled } from './utils/devTools';
 // and the VerifyEmailGate that several layouts render inline)
 // stay eagerly imported below — splitting them would only add Suspense
 // boundaries on the critical path with no payload win.
-const Pulse = lazy(() => import('./pages/Pulse').then((m) => ({ default: m.Pulse })));
+const Pulse = lazy(() =>
+  import("./pages/Pulse").then((m) => ({ default: m.Pulse })),
+);
 // spec-458 (PROTOTYPE) — the public live proof-of-life page. Fully public
 // (rendered outside AuthProvider below, the /share pattern) and lazy so its
 // world-map asset never rides the authenticated bundles.
-const LivePage = lazy(() => import('./pages/live/LivePage').then((m) => ({ default: m.LivePage })));
-const Insights = lazy(() => import('./pages/Insights').then((m) => ({ default: m.Insights })));
-const QaReports = lazy(() => import('./pages/QaReports').then((m) => ({ default: m.QaReports })));
-const Decisions = lazy(() => import('./pages/Decisions').then((m) => ({ default: m.Decisions })));
-const SpecList = lazy(() => import('./pages/SpecList').then((m) => ({ default: m.SpecList })));
+const LivePage = lazy(() =>
+  import("./pages/live/LivePage").then((m) => ({ default: m.LivePage })),
+);
+const Insights = lazy(() =>
+  import("./pages/Insights").then((m) => ({ default: m.Insights })),
+);
+const QaReports = lazy(() =>
+  import("./pages/QaReports").then((m) => ({ default: m.QaReports })),
+);
+const Decisions = lazy(() =>
+  import("./pages/Decisions").then((m) => ({ default: m.Decisions })),
+);
+const SpecList = lazy(() =>
+  import("./pages/SpecList").then((m) => ({ default: m.SpecList })),
+);
 // spec-521 t-4 (ac-5): the archive view — a destination reached from the board, not a
 // column on it, because archived work should be out of the way.
-const SpecArchive = lazy(() => import('./pages/SpecArchive').then((m) => ({ default: m.SpecArchive })));
-const IssuesList = lazy(() => import('./pages/IssuesList').then((m) => ({ default: m.IssuesList })));
+const SpecArchive = lazy(() =>
+  import("./pages/SpecArchive").then((m) => ({ default: m.SpecArchive })),
+);
+const IssuesList = lazy(() =>
+  import("./pages/IssuesList").then((m) => ({ default: m.IssuesList })),
+);
 const NamespaceHome = lazy(() =>
-  import('./pages/NamespaceHome').then((m) => ({ default: m.NamespaceHome })),
+  import("./pages/NamespaceHome").then((m) => ({ default: m.NamespaceHome })),
 );
 const NamespaceSettings = lazy(() =>
-  import('./pages/NamespaceSettings').then((m) => ({ default: m.NamespaceSettings })),
+  import("./pages/NamespaceSettings").then((m) => ({
+    default: m.NamespaceSettings,
+  })),
 );
 // The global Home Canvas (flat /home onboarding tracker) is PARKED for now — the
 // per-memex Brain (the knowledge-graph landing) replaces it as the default surface.
@@ -42,112 +60,162 @@ const NamespaceSettings = lazy(() =>
 // const HomeCanvas = lazy(() => import('./pages/HomeCanvas').then((m) => ({ default: m.HomeCanvas })));
 // spec-502: the onboarding wizard (name → console demo → connect the agent →
 // land populated). Reached from the Explore companion's "Create your own Memex".
-const Wizard = lazy(() => import('./onboarding/Wizard').then((m) => ({ default: m.Wizard })));
-const StandardList = lazy(() =>
-  import('./pages/StandardList').then((m) => ({ default: m.StandardList })),
+const Wizard = lazy(() =>
+  import("./onboarding/Wizard").then((m) => ({ default: m.Wizard })),
 );
-const Standard = lazy(() => import('./pages/Standard').then((m) => ({ default: m.Standard })));
+const StandardList = lazy(() =>
+  import("./pages/StandardList").then((m) => ({ default: m.StandardList })),
+);
+const Standard = lazy(() =>
+  import("./pages/Standard").then((m) => ({ default: m.Standard })),
+);
 // spec-498 — Brain: the whole-vault knowledge graph (facets/standards/specs/decisions).
-const Brain = lazy(() => import('./pages/Brain').then((m) => ({ default: m.Brain })));
+const Brain = lazy(() =>
+  import("./pages/Brain").then((m) => ({ default: m.Brain })),
+);
 // The surface the tenant `/home` redirect forwards to — the single knob for "the
 // default landing". Today it's the Trails route; change this one string to
 // re-point every default landing (nothing else references the surface directly).
-const DEFAULT_TENANT_SURFACE = 'trails';
+const DEFAULT_TENANT_SURFACE = "trails";
 // spec-300 t-6 — the in-app Skills surface (list + detail).
-const SkillList = lazy(() => import('./pages/SkillList').then((m) => ({ default: m.SkillList })));
-const Skill = lazy(() => import('./pages/Skill').then((m) => ({ default: m.Skill })));
+const SkillList = lazy(() =>
+  import("./pages/SkillList").then((m) => ({ default: m.SkillList })),
+);
+const Skill = lazy(() =>
+  import("./pages/Skill").then((m) => ({ default: m.Skill })),
+);
 // spec-226 t-6 — internal email-preview gallery (gated off prod, see emailPreviewEnabled).
 const EmailPreview = lazy(() =>
-  import('./pages/EmailPreview').then((m) => ({ default: m.EmailPreview })),
+  import("./pages/EmailPreview").then((m) => ({ default: m.EmailPreview })),
 );
-const DriftInbox = lazy(() => import('./pages/DriftInbox').then((m) => ({ default: m.DriftInbox })));
+const DriftInbox = lazy(() =>
+  import("./pages/DriftInbox").then((m) => ({ default: m.DriftInbox })),
+);
 const DocumentList = lazy(() =>
-  import('./pages/DocumentList').then((m) => ({ default: m.DocumentList })),
+  import("./pages/DocumentList").then((m) => ({ default: m.DocumentList })),
 );
 const DocDocument = lazy(() =>
-  import('./pages/DocDocument').then((m) => ({ default: m.DocDocument })),
+  import("./pages/DocDocument").then((m) => ({ default: m.DocDocument })),
 );
-const InstallAuth = lazy(() => import('./pages/InstallAuth').then((m) => ({ default: m.InstallAuth })));
+const InstallAuth = lazy(() =>
+  import("./pages/InstallAuth").then((m) => ({ default: m.InstallAuth })),
+);
 const OauthAuthorize = lazy(() =>
-  import('./pages/OauthAuthorize').then((m) => ({ default: m.OauthAuthorize })),
+  import("./pages/OauthAuthorize").then((m) => ({ default: m.OauthAuthorize })),
 );
 // spec-141 dec-3: integrations consolidated into one open-core page.
 // /settings/tokens, /installation and /install now redirect here.
 const SettingsIntegrations = lazy(() =>
-  import('./pages/SettingsIntegrations').then((m) => ({ default: m.SettingsIntegrations })),
+  import("./pages/SettingsIntegrations").then((m) => ({
+    default: m.SettingsIntegrations,
+  })),
 );
-const Onboarding = lazy(() => import('./pages/Onboarding').then((m) => ({ default: m.Onboarding })));
+const Onboarding = lazy(() =>
+  import("./pages/Onboarding").then((m) => ({ default: m.Onboarding })),
+);
 const WelcomePage = lazy(() =>
-  import('./pages/WelcomePage').then((m) => ({ default: m.WelcomePage })),
+  import("./pages/WelcomePage").then((m) => ({ default: m.WelcomePage })),
 );
 const InviteAccept = lazy(() =>
-  import('./pages/InviteAccept').then((m) => ({ default: m.InviteAccept })),
+  import("./pages/InviteAccept").then((m) => ({ default: m.InviteAccept })),
 );
 const OrgConfiguration = lazy(() =>
-  import('./pages/OrgConfiguration').then((m) => ({ default: m.OrgConfiguration })),
+  import("./pages/OrgConfiguration").then((m) => ({
+    default: m.OrgConfiguration,
+  })),
 );
 const ScaffoldInspect = lazy(() =>
-  import('./pages/ScaffoldInspect').then((m) => ({ default: m.ScaffoldInspect })),
+  import("./pages/ScaffoldInspect").then((m) => ({
+    default: m.ScaffoldInspect,
+  })),
 );
 const MemexSettings = lazy(() =>
-  import('./pages/MemexSettings').then((m) => ({ default: m.MemexSettings })),
+  import("./pages/MemexSettings").then((m) => ({ default: m.MemexSettings })),
 );
-const MemexKeys = lazy(() => import('./pages/MemexKeys').then((m) => ({ default: m.MemexKeys })));
+const MemexKeys = lazy(() =>
+  import("./pages/MemexKeys").then((m) => ({ default: m.MemexKeys })),
+);
 // spec-418 t-5 — the Manage-tags surface (tag catalogue admin). Renders in the
 // normal AppShell sidebar layout (NOT the doc-page chrome) — see the AppShell
 // guard that excludes the literal `tags` segment from the specs/:id doc match.
-const ManageTags = lazy(() => import('./pages/ManageTags').then((m) => ({ default: m.ManageTags })));
+const ManageTags = lazy(() =>
+  import("./pages/ManageTags").then((m) => ({ default: m.ManageTags })),
+);
 const UpgradePlanSelect = lazy(() =>
-  import('./pages/upgrade/UpgradePlanSelect').then((m) => ({ default: m.UpgradePlanSelect })),
+  import("./pages/upgrade/UpgradePlanSelect").then((m) => ({
+    default: m.UpgradePlanSelect,
+  })),
 );
 const UpgradeSeats = lazy(() =>
-  import('./pages/upgrade/UpgradeSeats').then((m) => ({ default: m.UpgradeSeats })),
+  import("./pages/upgrade/UpgradeSeats").then((m) => ({
+    default: m.UpgradeSeats,
+  })),
 );
 const UpgradeConfirmation = lazy(() =>
-  import('./pages/upgrade/UpgradeConfirmation').then((m) => ({ default: m.UpgradeConfirmation })),
+  import("./pages/upgrade/UpgradeConfirmation").then((m) => ({
+    default: m.UpgradeConfirmation,
+  })),
 );
 const VerifyDomain = lazy(() =>
-  import('./pages/VerifyDomain').then((m) => ({ default: m.VerifyDomain })),
+  import("./pages/VerifyDomain").then((m) => ({ default: m.VerifyDomain })),
 );
 const SharedDocument = lazy(() =>
-  import('./pages/SharedDocument').then((m) => ({ default: m.SharedDocument })),
+  import("./pages/SharedDocument").then((m) => ({ default: m.SharedDocument })),
 );
-const Backstage = lazy(() => import('./pages/Backstage').then((m) => ({ default: m.Backstage })));
+const Backstage = lazy(() =>
+  import("./pages/Backstage").then((m) => ({ default: m.Backstage })),
+);
 const BackstageExperiments = lazy(() =>
-  import('./pages/BackstageExperiments').then((m) => ({ default: m.BackstageExperiments })),
+  import("./pages/BackstageExperiments").then((m) => ({
+    default: m.BackstageExperiments,
+  })),
 );
-const VerifyEmail = lazy(() => import('./pages/VerifyEmail').then((m) => ({ default: m.VerifyEmail })));
+const VerifyEmail = lazy(() =>
+  import("./pages/VerifyEmail").then((m) => ({ default: m.VerifyEmail })),
+);
 const MagicLinkConsume = lazy(() =>
-  import('./pages/MagicLinkConsume').then((m) => ({ default: m.MagicLinkConsume })),
+  import("./pages/MagicLinkConsume").then((m) => ({
+    default: m.MagicLinkConsume,
+  })),
 );
 const ResetPassword = lazy(() =>
-  import('./pages/ResetPassword').then((m) => ({ default: m.ResetPassword })),
+  import("./pages/ResetPassword").then((m) => ({ default: m.ResetPassword })),
 );
 // VerifyEmailGate stays eager — it is rendered inline by TenantLayout,
 // FlatShell, and RootRedirect (not as a routed element), so it sits on the
 // critical path for unverified users and is small.
-import { VerifyEmailGate } from './pages/VerifyEmailGate';
-import { AuthProvider, RequireAuth, useAuth, computeReturnLanding } from './components/AuthContext';
-import { recordLastMemex } from './utils/lastMemex';
-import { ThemeProvider } from './components/ThemeContext';
-import { ChatProvider } from './components/ChatContext';
-import { AppShell } from './components/AppShell';
-import { ExploreCompanionMount } from './onboarding/ExploreCompanionMount';
-import { DocumentShell } from './components/DocumentShell';
-import { OrgConsentDialog } from './components/OrgConsentDialog';
-import { DesktopMcpStatusSync } from './components/DesktopMcpStatusSync';
-import { parseTenantFromPathname, tenantPathFor } from './utils/tenantUrl';
-import { isOnboardingWizardEnabled } from './onboarding/flag';
-import { isFeatureHidden } from './utils/featureFlags';
-import { probePublicMemex, type PublicMemexProbe } from './api/client';
-import { PublicMemexProvider } from './components/PublicMemexContext';
-import { useTrackRouteChange, useTelemetry, trackAnonymous } from './hooks/useTelemetry';
-import { useStaleTenantForward } from './hooks/useStaleTenantForward';
-import { useShouldLandOnHome, isMcpConnectedCached } from './journeys/landing';
-import { tenantBase } from './api/http';
-import { SearchProvider } from './components/SearchContext';
-import { WhatsNewRibbonConnected } from './components/whats-new/WhatsNewRibbonConnected';
-import { WhatsNewProvider } from './components/whats-new/WhatsNewContext';
+import { VerifyEmailGate } from "./pages/VerifyEmailGate";
+import {
+  AuthProvider,
+  RequireAuth,
+  useAuth,
+  computeReturnLanding,
+} from "./components/AuthContext";
+import { recordLastMemex } from "./utils/lastMemex";
+import { ThemeProvider } from "./components/ThemeContext";
+import { ChatProvider } from "./components/ChatContext";
+import { SpecRefStatusProvider } from "./components/specRef/SpecRefStatusProvider";
+import { AppShell } from "./components/AppShell";
+import { ExploreCompanionMount } from "./onboarding/ExploreCompanionMount";
+import { DocumentShell } from "./components/DocumentShell";
+import { OrgConsentDialog } from "./components/OrgConsentDialog";
+import { DesktopMcpStatusSync } from "./components/DesktopMcpStatusSync";
+import { parseTenantFromPathname, tenantPathFor } from "./utils/tenantUrl";
+import { isOnboardingWizardEnabled } from "./onboarding/flag";
+import { isFeatureHidden } from "./utils/featureFlags";
+import { probePublicMemex, type PublicMemexProbe } from "./api/client";
+import { PublicMemexProvider } from "./components/PublicMemexContext";
+import {
+  useTrackRouteChange,
+  useTelemetry,
+  trackAnonymous,
+} from "./hooks/useTelemetry";
+import { useStaleTenantForward } from "./hooks/useStaleTenantForward";
+import { useShouldLandOnHome, isMcpConnectedCached } from "./journeys/landing";
+import { tenantBase } from "./api/http";
+import { SearchProvider } from "./components/SearchContext";
+import { WhatsNewRibbonConnected } from "./components/whats-new/WhatsNewRibbonConnected";
+import { WhatsNewProvider } from "./components/whats-new/WhatsNewContext";
 
 declare const __BUILD_TIME__: string;
 
@@ -175,7 +243,7 @@ declare const __BUILD_TIME__: string;
 // `memex` carries the probed Memex (name + visibility) on a 'yes'. `enabled` is
 // false for authenticated users, so the hook is always called (rules of hooks)
 // but only fetches for anonymous visitors.
-type ReadableState = 'loading' | 'yes' | 'no';
+type ReadableState = "loading" | "yes" | "no";
 function usePublicMemexProbe(
   namespace: string | undefined,
   memex: string | undefined,
@@ -184,17 +252,21 @@ function usePublicMemexProbe(
   const [result, setResult] = useState<{
     state: ReadableState;
     memex: PublicMemexProbe | null;
-  }>({ state: 'loading', memex: null });
+  }>({ state: "loading", memex: null });
   useEffect(() => {
     if (!enabled || !namespace || !memex) {
-      setResult({ state: 'loading', memex: null });
+      setResult({ state: "loading", memex: null });
       return;
     }
     let cancelled = false;
-    setResult({ state: 'loading', memex: null });
+    setResult({ state: "loading", memex: null });
     probePublicMemex(namespace, memex).then((probed) => {
       if (!cancelled) {
-        setResult(probed ? { state: 'yes', memex: probed } : { state: 'no', memex: null });
+        setResult(
+          probed
+            ? { state: "yes", memex: probed }
+            : { state: "no", memex: null },
+        );
       }
     });
     return () => {
@@ -205,7 +277,10 @@ function usePublicMemexProbe(
 }
 
 function TenantLayout() {
-  const { namespace, memex } = useParams<{ namespace: string; memex: string }>();
+  const { namespace, memex } = useParams<{
+    namespace: string;
+    memex: string;
+  }>();
   const { session, isAuthenticated } = useAuth();
   const location = useLocation();
   const anonymous = !isAuthenticated && !session;
@@ -234,7 +309,9 @@ function TenantLayout() {
   // session is still null). Reused below for the authed bounce.
   const matchedMembership =
     session?.memberships.find(
-      (m) => m.slug === namespace && (m.memexSlug === memex || (!m.memexSlug && memex === 'main')),
+      (m) =>
+        m.slug === namespace &&
+        (m.memexSlug === memex || (!m.memexSlug && memex === "main")),
     ) ?? null;
   const isMember = !!matchedMembership;
 
@@ -249,9 +326,9 @@ function TenantLayout() {
       isMember &&
       namespace &&
       memex &&
-      matchedSource !== 'featured' &&
-      matchedSource !== 'visited' &&
-      matchedAccess !== 'read'
+      matchedSource !== "featured" &&
+      matchedSource !== "visited" &&
+      matchedAccess !== "read"
     ) {
       recordLastMemex(namespace, memex);
     }
@@ -260,7 +337,7 @@ function TenantLayout() {
   // to /login (anonymous) or the default landing (authed non-member). Before
   // bouncing, ask the server whether the path forwards. Fires ONLY on the miss.
   const staleForward =
-    (anonymous && probe.state === 'no') ||
+    (anonymous && probe.state === "no") ||
     (!anonymous &&
       !!session &&
       session.user.emailVerified &&
@@ -269,10 +346,11 @@ function TenantLayout() {
   const forward = useStaleTenantForward(location.pathname, staleForward);
 
   if (anonymous) {
-    if (probe.state === 'loading') return null; // transient — avoid flashing the wrong UI
-    if (probe.state === 'no') {
-      if (forward.state === 'loading') return null;
-      if (forward.to) return <Navigate to={`${forward.to}${location.search}`} replace />;
+    if (probe.state === "loading") return null; // transient — avoid flashing the wrong UI
+    if (probe.state === "no") {
+      if (forward.state === "loading") return null;
+      if (forward.to)
+        return <Navigate to={`${forward.to}${location.search}`} replace />;
       const returnTo = encodeURIComponent(location.pathname + location.search);
       return <Navigate to={`/login?returnTo=${returnTo}`} replace />;
     }
@@ -280,13 +358,15 @@ function TenantLayout() {
     // PageHeader can show its name + 🌐 badge (no membership row to read them from).
     return (
       <PublicMemexProvider value={probe.memex}>
-        <ChatProvider>
-          <AppShell>
-            <Fragment key={`${namespace}/${memex}`}>
-              <Outlet />
-            </Fragment>
-          </AppShell>
-        </ChatProvider>
+        <SpecRefStatusProvider>
+          <ChatProvider>
+            <AppShell>
+              <Fragment key={`${namespace}/${memex}`}>
+                <Outlet />
+              </Fragment>
+            </AppShell>
+          </ChatProvider>
+        </SpecRefStatusProvider>
       </PublicMemexProvider>
     );
   }
@@ -317,8 +397,9 @@ function TenantLayout() {
   // bare base domain).
   if (!isMember) {
     // spec-479 dec-5: a renamed memex's old URL forwards here before bouncing.
-    if (forward.state === 'loading') return null;
-    if (forward.to) return <Navigate to={`${forward.to}${location.search}`} replace />;
+    if (forward.state === "loading") return null;
+    if (forward.to)
+      return <Navigate to={`${forward.to}${location.search}`} replace />;
     const fallback = computeReturnLanding(session);
     if (fallback) return <Navigate to={fallback} replace />;
     return <Navigate to="/" replace />;
@@ -330,25 +411,30 @@ function TenantLayout() {
   // child pages keep their previous tenant's data (loadDocs is a stable
   // callback; useDocChangeStream captures tenantBase() once on connect).
   return (
-    <ChatProvider>
-      {/* spec-200: WhatsNewProvider lets the sidebar user menu re-open the
+    <SpecRefStatusProvider>
+      <ChatProvider>
+        {/* spec-200: WhatsNewProvider lets the sidebar user menu re-open the
           popup and gives the ribbon the menu anchor to animate "into" on
           dismiss — so it wraps BOTH the ribbon and AppShell. */}
-      <WhatsNewProvider>
-        <OrgConsentDialog />
-        {/* spec-200: global What's New ribbon — authed shell only. */}
-        <WhatsNewRibbonConnected />
-        <AppShell>
-          <Fragment key={`${namespace}/${memex}`}>
-            <Outlet />
-          </Fragment>
-        </AppShell>
-        {/* spec-502 t-5: the context-aware Explore companion overlays the
+        <WhatsNewProvider>
+          <OrgConsentDialog />
+          {/* spec-200: global What's New ribbon — authed shell only. */}
+          <WhatsNewRibbonConnected />
+          <AppShell>
+            <Fragment key={`${namespace}/${memex}`}>
+              <Outlet />
+            </Fragment>
+          </AppShell>
+          {/* spec-502 t-5: the context-aware Explore companion overlays the
             featured (building-itself) demo surface for wizard-eligible users.
             Renders nothing on the user's own memexes / when the flag is off. */}
-        <ExploreCompanionMount namespace={namespace ?? ''} memex={memex ?? ''} />
-      </WhatsNewProvider>
-    </ChatProvider>
+          <ExploreCompanionMount
+            namespace={namespace ?? ""}
+            memex={memex ?? ""}
+          />
+        </WhatsNewProvider>
+      </ChatProvider>
+    </SpecRefStatusProvider>
   );
 }
 
@@ -370,7 +456,10 @@ function TenantLayout() {
 // the current route params — robust regardless of nesting, unlike relative-path
 // resolution. `to` is DEFAULT_TENANT_SURFACE (today 'trails').
 function TenantSurfaceRedirect({ to }: { to: string }) {
-  const { namespace, memex } = useParams<{ namespace: string; memex: string }>();
+  const { namespace, memex } = useParams<{
+    namespace: string;
+    memex: string;
+  }>();
   if (!namespace || !memex) return null; // params always present under /:ns/:mx
   return <Navigate to={`/${namespace}/${memex}/${to}`} replace />;
 }
@@ -378,10 +467,11 @@ function TenantSurfaceRedirect({ to }: { to: string }) {
 function RootRedirect() {
   const { session } = useAuth();
   const emailVerified = !!session?.user.emailVerified;
-  const homeHidden = !!session && isFeatureHidden(session, 'home');
+  const homeHidden = !!session && isFeatureHidden(session, "home");
   // Only consult journey-state when we genuinely face the Home-vs-Specs choice
   // (authenticated, verified, and 'home' visible). Otherwise skip the read.
-  const needDecision = !!session && emailVerified && !!session.user.name && !homeHidden;
+  const needDecision =
+    !!session && emailVerified && !!session.user.name && !homeHidden;
   const landOnHome = useShouldLandOnHome(needDecision);
 
   // Engagement telemetry (advisory, fires once): record which way the router sent the
@@ -396,13 +486,13 @@ function RootRedirect() {
     // to their default board, so `destination` is always 'specs'. `graduated`
     // (= hasSpec) stays the raw engagement signal (how many landers haven't graduated).
     // Restore the confirmedSpecLess → 'home' destination when the Home Canvas returns.
-    const props = { destination: 'specs', graduated: !landOnHome };
+    const props = { destination: "specs", graduated: !landOnHome };
     // RootRedirect renders at the flat `/` (or `/login`), where `track()` resolves the
     // tenant from the cached session. In the rare case there's no resolvable tenant (e.g.
     // a session with no current Memex yet), fall back to the anonymous ingress so the
     // engagement data point still lands. Both are advisory and never throw into routing.
-    if (tenantBase()) track('home.landing_routed', props);
-    else trackAnonymous('home.landing_routed', props);
+    if (tenantBase()) track("home.landing_routed", props);
+    else trackAnonymous("home.landing_routed", props);
   }, [needDecision, landOnHome, track]);
 
   if (!session) return null; // session bootstrap still pending
@@ -433,10 +523,12 @@ function RootRedirect() {
   // authored a spec OR already connected an agent falls through to their normal board.
   const mcpConnected = isMcpConnectedCached();
   if (landOnHome && !mcpConnected && isOnboardingWizardEnabled(session)) {
-    const featured = session.memberships.find((m) => m.source === 'featured');
+    const featured = session.memberships.find((m) => m.source === "featured");
     if (featured) {
-      const mx = featured.memexSlug ?? 'main';
-      return <Navigate to={tenantPathFor(featured.slug, mx, '/home')} replace />;
+      const mx = featured.memexSlug ?? "main";
+      return (
+        <Navigate to={tenantPathFor(featured.slug, mx, "/home")} replace />
+      );
     }
   }
   // The global /home (build-prompt hero) is PARKED — the per-memex Brain replaces it as
@@ -471,50 +563,111 @@ export function PostLoginRouter() {
   const { session } = useAuth();
   return (
     <Suspense fallback={RouteFallback}>
-    {/* spec-304 t-58 (issue-24 #1): app-global MCP status sync — mounted once,
+      {/* spec-304 t-58 (issue-24 #1): app-global MCP status sync — mounted once,
         outside <Routes>, so the native pill is driven on EVERY route, not only
         on Settings → Integrations. Renders nothing; no-op in a plain browser. */}
-    <DesktopMcpStatusSync />
-    <Routes>
-      {/* Flat (caller-scoped) routes — no tenant prefix. */}
-      <Route path="/" element={<RootRedirect />} />
-      {/* `/login` is the LoginScreen path pre-auth (rendered by RequireAuth). Post-auth — or
+      <DesktopMcpStatusSync />
+      <Routes>
+        {/* Flat (caller-scoped) routes — no tenant prefix. */}
+        <Route path="/" element={<RootRedirect />} />
+        {/* `/login` is the LoginScreen path pre-auth (rendered by RequireAuth). Post-auth — or
           for users who hit it with a cached session — bounce to the default landing so it
           doesn't get caught by `/:namespace` below and resolved as a "login" namespace. */}
-      <Route path="/login" element={<RootRedirect />} />
-      <Route path="/onboarding" element={<Onboarding />} />
-      {/* spec-444: full-page welcome video. Standalone (no AppShell) — no FlatShell wrapper. */}
-      <Route path="/welcome" element={<WelcomePage />} />
-      {/* spec-502: the onboarding wizard. The Explore companion's CTA opens it as a
+        <Route path="/login" element={<RootRedirect />} />
+        <Route path="/onboarding" element={<Onboarding />} />
+        {/* spec-444: full-page welcome video. Standalone (no AppShell) — no FlatShell wrapper. */}
+        <Route path="/welcome" element={<WelcomePage />} />
+        {/* spec-502: the onboarding wizard. The Explore companion's CTA opens it as a
           large closeable modal (WizardModal) over the live Memex; this standalone
           full-page route stays for direct/resume deep-links (no AppShell). */}
-      <Route path="/wizard" element={<div className="min-h-screen flex flex-col justify-center"><Wizard /></div>} />
-      <Route path="/invite/:token" element={<InviteAccept />} />
-      {/* spec-141 dec-3: install instructions + MCP tokens folded into the one
+        <Route
+          path="/wizard"
+          element={
+            <div className="min-h-screen flex flex-col justify-center">
+              <Wizard />
+            </div>
+          }
+        />
+        <Route path="/invite/:token" element={<InviteAccept />} />
+        {/* spec-141 dec-3: install instructions + MCP tokens folded into the one
           Integrations page. Old routes redirect (the /account→/org pattern).
           /install/mcp/auth (the device-authorize bootstrap) is untouched. */}
-      <Route path="/install" element={<Navigate to="/settings/integrations" replace />} />
-      <Route path="/installation" element={<Navigate to="/settings/integrations" replace />} />
-      <Route path="/install/mcp/auth" element={<InstallAuth />} />
-      <Route path="/oauth/authorize" element={<OauthAuthorize />} />
-      <Route path="/settings/tokens" element={<Navigate to="/settings/integrations" replace />} />
-      <Route path="/settings/integrations" element={<FlatShell><SettingsIntegrations /></FlatShell>} />
-      {/* spec-226 t-6: internal email-preview gallery. Gated off prod — the
+        <Route
+          path="/install"
+          element={<Navigate to="/settings/integrations" replace />}
+        />
+        <Route
+          path="/installation"
+          element={<Navigate to="/settings/integrations" replace />}
+        />
+        <Route path="/install/mcp/auth" element={<InstallAuth />} />
+        <Route path="/oauth/authorize" element={<OauthAuthorize />} />
+        <Route
+          path="/settings/tokens"
+          element={<Navigate to="/settings/integrations" replace />}
+        />
+        <Route
+          path="/settings/integrations"
+          element={
+            <FlatShell>
+              <SettingsIntegrations />
+            </FlatShell>
+          }
+        />
+        {/* spec-226 t-6: internal email-preview gallery. Gated off prod — the
           conditional Route is inert when emailPreviewEnabled() is false (falls
           through to RootRedirect), mirroring the server's prod-unmounted API. */}
-      {emailPreviewEnabled() && (
-        <Route path="/email-preview" element={<FlatShell><EmailPreview /></FlatShell>} />
-      )}
-      <Route path="/invites" element={<Navigate to="/org?tab=invites" replace />} />
-      <Route path="/org" element={<FlatShell><OrgConfiguration /></FlatShell>} />
-      {/* spec-171: in-app upgrade flow. Flat routes so website CTAs land here
+        {emailPreviewEnabled() && (
+          <Route
+            path="/email-preview"
+            element={
+              <FlatShell>
+                <EmailPreview />
+              </FlatShell>
+            }
+          />
+        )}
+        <Route
+          path="/invites"
+          element={<Navigate to="/org?tab=invites" replace />}
+        />
+        <Route
+          path="/org"
+          element={
+            <FlatShell>
+              <OrgConfiguration />
+            </FlatShell>
+          }
+        />
+        {/* spec-171: in-app upgrade flow. Flat routes so website CTAs land here
           without a tenant prefix. confirmation before :plan so it isn't caught
           as a plan param. */}
-      <Route path="/upgrade" element={<FlatShell><UpgradePlanSelect /></FlatShell>} />
-      <Route path="/upgrade/confirmation" element={<FlatShell><UpgradeConfirmation /></FlatShell>} />
-      <Route path="/upgrade/:plan" element={<FlatShell><UpgradeSeats /></FlatShell>} />
-      <Route path="/account" element={<Navigate to="/org" replace />} />
-      {/* Home Canvas PARKED — the per-memex Brain replaces the flat /home onboarding
+        <Route
+          path="/upgrade"
+          element={
+            <FlatShell>
+              <UpgradePlanSelect />
+            </FlatShell>
+          }
+        />
+        <Route
+          path="/upgrade/confirmation"
+          element={
+            <FlatShell>
+              <UpgradeConfirmation />
+            </FlatShell>
+          }
+        />
+        <Route
+          path="/upgrade/:plan"
+          element={
+            <FlatShell>
+              <UpgradeSeats />
+            </FlatShell>
+          }
+        />
+        <Route path="/account" element={<Navigate to="/org" replace />} />
+        {/* Home Canvas PARKED — the per-memex Brain replaces the flat /home onboarding
           tracker as the default surface. The route stays registered (a flat,
           single-segment path would otherwise be claimed by /:namespace below,
           resolving "home" as a namespace) but now always RootRedirects to the
@@ -530,164 +683,180 @@ export function PostLoginRouter() {
               )
             }
       */}
-      <Route path="/home" element={<RootRedirect />} />
+        <Route path="/home" element={<RootRedirect />} />
 
-
-      {/* Bare /specs is a flat, single-segment path with no tenant prefix, so it
+        {/* Bare /specs is a flat, single-segment path with no tenant prefix, so it
           would otherwise be claimed by /:namespace below and resolved as a bogus
           "specs" namespace. The specs board is tenant-scoped (/<ns>/<mx>/specs);
           send the user to their default landing (their personal memex's Specs board;
           spec-461: never /home). Same RootRedirect pattern as /login and hidden /home. */}
-      <Route path="/specs" element={<RootRedirect />} />
+        <Route path="/specs" element={<RootRedirect />} />
 
-      {/* doc-19 t-10: namespace home — /<namespace>/ renders the kind-aware
+        {/* doc-19 t-10: namespace home — /<namespace>/ renders the kind-aware
           OrgHome / Personal Home. More specific /:namespace/:memex routes below
           take precedence (React Router 7 specificity). */}
-      <Route path="/:namespace" element={<FlatShell><NamespaceHome /></FlatShell>} />
+        <Route
+          path="/:namespace"
+          element={
+            <FlatShell>
+              <NamespaceHome />
+            </FlatShell>
+          }
+        />
 
-      {/* spec-481 t-2 (ac-4): per-namespace settings — the namespace-slug rename
+        {/* spec-481 t-2 (ac-4): per-namespace settings — the namespace-slug rename
           surface. `settings` is a reserved slug (no Memex can be named it), so
           this static segment safely wins over the `/:namespace/:memex` dynamic
           route below (RRv7 ranks static above dynamic). Declared before it to
           keep the precedence obvious to a reader too. */}
-      <Route path="/:namespace/settings" element={<FlatShell><NamespaceSettings /></FlatShell>} />
+        <Route
+          path="/:namespace/settings"
+          element={
+            <FlatShell>
+              <NamespaceSettings />
+            </FlatShell>
+          }
+        />
 
-      {/* Tenancy-scoped routes — every path segment lives under /:ns/:mx. */}
-      <Route path="/:namespace/:memex" element={<TenantLayout />}>
-        {/* The memex's default landing is the Brain — the whole-vault knowledge
+        {/* Tenancy-scoped routes — every path segment lives under /:ns/:mx. */}
+        <Route path="/:namespace/:memex" element={<TenantLayout />}>
+          {/* The memex's default landing is the Brain — the whole-vault knowledge
             graph (facets/standards/specs/decisions + drift). Was the Specs board;
             the Specs board still lives at the explicit /specs route below. */}
-        <Route index element={<Brain />} />
-        {/* The canonical default landing (AuthContext.computeDefaultLanding sends
+          <Route index element={<Brain />} />
+          {/* The canonical default landing (AuthContext.computeDefaultLanding sends
             every post-auth flow here). `/home` is a thin redirect, not a surface:
             it forwards to whichever route is currently chosen as the default. One
             knob — DEFAULT_TENANT_SURFACE — so the choice lives in a single place and
             callers only ever need to know "/home", not the surface behind it. The
             redirect builds an ABSOLUTE tenant path from the route params so it can
             never mis-resolve (no reliance on relative-path segment math). */}
-        <Route path="home" element={<TenantSurfaceRedirect to={DEFAULT_TENANT_SURFACE} />} />
-        {/* spec-148 t-1 (ac-6/ac-7/ac-8): gate the `/pulse` route on the
+          <Route
+            path="home"
+            element={<TenantSurfaceRedirect to={DEFAULT_TENANT_SURFACE} />}
+          />
+          {/* spec-148 t-1 (ac-6/ac-7/ac-8): gate the `/pulse` route on the
             server-driven hide list, mirroring the `/scaffold` gate below. When
             'pulse' is hidden the route isn't registered, so `/:ns/:mx/pulse`
             falls through to the catch-all `*` → RootRedirect → default tenant
             (/specs). The AppShell nav link is dropped by the same hiddenFeatures
             filter (the `feature: 'pulse'` tag on PRIMARY_NAV_LINKS). */}
-        {!isFeatureHidden(session, 'pulse') && (
-          <Route path="pulse" element={<Pulse />} />
-        )}
-        {/* spec-179 (ac-14): Insights — per-memex spec analytics. Same
+          {!isFeatureHidden(session, "pulse") && (
+            <Route path="pulse" element={<Pulse />} />
+          )}
+          {/* spec-179 (ac-14): Insights — per-memex spec analytics. Same
             server-driven gate mechanism as /pulse above. */}
-        {!isFeatureHidden(session, 'insights') && (
-          <Route path="insights" element={<Insights />} />
-        )}
-        {/* spec-260 (dec-5): QA Reports — the workspace feed of build-session
+          {!isFeatureHidden(session, "insights") && (
+            <Route path="insights" element={<Insights />} />
+          )}
+          {/* spec-260 (dec-5): QA Reports — the workspace feed of build-session
             QA reports. Same server-driven hiddenFeatures gate as /pulse. */}
-        {!isFeatureHidden(session, 'qa-reports') && (
-          <Route path="qa-reports" element={<QaReports />} />
-        )}
-        <Route path="decisions" element={<Decisions />} />
-        <Route path="specs" element={<SpecList />} />
-        {/* spec-418 t-5: the Manage-tags surface. A literal `specs/tags` segment —
+          {!isFeatureHidden(session, "qa-reports") && (
+            <Route path="qa-reports" element={<QaReports />} />
+          )}
+          <Route path="decisions" element={<Decisions />} />
+          <Route path="specs" element={<SpecList />} />
+          {/* spec-418 t-5: the Manage-tags surface. A literal `specs/tags` segment —
             registered before `specs/:id` so it's never resolved as a Spec handle.
             It renders inside TenantLayout → AppShell's sidebar layout (the AppShell
             doc-page match excludes the literal `tags` segment). */}
-        <Route path="specs/tags" element={<ManageTags />} />
-        {/* spec-521 t-4 (ac-5): registered before `specs/:id` (like `specs/tags`) so
+          <Route path="specs/tags" element={<ManageTags />} />
+          {/* spec-521 t-4 (ac-5): registered before `specs/:id` (like `specs/tags`) so
             the literal `archive` segment is never resolved as a Spec handle. */}
-        <Route path="specs/archive" element={<SpecArchive />} />
-        {/* spec-158 t-4: the Memex-level Issues page — the cross-Spec roll-up of
+          <Route path="specs/archive" element={<SpecArchive />} />
+          {/* spec-158 t-4: the Memex-level Issues page — the cross-Spec roll-up of
             every open issue, grouped under its parent Spec. A plain member
             surface (no feature gate), mounted in the standard AppShell. */}
-        <Route path="issues" element={<IssuesList />} />
-        <Route path="standards" element={<StandardList />} />
-        <Route path="standards/:id" element={<Standard />} />
-        {/* spec-498: Trails — the whole-vault knowledge graph view. The route is
+          <Route path="issues" element={<IssuesList />} />
+          <Route path="standards" element={<StandardList />} />
+          <Route path="standards/:id" element={<Standard />} />
+          {/* spec-498: Trails — the whole-vault knowledge graph view. The route is
             user-facing so it carries the display name (/trails); the component and
             its `brain-*` testids stay internal (the rename is display-only). */}
-        <Route path="trails" element={<Brain />} />
-        {/* spec-300 t-6: Skills — the reusable-SKILL.md surface (list + detail). */}
-        <Route path="skills" element={<SkillList />} />
-        <Route path="skills/:id" element={<Skill />} />
-        {/* spec-143 t-3: the Drift Inbox mounts in the same two-pane shell as
+          <Route path="trails" element={<Brain />} />
+          {/* spec-300 t-6: Skills — the reusable-SKILL.md surface (list + detail). */}
+          <Route path="skills" element={<SkillList />} />
+          <Route path="skills/:id" element={<Skill />} />
+          {/* spec-143 t-3: the Drift Inbox mounts in the same two-pane shell as
             the Spec page (`specs/:id`) — the agent ChatPanel beside the drift
             list — so the click-to-focus drift_item chip (handleFocus in
             DriftInbox) has a panel to land in. */}
-        <Route
-          path="drift"
-          element={
-            <DocumentShell>
-              <DriftInbox />
-            </DocumentShell>
-          }
-        />
-        <Route path="docs" element={<DocumentList />} />
-        <Route
-          path="docs/:id"
-          element={
-            <DocumentShell>
-              <DocDocument />
-            </DocumentShell>
-          }
-        />
-        {/* Per doc-30 dec-4 (post-b-105 rename): specs get a typed `/specs/:id`
+          <Route
+            path="drift"
+            element={
+              <DocumentShell>
+                <DriftInbox />
+              </DocumentShell>
+            }
+          />
+          <Route path="docs" element={<DocumentList />} />
+          <Route
+            path="docs/:id"
+            element={
+              <DocumentShell>
+                <DocDocument />
+              </DocumentShell>
+            }
+          />
+          {/* Per doc-30 dec-4 (post-b-105 rename): specs get a typed `/specs/:id`
             URL path that mirrors `/standards/:id`. Free-form documents and
             execution-plans keep `/docs/:id`. `DocDocument` is doc-type-agnostic;
             the URL difference is purely about the public surface. Legacy
             `/briefs/b-N` / `/missions/...` / `/strategies/...` URLs are
             301-redirected to `/specs/spec-N` by the server (b-105 t-5). */}
-        <Route
-          path="specs/:id"
-          element={
-            <DocumentShell>
-              <DocDocument />
-            </DocumentShell>
-          }
-        />
-        {/* spec-64 i-3: Decision / Issue canonical deep-links (e.g. from the ⌘K
+          <Route
+            path="specs/:id"
+            element={
+              <DocumentShell>
+                <DocDocument />
+              </DocumentShell>
+            }
+          />
+          {/* spec-64 i-3: Decision / Issue canonical deep-links (e.g. from the ⌘K
             palette) are `specs/:id/decisions/:decId` and `specs/:id/issues/:issueId`.
             They render the SAME Spec page; DocDocument reads the sub-param and opens
             the relevant tab + scrolls to the target. Without these routes the deeper
             path matched nothing under /:ns/:mx and fell through the catch-all `*` →
             RootRedirect → the caller's default (personal) Memex. Decisions/issues
             only ever hang off Specs, so only the `specs/...` shape is needed. */}
-        <Route
-          path="specs/:id/decisions/:decId"
-          element={
-            <DocumentShell>
-              <DocDocument />
-            </DocumentShell>
-          }
-        />
-        <Route
-          path="specs/:id/issues/:issueId"
-          element={
-            <DocumentShell>
-              <DocDocument />
-            </DocumentShell>
-          }
-        />
-        <Route path="org" element={<OrgConfiguration />} />
-        {/* spec-111 t-7: per-Memex settings — visibility (public ⇄ private)
+          <Route
+            path="specs/:id/decisions/:decId"
+            element={
+              <DocumentShell>
+                <DocDocument />
+              </DocumentShell>
+            }
+          />
+          <Route
+            path="specs/:id/issues/:issueId"
+            element={
+              <DocumentShell>
+                <DocDocument />
+              </DocumentShell>
+            }
+          />
+          <Route path="org" element={<OrgConfiguration />} />
+          {/* spec-111 t-7: per-Memex settings — visibility (public ⇄ private)
             toggle. Owner/admin-gated server-side; non-admins get a 403 on the
             PATCH (the page renders for everyone but the flip is rejected). */}
-        <Route path="settings" element={<MemexSettings />} />
-        {/* spec-129 dec-8 t-12: per-Memex emission keys — own, member-visible
+          <Route path="settings" element={<MemexSettings />} />
+          {/* spec-129 dec-8 t-12: per-Memex emission keys — own, member-visible
             page (Option B), separate from the admin-only settings page above.
             Any writing member can manage keys; the server role-scopes
             list/revoke (member: own; admin: all). */}
-        <Route path="keys" element={<MemexKeys />} />
-        {/* b-68 t-12/13/14: agent scaffold Inspect surface. Reads available to
+          <Route path="keys" element={<MemexKeys />} />
+          {/* b-68 t-12/13/14: agent scaffold Inspect surface. Reads available to
             any active member; admin edits gated server-side (404 to non-admins).
             spec-146 t-4: omitted entirely when 'scaffold' is hidden so the path
             falls through to the catch-all below (→ default tenant). */}
-        {!isFeatureHidden(session, 'scaffold') && (
-          <Route path="scaffold" element={<ScaffoldInspect />} />
-        )}
-      </Route>
+          {!isFeatureHidden(session, "scaffold") && (
+            <Route path="scaffold" element={<ScaffoldInspect />} />
+          )}
+        </Route>
 
-      {/* Anything else that doesn't match → bounce to the default tenant. */}
-      <Route path="*" element={<RootRedirect />} />
-    </Routes>
+        {/* Anything else that doesn't match → bounce to the default tenant. */}
+        <Route path="*" element={<RootRedirect />} />
+      </Routes>
     </Suspense>
   );
 }
@@ -701,14 +870,17 @@ function FlatShell({ children }: { children: React.ReactNode }) {
   // `!location.pathname.startsWith('/welcome')` guard. That gate is gone, and
   // nothing else here reads the location.
   if (session && !session.user.emailVerified) return <VerifyEmailGate />;
-  if (session && !session.user.name) return <Navigate to="/onboarding" replace />; // spec-441
+  if (session && !session.user.name)
+    return <Navigate to="/onboarding" replace />; // spec-441
   // spec-507: the fourth and quietest spec-444 gate lived here — it walled deep links
   // to flat routes (/settings/*, /org) too. Removed with the other three.
   return (
-    <ChatProvider>
-      <OrgConsentDialog />
-      <AppShell>{children}</AppShell>
-    </ChatProvider>
+    <SpecRefStatusProvider>
+      <ChatProvider>
+        <OrgConsentDialog />
+        <AppShell>{children}</AppShell>
+      </ChatProvider>
+    </SpecRefStatusProvider>
   );
 }
 
@@ -727,11 +899,11 @@ export function App() {
   //   /share/:token         — external guests viewing shared docs (t-10)
   //   /backstage            — platform-admin workspace picker (dev-mode only on the backend)
   if (
-    location.pathname.startsWith('/verify-domain/') ||
-    location.pathname.startsWith('/share/') ||
-    location.pathname === '/live' ||
-    location.pathname === '/backstage' ||
-    location.pathname.startsWith('/backstage/')
+    location.pathname.startsWith("/verify-domain/") ||
+    location.pathname.startsWith("/share/") ||
+    location.pathname === "/live" ||
+    location.pathname === "/backstage" ||
+    location.pathname.startsWith("/backstage/")
   ) {
     return (
       <ThemeProvider>
@@ -742,7 +914,10 @@ export function App() {
             {/* spec-458 (PROTOTYPE): public proof-of-life page — no auth, no tenant. */}
             <Route path="/live" element={<LivePage />} />
             <Route path="/backstage" element={<Backstage />} />
-            <Route path="/backstage/experiments" element={<BackstageExperiments />} />
+            <Route
+              path="/backstage/experiments"
+              element={<BackstageExperiments />}
+            />
           </Routes>
         </Suspense>
       </ThemeProvider>
@@ -753,9 +928,9 @@ export function App() {
   // fresh JWT) but MUST NOT be blocked by RequireAuth — the user might not be signed in
   // when they click a magic link from their inbox.
   const isPublicAuthRoute =
-    location.pathname === '/verify-email' ||
-    location.pathname === '/magic-link' ||
-    location.pathname === '/reset-password';
+    location.pathname === "/verify-email" ||
+    location.pathname === "/magic-link" ||
+    location.pathname === "/reset-password";
 
   return (
     <ThemeProvider>
@@ -804,4 +979,3 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   }
   return <RequireAuth>{children}</RequireAuth>;
 }
-
