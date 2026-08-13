@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useId } from "react";
 import { Link } from "react-router-dom";
-import { statusClasses } from "../../utils/statusStyles";
+import { statusTextClass } from "../../utils/statusStyles";
 import { parseTenantFromPathname } from "../../utils/tenantUrl";
 import { useSpecRefStatus } from "./SpecRefStatusProvider";
 import { SpecRefCard } from "./SpecRefCard";
@@ -77,14 +77,17 @@ export function SpecRefPill({ handle }: { handle: string }) {
   // noise, and it is the card's job to spell the split out. The chip is the Badge
   // treatment shrunk to sit inside a line of prose without boxing it — same colour
   // per phase as everywhere else in the product, because it comes from the same map.
+  // ONE capsule around the whole reference. Two free-floating elements with a gap
+  // between them do not read as a unit: in a paragraph naming five Specs you cannot
+  // tell which phase belongs to which handle. The enclosing background is what makes
+  // the pairing unambiguous.
+  //
+  // The phase inside is COLOURED TEXT, not a second chip. A chip inside a chip is a
+  // box inside a box, which is exactly what made the first treatment clunky.
   const body = (
     <>
       <span className="font-medium">{handle}</span>
-      <span
-        className={`rounded-sm border px-1 py-px text-[0.7em] font-medium leading-none ${statusClasses(
-          doc.status,
-        )}`}
-      >
+      <span className={`text-[0.8em] ${statusTextClass(doc.status)}`}>
         {doc.status.replace(/_/g, " ")}
       </span>
     </>
@@ -95,11 +98,16 @@ export function SpecRefPill({ handle }: { handle: string }) {
     "data-spec-handle": handle,
     "aria-describedby": open ? cardId : undefined,
     className:
-      // `-mx-0.5 px-0.5` nets to zero inline width, so the hover background gets
-      // breathing room WITHOUT pushing the following comma or full stop away from
-      // the reference. Padding alone left punctuation visibly detached.
-      "inline-flex items-baseline gap-1 whitespace-nowrap rounded-sm -mx-0.5 px-0.5 align-baseline " +
-      "!no-underline !text-primary hover:bg-subtle/70 hover:!text-primary",
+      // A VISIBLE edge is what makes the pairing unambiguous. A soft fill alone was
+      // tried and failed: against the panel it is nearly invisible, so the handle and
+      // its phase still read as two loose elements in a paragraph naming five Specs.
+      // The border can be this quiet only because the phase inside is coloured text
+      // rather than a nested chip — one box, not a box in a box.
+      "inline-flex items-baseline gap-1 whitespace-nowrap rounded-sm border border-subtle bg-subtle/40 " +
+      // No negative margin: it existed to keep punctuation tight when the pill had
+      // no border, and with one it tucks the following comma under the border edge.
+      "px-1.5 py-px align-baseline " +
+      "!no-underline !text-primary hover:border-accent/50 hover:bg-subtle hover:!text-primary",
     onMouseEnter: onEnter,
     onMouseLeave: onLeave,
     // Focus and tap open it too — hover-only content is unreachable by keyboard
