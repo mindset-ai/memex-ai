@@ -120,6 +120,35 @@ else
   rm -f "$_config_tmp"
 fi
 
+# ── Did the load ACTUALLY apply? ─────────────────────────────────────────────
+# Both branches above print which source they chose BEFORE applying it, so the
+# announcement is not evidence. On 2026-08-12 the prod deploy's smoke step sourced
+# this file under dash (make's default /bin/sh), where `source` on line ~119 does
+# not exist: it printed "source=SECRET-MANAGER", applied nothing, and returned 0.
+# PUBLIC_HOST was unset, `SMOKE_BASE_URL="https://$PUBLIC_HOST"` became "https://",
+# and the only reason the smoke hit the right host was something nobody chose
+# (spec-518 issue-5). The Makefile now pins SHELL := /bin/bash, which fixes that
+# instance — this guard is what stops the NEXT one, in whatever shell or caller
+# nobody has thought of yet.
+#
+# Checking one representative key rather than all of them: any partial-source
+# failure loses this too, and a full list would rot as keys come and go.
+#
+# POSIX `[ ]`, NOT `[[ ]]` — deliberately, and this is the whole point. A guard
+# written with `[[ ]]` cannot fire in a shell that has no `[[ ]]`, which is the
+# exact shell this guard exists for: dash prints "[[: not found", carries on
+# non-fatally, and the check silently never runs. My first draft of this block
+# made that mistake. A check must work in the failure mode it is checking for.
+if [ -z "${PUBLIC_HOST:-}" ]; then
+  echo "ERROR: deploy config reported a source but applied nothing — PUBLIC_HOST is unset." >&2
+  echo "       The config body did not load. Most likely this file was sourced by a" >&2
+  echo "       non-bash shell (it needs \`source\`, \`[[ ]]\` and \${BASH_SOURCE[0]}):" >&2
+  echo "         • from a Makefile recipe → the Makefile must set SHELL := /bin/bash" >&2
+  echo "         • from a script         → run it with bash, not sh" >&2
+  echo "       Failing closed: shipping with half-loaded config is how spec-518 happened." >&2
+  return 1 2>/dev/null || exit 1
+fi
+
 # Derived values — composed from the per-env settings above.
 CLOUD_SQL_INSTANCE_CONN="${GCP_PROJECT}:${REGION}:${CLOUD_SQL_INSTANCE_NAME}"
 IMAGE="${REGION}-docker.pkg.dev/${GCP_PROJECT}/memex/${SERVICE}"
