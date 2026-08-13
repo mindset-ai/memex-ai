@@ -1,6 +1,30 @@
 # ──────────────────────────────────────────────────────────────
 # Memex App — Task Runner
 # ──────────────────────────────────────────────────────────────
+# Recipes run under bash, not the platform /bin/sh.
+#
+# make defaults to /bin/sh, which on Ubuntu (every CI runner) is dash. Several
+# recipes source scripts/deploy-config.sh, and that script is bash — it uses
+# ${BASH_SOURCE[0]}, `[[ ]]`, and `source`. Under dash all three fail, and the
+# failures are NOT fatal, so the recipe carries on with the config unloaded.
+#
+# Observed in the 2026-08-12 prod deploy (run 31615268013), during the post-deploy
+# smoke step:
+#     /bin/sh:  62: scripts/deploy-config.sh: Bad substitution
+#     /bin/sh: 119: scripts/deploy-config.sh: source: not found
+# Line 119 is the one that applies the fetched config, so PUBLIC_HOST was never
+# set — while the script had already printed "source=SECRET-MANAGER", making it
+# look like the config had been read. The smoke still hit the right host, for
+# reasons nobody chose. That is spec-518's own defect one layer down: a config
+# that announces itself and applies nothing (spec-518 issue-5).
+#
+# Deliberately SHELL only — no `.SHELLFLAGS` change. Adding `-o pipefail` was
+# tempting and would have been a regression: recipes here pipe into `head`, which
+# closes the pipe early and SIGPIPEs the producer, so pipefail would fail recipes
+# that work correctly today. Fixing the shell is this change; tightening error
+# semantics is a separate decision with its own blast radius.
+SHELL := /bin/bash
+# ──────────────────────────────────────────────────────────────
 # Usage:
 #   make test                Run all tests
 #   make test-unit           Unit tests only (mocked, fast)
