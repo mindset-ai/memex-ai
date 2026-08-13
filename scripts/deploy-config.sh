@@ -227,6 +227,41 @@ if [ -n "${MEMEX_OTEL_EXPORT_INTERVAL_MS+set}" ]; then
   export MEMEX_OTEL_EXPORT_INTERVAL_MS
 fi
 
+# MEMEX_EMISSION_* — spec-525 t-6: the AC-emission admission gate's knobs.
+#
+#   MEMEX_EMISSION_GATE_MODE    "shadow" (default, and what the first deploy runs) or
+#                               "enforcing". Exactly one spelling turns refusal on;
+#                               anything else — including "ENFORCING" or "true" — stays
+#                               shadow. The DEFAULT IS THE SAFE ONE on purpose: a wiring
+#                               mistake under-protects rather than silently applying
+#                               untuned limits to real traffic.
+#   MEMEX_EMISSION_WAIT_MS      how long a caller may be held before a 429 (default 250).
+#                               Must stay an order of magnitude inside the emitter's own
+#                               PER_REQUEST_TIMEOUT_MS=5000, or a server-side wait becomes
+#                               client-side truncation (ac-18).
+#   MEMEX_EMISSION_MAX_WAITERS  how many callers may queue at once. Unset means DERIVED
+#                               (ceiling × waitMs / serviceMs) — prefer the derivation.
+#
+# The CEILING is deliberately absent: ac-12 requires it computed from the resolved pool,
+# so it follows DB_POOL_MAX. A hand-set ceiling is a number someone raises during a busy
+# week, and the guarantee that user traffic always retains connections disappears without
+# a trace.
+#
+# Both edits are mandatory — this export AND the --update-env-vars entry in deploy.sh.
+# Miss the second and prod silently takes the code default while the right value sits
+# unread in the canonical secret: that is spec-518, and the 2026-08-03 incident followed
+# it. Here the same slip means shipping shadow while believing enforcement is on.
+# Same set-vs-unset MERGE semantics as HIDDEN_FEATURES above.
+if [ -n "${MEMEX_EMISSION_GATE_MODE+set}" ]; then
+  export MEMEX_EMISSION_GATE_MODE
+fi
+if [ -n "${MEMEX_EMISSION_WAIT_MS+set}" ]; then
+  export MEMEX_EMISSION_WAIT_MS
+fi
+if [ -n "${MEMEX_EMISSION_MAX_WAITERS+set}" ]; then
+  export MEMEX_EMISSION_MAX_WAITERS
+fi
+
 # STORAGE_PROVIDER / STORAGE_GCS_BUCKET — spec-300: the blob backend for Skills'
 # BINARY auxiliary files (getStorageProvider(), services/storage/index.ts). Unset in an
 # env means the code default applies (local in dev, gcs in prod) — but gcs REQUIRES a
