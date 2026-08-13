@@ -73,7 +73,9 @@ test(T1, async ({ page, resources }) => {
   // ── 3) The pill is a link into the referenced Spec. ─────────────────────────
   await expect(pill).toHaveAttribute(
     "href",
-    tenantPath(tenant.namespaceSlug, tenant.memexSlug, `/specs/${referenced.handle}`),
+    new URL(
+      tenantPath(tenant.namespaceSlug, tenant.memexSlug, `/specs/${referenced.handle}`),
+    ).pathname,
   );
 
   // ── 4) THE POINT: move the referenced Spec, and the pill follows. ───────────
@@ -115,13 +117,17 @@ test(T2, async ({ page, resources }) => {
   await page.goto(
     tenantPath(tenant.namespaceSlug, tenant.memexSlug, `/specs/${host.handle}`),
   );
-  await expect(page.getByText(/Handles that are not references/)).toBeVisible({
-    timeout: 15_000,
-  });
+  await expect(
+    page.getByRole("heading", { name: /Handles that are not references/ }),
+  ).toBeVisible({ timeout: 15_000 });
 
   // Neither handle became a pill: an unreadable Spec and a non-existent one must be
   // indistinguishable [per std-7], and a code sample renders verbatim.
   await expect(page.getByTestId("spec-ref-pill")).toHaveCount(0);
-  await expect(page.getByText("spec-99999")).toBeVisible();
-  await expect(page.locator("code", { hasText: "spec-12345" })).toBeVisible();
+  // The seeded section, not the Spec's Overview — `.first()` is the Overview.
+  const body = page
+    .getByTestId("section-card")
+    .filter({ hasText: "Handles that are not references" });
+  await expect(body).toContainText("spec-99999");
+  await expect(body.locator("code", { hasText: "spec-12345" })).toBeVisible();
 });
