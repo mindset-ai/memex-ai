@@ -68,7 +68,9 @@ describe('rehypeSpecRefLinkifier', () => {
   });
 
   it('does not double-link a handle already inside an anchor', () => {
-    const { container } = renderMd('[the board spec](/x/y/specs/spec-335)');
+    // The handle must be in the anchor's TEXT, not just its href — otherwise the
+    // assertion passes even with 'a' removed from the skip set.
+    const { container } = renderMd('[spec-335](/x/y/specs/spec-335)');
     expect(getSpecRefs(container)).toHaveLength(0);
     expect(container.querySelectorAll('a')).toHaveLength(1);
   });

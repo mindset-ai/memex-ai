@@ -31,9 +31,10 @@ export interface DocSummaryAssignee {
 }
 
 /**
- * spec-529: the task roll-up behind a reference pill's `4/8 tasks` and its
- * card's split. Derived by `taskProgressByDoc` from the same rows the Spec's
- * own task list reads.
+ * spec-529: the task roll-up the reference CARD shows as its task split (the
+ * pill face carries only the handle and a phase chip). Derived by
+ * `taskProgressByDoc` from the same rows the Spec's own task list reads, so the
+ * two can never disagree for one Spec.
  */
 export interface TaskProgress {
   total: number;
@@ -49,7 +50,6 @@ export interface TaskProgress {
 export interface LastActivity {
   at: Date;
   narrative: string;
-  actorName: string | null;
 }
 
 export interface DocSummary {

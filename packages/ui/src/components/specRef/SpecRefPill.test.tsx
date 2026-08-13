@@ -5,8 +5,8 @@
 // that opening a card makes none.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { render, screen, waitFor, fireEvent, createEvent } from '@testing-library/react';
+import { MemoryRouter, Routes, Route, Link } from 'react-router-dom';
 import { tagAc } from '@memex-ai-ac/vitest';
 import type { DocSummary } from '../../api/types';
 
@@ -48,7 +48,9 @@ function renderPills(handles: string[]) {
 }
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  // reset, not clear: `clearAllMocks` leaves queued `...Once` implementations
+  // behind, and an unconsumed one is then served to the NEXT test.
+  vi.resetAllMocks();
   window.history.pushState({}, '', '/mindset-prod/mindset-four/docs/doc-36');
 });
 
@@ -87,6 +89,43 @@ describe('SpecRefStatusProvider — one request per page', () => {
       expect(screen.queryByTestId('spec-ref-pill')).not.toBeInTheDocument(),
     );
     expect(container.textContent).toBe('spec-335');
+  });
+});
+
+describe('the cache is per-Memex (spec-529 review)', () => {
+  it('re-resolves the same handle after a Memex switch, and never serves the old answer', async () => {
+    tagAc('mindset-prod/memex-building-itself/specs/spec-529/acs/ac-1');
+    // Handles are per-Memex, so `spec-335` in another Memex is a DIFFERENT Spec.
+    // The navigation has to be REAL: MemoryRouter reads `initialEntries` only on
+    // first mount, so re-rendering it with a new path changes nothing.
+    function Harness() {
+      return (
+        <SpecRefStatusProvider>
+          <Link to="/org/beta/specs/spec-1">switch</Link>
+          <SpecRefPill handle="spec-335" />
+        </SpecRefStatusProvider>
+      );
+    }
+    mockFetchDocs.mockResolvedValue([makeDoc({ title: 'Alpha spec', status: 'build' })]);
+    render(
+      <MemoryRouter initialEntries={['/org/alpha/specs/spec-1']}>
+        <Routes>
+          <Route path="/:namespace/:memex/*" element={<Harness />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('spec-ref-pill').textContent).toContain('build'),
+    );
+
+    mockFetchDocs.mockResolvedValue([makeDoc({ title: 'Beta spec', status: 'verify' })]);
+    fireEvent.click(screen.getByRole('link', { name: 'switch' }));
+
+    // Asked again for the new tenant rather than reusing alpha's answer.
+    await waitFor(() => expect(mockFetchDocs).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(screen.getByTestId('spec-ref-pill').textContent).toContain('verify'),
+    );
   });
 });
 
@@ -145,6 +184,36 @@ describe('SpecRefPill — the face', () => {
   });
 });
 
+describe('the resolver asks for what the card promises (spec-529 review)', () => {
+  it('requests archived Specs, so a reference to one can say it is archived', async () => {
+    tagAc('mindset-prod/memex-building-itself/specs/spec-529/acs/ac-2');
+    mockFetchDocs.mockResolvedValue([makeDoc()]);
+    renderPills(['spec-335']);
+    await waitFor(() => expect(mockFetchDocs).toHaveBeenCalled());
+    // Without this the server filters archived rows out, the handle resolves as
+    // absent, and the card's Archived banner is unreachable — the reader is told
+    // nothing about the fact that what they are pointed at has been archived.
+    expect(mockFetchDocs.mock.calls[0][1].includeArchived).toBe(true);
+  });
+
+  it('chunks a set larger than the server cap instead of losing its tail', async () => {
+    tagAc('mindset-prod/memex-building-itself/specs/spec-529/acs/ac-4');
+    const handles = Array.from({ length: 200 }, (_, i) => `spec-${i + 1}`);
+    mockFetchDocs.mockResolvedValue([]);
+    renderPills(handles);
+    await waitFor(() => expect(mockFetchDocs).toHaveBeenCalled());
+    await waitFor(() => {
+      const sent = mockFetchDocs.mock.calls.flatMap((c: unknown[]) => (c[1] as { handles: string[] }).handles);
+      expect(sent).toHaveLength(200);
+    });
+    // Every request stays within the server's cap; nothing is silently dropped
+    // and then cached as missing for the rest of the session.
+    for (const call of mockFetchDocs.mock.calls) {
+      expect(call[1].handles.length).toBeLessThanOrEqual(100);
+    }
+  });
+});
+
 describe('SpecRefCard — the whole story, without a request', () => {
   async function openCard(over: Partial<DocSummary> = {}) {
     mockFetchDocs.mockResolvedValue([makeDoc(over)]);
@@ -173,13 +242,32 @@ describe('SpecRefCard — the whole story, without a request', () => {
     expect(mockFetchDocs).not.toHaveBeenCalled();
   });
 
-  it('opens on tap as well as hover, so it exists on touch', async () => {
+  it('opens on a TAP and suppresses that tap\'s navigation, so it exists on touch', async () => {
     tagAc('mindset-prod/memex-building-itself/specs/spec-529/acs/ac-2');
     mockFetchDocs.mockResolvedValue([makeDoc()]);
     renderPills(['spec-335']);
     const pill = await screen.findByTestId('spec-ref-pill');
-    fireEvent.click(pill);
+
+    // A touch has no hover, so without this the tap would simply follow the link
+    // and the card would never be reachable on a phone.
+    fireEvent.pointerDown(pill, { pointerType: 'touch' });
+    const clickEvent = createEvent.click(pill);
+    fireEvent(pill, clickEvent);
+    expect(clickEvent.defaultPrevented).toBe(true);
     expect(await screen.findByTestId('spec-ref-card')).toBeInTheDocument();
+  });
+
+  it('lets a MOUSE click navigate, because hover already showed the card', async () => {
+    mockFetchDocs.mockResolvedValue([makeDoc()]);
+    renderPills(['spec-335']);
+    const pill = await screen.findByTestId('spec-ref-pill');
+    fireEvent.pointerDown(pill, { pointerType: 'mouse' });
+    fireEvent.click(pill);
+    // `defaultPrevented` cannot distinguish here — react-router's Link always
+    // prevents the default in order to navigate client-side. What separates the
+    // two paths is that a mouse click does NOT divert into opening the card: on a
+    // pointer device hover has already shown it, so the click means "go there".
+    expect(screen.queryByTestId('spec-ref-card')).not.toBeInTheDocument();
   });
 
   it('closes on blur', async () => {

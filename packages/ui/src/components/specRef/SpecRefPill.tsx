@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useId } from "react";
+import { useState, useRef, useCallback, useEffect, useId } from "react";
 import { Link } from "react-router-dom";
 import { statusClasses } from "../../utils/statusStyles";
 import { parseTenantFromPathname } from "../../utils/tenantUrl";
@@ -8,11 +8,11 @@ import { SpecRefCard } from "./SpecRefCard";
 /**
  * spec-529 t-4 — the interactive pill a bare `spec-N` becomes.
  *
- * The face carries three things and no more: the handle, the phase, and task
- * progress as a terse fraction. The TITLE is deliberately absent from the face —
- * Spec titles are full sentences in this product's house style, and inlining one
- * mid-paragraph would wreck the line. The title belongs on the card, which has
- * room for it.
+ * The face carries the handle and a phase chip, and nothing else. Task progress
+ * was on it and came off: repeated through a paragraph a fraction is noise, and
+ * the split belongs on the card, which has room to spell it out. The TITLE is
+ * absent for the same reason — Spec titles are full sentences in this product's
+ * house style, and inlining one mid-paragraph would wreck the line.
  *
  * A handle that does not resolve — no such Spec, or not this reader's to see —
  * renders as ordinary text with no pill, no link and no hover affordance. That
@@ -34,7 +34,16 @@ export function SpecRefPill({ handle }: { handle: string }) {
   const entry = useSpecRefStatus(handle);
   const [open, setOpen] = useState(false);
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Which input opened the last interaction. A touch has no hover, so the first
+  // tap must open the card instead of navigating; a mouse click keeps navigating,
+  // because on a pointer device hover has already shown the card.
+  const lastPointerType = useRef<string>("mouse");
   const cardId = useId();
+
+  // A pending 120ms open-timer must not fire into a component that has gone.
+  useEffect(() => () => {
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+  }, []);
 
   const cancelHover = useCallback(() => {
     if (hoverTimer.current) {
@@ -100,20 +109,35 @@ export function SpecRefPill({ handle }: { handle: string }) {
       // the reference. Padding alone left punctuation visibly detached.
       "inline-flex items-baseline gap-1 whitespace-nowrap rounded-sm -mx-0.5 px-0.5 align-baseline " +
       "!no-underline !text-primary hover:bg-subtle/70 hover:!text-primary",
-    onMouseEnter: onEnter,
-    onMouseLeave: onLeave,
     // Focus and tap open it too — hover-only content is unreachable by keyboard
     // and does not exist on touch.
     onFocus: () => setOpen(true),
     onBlur: () => setOpen(false),
-    onClick: () => setOpen(true),
+    onPointerDown: (e: React.PointerEvent) => {
+      lastPointerType.current = e.pointerType || "mouse";
+    },
+    onClick: (e: React.MouseEvent) => {
+      if (lastPointerType.current === "touch" && !open) {
+        // First tap reveals; a second tap follows the link.
+        e.preventDefault();
+        setOpen(true);
+      }
+    },
     onKeyDown: (e: React.KeyboardEvent) => {
       if (e.key === "Escape") setOpen(false);
     },
   };
 
   return (
-    <span className="relative inline-block">
+    // Hover handlers live on the WRAPPER, not the anchor: the card renders as a
+    // sibling below the anchor's box, so an anchor-scoped `mouseleave` fired the
+    // moment the pointer set off toward the card, and the card vanished before it
+    // could be reached, selected or copied.
+    <span
+      className="relative inline-block"
+      onMouseEnter={onEnter}
+      onMouseLeave={onLeave}
+    >
       {href ? (
         <Link to={href} {...shared}>
           {body}

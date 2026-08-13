@@ -10,6 +10,7 @@ import { ARCHIVE_REASON_MAX_LENGTH } from "./archived-docs.js";
 import { isUuid } from "./shared/identifiers.js";
 import { withSeqRetry } from "./shared/sequence.js";
 import { docAttribution } from "./shared/doc-attribution.js";
+import { ATTRIBUTION_BEARING_ACTIONS } from "./activity-log.js";
 import { embedAndStoreSection, embedAndStoreDecision } from "./memex-embeddings.js";
 import { aggregateAcHealthForBriefs } from "./acs.js";
 import { maybeAutoResolveIssuesForPromotedDoc } from "./issues.js";
@@ -447,8 +448,21 @@ export async function taskProgressByDoc(
 }
 
 /**
- * spec-529 t-5: the most recent activity per Spec — WHEN it last changed and
- * WHAT changed — for the reference card's "last activity" line.
+ * spec-529 t-5: the most recent CHANGE per Spec — WHEN it last changed and WHAT
+ * changed — for the reference card's "last activity" line.
+ *
+ * Two things this deliberately does NOT do, both found in review:
+ *
+ * 1. It filters to attribution-bearing actions. The activity sink persists EVERY
+ *    change event, and that includes the `viewed` events emitted on each human
+ *    page open — so an unfiltered "latest row" reports that somebody LOOKED at the
+ *    Spec, not that anything changed. It would also turn a hover into a read
+ *    receipt, telling the reader who opened what and when.
+ * 2. It returns no actor identity. This endpoint answers anonymous readers on a
+ *    public Memex, and `routes/activity.ts` already drops actor fields for anyone
+ *    without write access precisely because they carry PII. A name on the card
+ *    would reintroduce, on a different route, the leak that projection exists to
+ *    prevent.
  *
  * `documents` carries no general updated-at column, so a truthful answer has to
  * come from the activity log itself. One `DISTINCT ON` over the existing
@@ -466,13 +480,13 @@ export async function lastActivityByDoc(
       docId: activityLog.briefId,
       at: activityLog.createdAt,
       narrative: activityLog.narrative,
-      actorName: activityLog.actorName,
     })
     .from(activityLog)
     .where(
       and(
         eq(activityLog.memexId, memexId),
         inArray(activityLog.briefId, docIds),
+        inArray(activityLog.action, [...ATTRIBUTION_BEARING_ACTIONS]),
       ),
     )
     .orderBy(activityLog.briefId, desc(activityLog.createdAt));
@@ -480,11 +494,7 @@ export async function lastActivityByDoc(
   const out = new Map<string, LastActivity>();
   for (const r of rows) {
     if (!r.docId) continue;
-    out.set(r.docId, {
-      at: r.at,
-      narrative: r.narrative,
-      actorName: r.actorName ?? null,
-    });
+    out.set(r.docId, { at: r.at, narrative: r.narrative });
   }
   return out;
 }

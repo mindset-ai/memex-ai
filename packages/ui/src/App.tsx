@@ -712,11 +712,14 @@ function FlatShell({ children }: { children: React.ReactNode }) {
   // spec-507: the fourth and quietest spec-444 gate lived here — it walled deep links
   // to flat routes (/settings/*, /org) too. Removed with the other three.
   return (
+    // Flat routes are caller-scoped, not tenant-scoped, so there is no tenant to
+    // key on — and no document body here to carry a reference. The provider stays
+    // for uniformity and is inert until something registers a handle.
     <SpecRefStatusProvider>
       <ChatProvider>
-      <OrgConsentDialog />
-      <AppShell>{children}</AppShell>
-    </ChatProvider>
+        <OrgConsentDialog />
+        <AppShell>{children}</AppShell>
+      </ChatProvider>
     </SpecRefStatusProvider>
   );
 }

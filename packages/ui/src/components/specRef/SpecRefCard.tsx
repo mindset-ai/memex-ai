@@ -104,8 +104,9 @@ export function SpecRefCard({ id, doc }: { id: string; doc: DocSummary }) {
           data-testid="spec-ref-activity"
           className="mt-2 block border-t border-subtle pt-2 text-[11px] text-muted"
         >
+          {/* WHAT changed and WHEN — never WHO. This card is read by anonymous
+              visitors on public Memexes, and actor identity is PII. */}
           {doc.lastActivity.narrative} · {formatDate(doc.lastActivity.at)}
-          {doc.lastActivity.actorName ? ` · ${doc.lastActivity.actorName}` : ''}
         </span>
       )}
     </span>

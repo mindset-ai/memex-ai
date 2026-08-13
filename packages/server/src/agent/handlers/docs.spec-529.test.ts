@@ -12,9 +12,6 @@ import { describe, it, expect } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { docsTools } from "./docs.js";
 
-const BODY_WITH_HANDLES =
-  "The board work is spec-335, and the verbatim record is spec-372.";
-
 describe("get_doc is untouched by spec-529", () => {
   it("appends no resolved-references block to its description or schema", () => {
     tagAc("mindset-prod/memex-building-itself/specs/spec-529/acs/ac-7");
@@ -34,10 +31,16 @@ describe("get_doc is untouched by spec-529", () => {
     expect(names.filter((n) => /ref|pill|handle/i.test(n))).toEqual([]);
   });
 
-  it("leaves a body's bare handles as literal text — the agent reads what was written", () => {
-    // The rendering layer never touches storage, so a handle in a body is still
-    // the same string an agent receives.
-    expect(BODY_WITH_HANDLES).toContain("spec-335");
-    expect(BODY_WITH_HANDLES).toContain("spec-372");
+  it("exposes no handle-resolution argument an agent could ask status through", () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-529/acs/ac-7");
+    const getDoc = docsTools.find((t) => t.name === "get_doc");
+    // The whole surface an agent can reach is ref + verbose. There is no opt-in
+    // that would return resolved status for the handles a body mentions, which is
+    // what dec-3 decided against.
+    const schema = getDoc?.schema ?? {};
+    expect(Object.keys(schema)).toEqual(["ref", "verbose"]);
+    expect(Object.keys(schema)).not.toContain("resolveRefs");
+    expect(Object.keys(schema)).not.toContain("includeReferencedSpecs");
   });
+
 });

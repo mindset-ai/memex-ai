@@ -9,9 +9,10 @@ import { describe, it, expect, afterAll, beforeAll } from "vitest";
 import { eq } from "drizzle-orm";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { db } from "../db/connection.js";
-import { documents } from "../db/schema.js";
+import { documents, activityLog } from "../db/schema.js";
 import { createDocDraft, listDocs, MAX_HANDLE_FILTER } from "./documents.js";
 import { createTask, updateTaskStatus, listTasks } from "./tasks.js";
+import { archiveDoc } from "./documents.js";
 import { makeTestMemex } from "./test-helpers.js";
 
 const createdDocIds: string[] = [];
@@ -123,5 +124,78 @@ describe("listDocs includeTaskProgress (spec-529)", () => {
     expect(row.taskProgress?.notStarted).toBe(
       pageTasks.filter((t) => t.status === "not_started").length,
     );
+  });
+});
+
+// ── Review findings, pinned so they cannot come back ────────────────────────────
+
+describe("lastActivity reports CHANGES, and never who made them (spec-529)", () => {
+  // The activity sink does not run in this process, so both rows are written
+  // directly. That is deliberate: what changed here is the QUERY — which rows it
+  // selects and which columns it returns — and these tests target exactly that.
+  async function seedActivity(memexId: string, docId: string) {
+    await db.insert(activityLog).values([
+      {
+        memexId, briefId: docId, actorKind: "human", channel: "rest_ui",
+        entity: "document", action: "status_changed",
+        narrative: "moved to specify", actorName: "A Person",
+        createdAt: new Date("2026-08-10T10:00:00Z"),
+      },
+      {
+        // A READ, and the NEWEST row — so an unfiltered "latest" would pick it.
+        memexId, briefId: docId, actorKind: "human", channel: "rest_ui",
+        entity: "document", action: "viewed",
+        narrative: "viewing the spec", actorName: "A Reader",
+        createdAt: new Date("2026-08-12T10:00:00Z"),
+      },
+    ]);
+  }
+
+  it("skips `viewed` rows even when they are the most recent, so it is not a read receipt", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-529/acs/ac-2");
+    const m = await makeTestMemex();
+    const spec = await createDocDraft(m, "Watched spec", "purpose", "spec");
+    createdDocIds.push(spec.id);
+    await seedActivity(m, spec.id);
+
+    const [row] = await listDocs(m, { handles: [spec.handle], includeLastActivity: true });
+    expect(row.lastActivity).toBeDefined();
+    // The change, not the newer read.
+    expect(row.lastActivity?.narrative).toBe("moved to specify");
+    expect(row.lastActivity?.narrative).not.toMatch(/view/i);
+  });
+
+  it("returns no actor identity — this response is readable anonymously", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-529/acs/ac-3");
+    const m = await makeTestMemex();
+    const spec = await createDocDraft(m, "Changed spec", "purpose", "spec");
+    createdDocIds.push(spec.id);
+    await seedActivity(m, spec.id);
+
+    const [row] = await listDocs(m, { handles: [spec.handle], includeLastActivity: true });
+    expect(row.lastActivity).toBeDefined();
+    // routes/activity.ts drops actor fields for readers without write access
+    // because they carry PII. This projection must not reintroduce them.
+    expect(Object.keys(row.lastActivity ?? {}).sort()).toEqual(["at", "narrative"]);
+    expect(JSON.stringify(row.lastActivity)).not.toContain("A Person");
+  });
+});
+
+describe("an archived Spec still RESOLVES, so its banner can be shown (spec-529)", () => {
+  it("comes back when includeArchived is set, and is filtered out without it", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-529/acs/ac-2");
+    const m = await makeTestMemex();
+    const spec = await createDocDraft(m, "Archived spec", "purpose", "spec");
+    createdDocIds.push(spec.id);
+    await archiveDoc(m, spec.id, { channel: "rest_ui" }, "absorbed elsewhere");
+
+    // Without the flag the row is filtered out — which is what made the card's
+    // Archived banner unreachable: the handle resolved as absent and rendered as
+    // plain text, telling the reader nothing.
+    expect(await listDocs(m, { handles: [spec.handle] })).toEqual([]);
+
+    const [row] = await listDocs(m, { handles: [spec.handle], includeArchived: true });
+    expect(row?.handle).toBe(spec.handle);
+    expect(row?.archivedAt).not.toBeNull();
   });
 });

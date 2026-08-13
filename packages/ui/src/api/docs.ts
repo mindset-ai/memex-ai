@@ -43,6 +43,14 @@ export interface FetchDocsOptions {
    */
   handles?: ReadonlyArray<string>;
   /**
+   * spec-529: include archived docs. The reference resolver MUST set this. A
+   * reference to an archived Spec is exactly the case the card's banner exists
+   * for, and without this the server filters those rows out, the handle resolves
+   * as absent, and the reference renders as plain text — telling the reader
+   * nothing about the fact that what they are pointed at has been archived.
+   */
+  includeArchived?: boolean;
+  /**
    * spec-136 t-4: tag-facet filter as `scope::value`/flat strings. Sent as
    * repeated `?tags=` params (the server also accepts CSV). The server ANDs
    * across scopes and ORs within a scope; each flat tag is its own AND clause.
@@ -72,6 +80,7 @@ export async function fetchDocs(
   if (opts?.include?.length) params.set('include', opts.include.join(','));
   // spec-136 t-4: repeated `?tags=` params (server also accepts CSV). Skip
   // empty/whitespace entries so a stray blank never trips the server's 400.
+  if (opts?.includeArchived) params.set('includeArchived', 'true');
   // spec-529: repeated `?handles=` params (the server also accepts CSV).
   if (opts?.handles?.length) {
     for (const h of opts.handles) {

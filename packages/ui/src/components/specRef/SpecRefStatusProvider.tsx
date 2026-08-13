@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { useParams } from 'react-router-dom';
 import { fetchDocs } from '../../api/docs';
 import type { DocSummary } from '../../api/types';
 
@@ -45,6 +46,15 @@ interface SpecRefContextValue {
 
 const SpecRefContext = createContext<SpecRefContextValue | null>(null);
 
+/**
+ * The server caps a handle set per request (MAX_HANDLE_FILTER). Chunk to it, or a
+ * long index document naming more Specs than the cap loses its tail silently —
+ * and, because the dropped handles are recorded as `missing`, permanently for the
+ * rest of the session. Kept slightly below the server's 100 so the two can drift
+ * without the client silently losing rows again.
+ */
+const MAX_PER_REQUEST = 90;
+
 /** The server projections a pill and its card need, asked for once. */
 const INCLUDE = ['taskProgress', 'acHealth', 'lastActivity'] as const;
 
@@ -58,6 +68,32 @@ export function SpecRefStatusProvider({ children }: { children: ReactNode }) {
   const queue = useRef<Set<string>>(new Set());
   const flushScheduled = useRef(false);
   const alive = useRef(true);
+
+  // A handle is per-Memex [per std-10 cl-14], so a resolved `spec-42` from one
+  // tenant must never be served for `spec-42` in another. TenantLayout does NOT
+  // remount on a param change (that is why the routed subtree below it carries its
+  // own remount key), so without this the cache would outlive the switch and the
+  // pill would show another Memex's title, phase and link.
+  //
+  // Reset DURING RENDER, not in an effect. Child effects run before parent effects,
+  // so an effect here would clear `seen` only AFTER every pill had already
+  // re-registered against the previous tenant's cache — the pills would keep the
+  // stale answer and never re-ask. Adjusting state during render is React's
+  // sanctioned pattern for exactly this "derived state must reset" case, and it
+  // lands before children render.
+  //
+  // Keying the provider from App would also work and was tried; it remounts the
+  // whole tenant subtree (chat, shell and all), which is far more than this needs
+  // and, as the onboarding journey caught, not side-effect free.
+  const { namespace, memex } = useParams<{ namespace: string; memex: string }>();
+  const tenant = `${namespace ?? ''}/${memex ?? ''}`;
+  const [renderedTenant, setRenderedTenant] = useState(tenant);
+  if (renderedTenant !== tenant) {
+    setRenderedTenant(tenant);
+    seen.current.clear();
+    queue.current.clear();
+    setEntries(new Map());
+  }
 
   useEffect(() => {
     alive.current = true;
@@ -73,7 +109,21 @@ export function SpecRefStatusProvider({ children }: { children: ReactNode }) {
     if (batch.length === 0) return;
 
     try {
-      const docs = await fetchDocs('spec', { handles: batch, include: INCLUDE });
+      const chunks: string[][] = [];
+      for (let i = 0; i < batch.length; i += MAX_PER_REQUEST) {
+        chunks.push(batch.slice(i, i + MAX_PER_REQUEST));
+      }
+      const results = await Promise.all(
+        chunks.map((handles) =>
+          fetchDocs('spec', {
+            handles,
+            include: INCLUDE,
+            // An archived Spec must RESOLVE so the card can say it is archived.
+            includeArchived: true,
+          }),
+        ),
+      );
+      const docs = results.flat();
       if (!alive.current) return;
       const byHandle = new Map(docs.map((d) => [d.handle, d]));
       setEntries((prev) => {

@@ -206,7 +206,7 @@ docs.get("/", async (c) => {
   const includeAcHealth = includes.includes("acHealth");
   const includeAssignees = includes.includes("assignees");
   const includeTags = includes.includes("tags");
-  // spec-529 (ac-10): `taskProgress` is the pill's `4/8 tasks`. It rides the same
+  // spec-529 (ac-10): `taskProgress` feeds the reference card's task split. It rides the same
   // opt-in `?include=` convention as acHealth so a caller that doesn't ask doesn't
   // pay for the aggregation.
   const includeTaskProgress = includes.includes("taskProgress");
