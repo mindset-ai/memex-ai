@@ -91,7 +91,7 @@ describe('SpecRefStatusProvider — one request per page', () => {
 });
 
 describe('SpecRefPill — the face', () => {
-  it('carries handle, phase and task progress, and NOT the title', async () => {
+  it('carries the handle and a phase chip, and nothing else', async () => {
     tagAc('mindset-prod/memex-building-itself/specs/spec-529/acs/ac-1');
     mockFetchDocs.mockResolvedValue([makeDoc()]);
     renderPills(['spec-335']);
@@ -99,7 +99,9 @@ describe('SpecRefPill — the face', () => {
     const pill = await screen.findByTestId('spec-ref-pill');
     expect(pill.textContent).toContain('spec-335');
     expect(pill.textContent).toContain('build');
-    expect(pill.textContent).toContain('4/8 tasks');
+    // Task progress is NOT on the face: repeated through a paragraph a fraction is
+    // noise, and the split belongs to the card, which has room to spell it out.
+    expect(pill.textContent).not.toMatch(/\d+\/\d+/);
     // The title is a full sentence; inlining it would wreck the line.
     expect(pill.textContent).not.toContain('The board becomes reliable');
   });
@@ -111,12 +113,13 @@ describe('SpecRefPill — the face', () => {
     expect(pill.getAttribute('href')).toBe('/mindset-prod/mindset-four/specs/spec-335');
   });
 
-  it('shows no fraction for a Spec with no tasks', async () => {
+  it('looks the same for a Spec with no tasks — the face never carried a count', async () => {
     mockFetchDocs.mockResolvedValue([makeDoc({ taskProgress: undefined })]);
     renderPills(['spec-335']);
     const pill = await screen.findByTestId('spec-ref-pill');
-    // Absence is the signal — never `0/0`.
-    expect(pill.textContent).not.toContain('tasks');
+    expect(pill.textContent).toContain('spec-335');
+    expect(pill.textContent).toContain('build');
+    expect(pill.textContent).not.toMatch(/\d+\/\d+/);
   });
 
   it('renders an unresolvable handle as ordinary text with no pill or link', async () => {

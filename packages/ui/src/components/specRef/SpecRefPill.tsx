@@ -1,9 +1,9 @@
-import { useState, useRef, useCallback, useId } from 'react';
-import { Link } from 'react-router-dom';
-import { Badge } from '../ui';
-import { parseTenantFromPathname } from '../../utils/tenantUrl';
-import { useSpecRefStatus } from './SpecRefStatusProvider';
-import { SpecRefCard } from './SpecRefCard';
+import { useState, useRef, useCallback, useId } from "react";
+import { Link } from "react-router-dom";
+import { statusClasses } from "../../utils/statusStyles";
+import { parseTenantFromPathname } from "../../utils/tenantUrl";
+import { useSpecRefStatus } from "./SpecRefStatusProvider";
+import { SpecRefCard } from "./SpecRefCard";
 
 /**
  * spec-529 t-4 — the interactive pill a bare `spec-N` becomes.
@@ -24,7 +24,7 @@ import { SpecRefCard } from './SpecRefCard';
 /** Where a resolved handle points. Built here rather than in the rehype plugin,
  *  which has no namespace/memex context to build it from. */
 function specHref(handle: string): string | null {
-  if (typeof window === 'undefined') return null;
+  if (typeof window === "undefined") return null;
   const tenant = parseTenantFromPathname(window.location.pathname);
   if (!tenant) return null;
   return `/${tenant.namespace}/${tenant.memex}/specs/${handle}`;
@@ -59,32 +59,47 @@ export function SpecRefPill({ handle }: { handle: string }) {
   // Unresolved, still resolving, or no provider above us: the handle renders as
   // it was written. This is also the every-degradation path — a failed request,
   // an anonymous reader on a public page, a surface that never opted in.
-  if (!entry || entry.state !== 'resolved') {
+  if (!entry || entry.state !== "resolved") {
     return <>{handle}</>;
   }
 
   const doc = entry.doc;
   const href = specHref(handle);
-  const progress = doc.taskProgress;
 
+  // A reference sits INSIDE a sentence, so its treatment has to survive being
+  // repeated five times in one paragraph. A bordered chip does not: it boxes the
+  // prose, blows out the line rhythm, and turns a readable sentence into a row of
+  // buttons. So the phase becomes a coloured dot rather than a badge, the fraction
+  // loses the word "tasks" (the card spells it out), and the whole thing carries no
+  // border or fill until you point at it.
+  // The face is the handle plus a MINI phase chip, and nothing else. Task progress
+  // was on it and came off: repeated five times in one paragraph a fraction is
+  // noise, and it is the card's job to spell the split out. The chip is the Badge
+  // treatment shrunk to sit inside a line of prose without boxing it — same colour
+  // per phase as everywhere else in the product, because it comes from the same map.
   const body = (
     <>
       <span className="font-medium">{handle}</span>
-      <Badge status={doc.status} className="ml-1" />
-      {progress && (
-        <span className="ml-1 text-[11px] text-secondary tabular-nums">
-          {progress.complete}/{progress.total} tasks
-        </span>
-      )}
+      <span
+        className={`rounded-sm border px-1 py-px text-[0.7em] font-medium leading-none ${statusClasses(
+          doc.status,
+        )}`}
+      >
+        {doc.status.replace(/_/g, " ")}
+      </span>
     </>
   );
 
   const shared = {
-    'data-testid': 'spec-ref-pill',
-    'data-spec-handle': handle,
-    'aria-describedby': open ? cardId : undefined,
+    "data-testid": "spec-ref-pill",
+    "data-spec-handle": handle,
+    "aria-describedby": open ? cardId : undefined,
     className:
-      'inline-flex items-center gap-0.5 rounded-sm border border-subtle bg-subtle/40 px-1 py-0.5 align-baseline no-underline hover:border-accent/60',
+      // `-mx-0.5 px-0.5` nets to zero inline width, so the hover background gets
+      // breathing room WITHOUT pushing the following comma or full stop away from
+      // the reference. Padding alone left punctuation visibly detached.
+      "inline-flex items-baseline gap-1 whitespace-nowrap rounded-sm -mx-0.5 px-0.5 align-baseline " +
+      "!no-underline !text-primary hover:bg-subtle/70 hover:!text-primary",
     onMouseEnter: onEnter,
     onMouseLeave: onLeave,
     // Focus and tap open it too — hover-only content is unreachable by keyboard
@@ -93,7 +108,7 @@ export function SpecRefPill({ handle }: { handle: string }) {
     onBlur: () => setOpen(false),
     onClick: () => setOpen(true),
     onKeyDown: (e: React.KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
+      if (e.key === "Escape") setOpen(false);
     },
   };
 
