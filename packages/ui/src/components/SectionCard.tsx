@@ -8,6 +8,8 @@ import { useAuth } from './AuthContext';
 import { CommentSourceAvatar } from './CommentSourceAvatar';
 import { CommentMarkdown } from './CommentTray';
 import { rehypeRefLinkifier } from './chat/refLinkifier';
+import { specRefComponents } from './specRef/specRefAnchor';
+import { rehypeSpecRefLinkifier } from './chat/specRefLinkifier';
 import { createComment, resolveComment, deleteComment, addCommentMentions } from '../api/client';
 import { buildCommentLink } from '../utils/commentDeepLink';
 import { buildAnchorRange } from '../utils/anchorHighlight';
@@ -627,12 +629,15 @@ export const SectionCard = memo(function SectionCard({
 });
 
 const remarkPlugins = [remarkGfm];
-const rehypePlugins = [rehypeHighlight, rehypeRefLinkifier];
+const rehypePlugins = [rehypeHighlight, rehypeRefLinkifier, rehypeSpecRefLinkifier];
 
 // spec-100: a `📍c-N` inline-code span (produced by withRenderedMarkers) renders
 // as an interactive marker badge — clickable + locatable from the gutter via its
 // `marker-c-N` id and `data-marker-seq`. Anything else stays normal code.
 const markdownComponents = {
+  // spec-529: a bare `spec-N` anchor becomes the live pill; every other anchor is
+  // untouched.
+  a: specRefComponents.a,
   code({ className, children, ...props }: { className?: string; children?: React.ReactNode }) {
     const text = Array.isArray(children) ? children.join('') : String(children ?? '');
     // Range START sentinel: a zero-width anchor the highlight uses as the left

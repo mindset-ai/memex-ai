@@ -149,6 +149,26 @@ function parseTagFilter(raw: string[] | undefined): ParsedTag[] | undefined {
   return strings.map(parseTagInput);
 }
 
+// spec-529 (ac-10): `?handles=spec-1,spec-2` — repeated params or CSV, flattened to
+// one list, mirroring parseTagFilter. Every entry is checked against the handle
+// grammar [per std-10 cl-4..cl-12]: type prefix mandatory, case-strict, positive
+// integer with no leading zeros. A malformed entry is DROPPED rather than 400-ing —
+// the caller here is a rendered document body, not a hand-written API call, and one
+// odd string in prose must not fail the whole page's resolution. Dropping it also
+// keeps a non-existent handle and an unreadable one indistinguishable [per std-7].
+const HANDLE_FILTER_GRAMMAR = /^(?:spec|doc|std)-[1-9][0-9]*$/;
+
+function parseHandleFilter(raw: string[] | undefined): string[] | undefined {
+  if (!raw || raw.length === 0) return undefined;
+  const handles = raw
+    .flatMap((s) => s.split(","))
+    .map((s) => s.trim())
+    .filter((s) => HANDLE_FILTER_GRAMMAR.test(s));
+  // An explicit `?handles=` that survives to nothing still means "these Specs" —
+  // listDocs filters to the empty set rather than falling back to the whole Memex.
+  return [...new Set(handles)];
+}
+
 // spec-418 t-3: the curation write routes (create / rename) accept EITHER a
 // `scope::value`/flat tag STRING (the `tag` field, parsed with the shared
 // parseTagInput so the boundary matches the picker's conventions) OR an already
@@ -186,6 +206,19 @@ docs.get("/", async (c) => {
   const includeAcHealth = includes.includes("acHealth");
   const includeAssignees = includes.includes("assignees");
   const includeTags = includes.includes("tags");
+  // spec-529 (ac-10): `taskProgress` feeds the reference card's task split. It rides the same
+  // opt-in `?include=` convention as acHealth so a caller that doesn't ask doesn't
+  // pay for the aggregation.
+  const includeTaskProgress = includes.includes("taskProgress");
+  // spec-529 (ac-2): the card's "last activity" line.
+  const includeLastActivity = includes.includes("lastActivity");
+  // spec-529 (ac-10, ac-11): `?handles=spec-1,spec-2` — resolve exactly the Specs a
+  // document body mentions, in ONE request. Deliberately a filter on the EXISTING
+  // list route rather than a new endpoint (dec-2): the board card, the reference pill
+  // and any future consumer then read one server-side description of a Spec's status
+  // and cannot drift into reporting different numbers for the same Spec. The cap
+  // lives in listDocs, where the query is built.
+  const handleFilter = parseHandleFilter(c.req.queries("handles"));
   // spec-136 t-4: optional tag facet filter (repeated or CSV `?tags=`). Additive to
   // docType — the Specs view keeps passing its own docType, so it stays the source of
   // truth for what counts as a Spec. listDocs runs the indexed (scope,value) join.
@@ -202,7 +235,10 @@ docs.get("/", async (c) => {
     includeAcHealth,
     includeAssignees,
     includeArchived,
+    includeTaskProgress,
+    includeLastActivity,
     ...(tagFilter ? { tags: tagFilter } : {}),
+    ...(handleFilter ? { handles: handleFilter } : {}),
   });
 
   // spec-136 t-4: when ?include=tags is requested, attach each doc's tags in ONE

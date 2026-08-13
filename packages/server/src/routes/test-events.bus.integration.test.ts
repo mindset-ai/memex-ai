@@ -103,3 +103,51 @@ describe("POST /api/test-events — bus emit on ingestion (spec-156 ac-16)", () 
     }
   });
 });
+
+// spec-528 — the unit tests assert the object handed to `.values()`, which proves
+// the fallback logic but NOT that the values reach the columns. That gap is the
+// exact shape of the defect this Spec exists for: the emitter collected these
+// values and the server accepted them, and the columns stayed empty for months
+// while every test anyone might have written would have passed. So read them
+// back off a real row.
+const AC528 = "mindset-prod/memex-building-itself/specs/spec-528/acs";
+
+describe("POST /api/test-events — run_id / commit_sha reach the COLUMNS (spec-528 ac-6)", () => {
+  it("stores a metadata-sourced run id and commit in the run_id / commit_sha columns", async () => {
+    tagAc(`${AC528}/ac-6`);
+    // [per std-37] cl-1: unique per call so a parallel worker cannot collide.
+    const testIdentifier = `spec528-columns-${crypto.randomUUID()}`;
+
+    const res = await app.request("/api/test-events", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${emissionKey}`,
+      },
+      body: JSON.stringify({
+        ac_uid: subjectRef,
+        status: "pass",
+        test_identifier: testIdentifier,
+        // The shape every un-upgraded client already sends: no top-level
+        // run_id / commit_sha, both values riding in metadata.
+        metadata: { run_id: "31589392781", commit: "112ad9ab", branch: "main" },
+      }),
+    });
+    expect(res.status).toBe(201);
+
+    const [row] = await db
+      .select()
+      .from(testEvents)
+      .where(eq(testEvents.testIdentifier, testIdentifier));
+
+    // The columns — not the payload, not the response.
+    expect(row.runId).toBe("31589392781");
+    expect(row.commitSha).toBe("112ad9ab");
+    // And the metadata copy survived alongside them (ac-3).
+    expect(row.metadata).toMatchObject({
+      run_id: "31589392781",
+      commit: "112ad9ab",
+      branch: "main",
+    });
+  });
+});
