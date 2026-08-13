@@ -9,13 +9,19 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { Hono } from "hono";
 import { tagAc } from "@memex-ai-ac/vitest";
 
-const insertSpy = vi.fn().mockReturnValue({
+// The default insert shape. Several blocks below re-point insertSpy with
+// mockReturnValue (persistent, not …Once) to capture the written row; [per
+// std-37] cl-5 a replaced stub is restored rather than left installed, so
+// beforeEach puts this back and no block inherits its predecessor's capture.
+const defaultInsertResult = () => ({
   values: vi.fn().mockReturnValue({
     returning: vi.fn().mockResolvedValue([
       { id: "fake-uuid", createdAt: new Date() },
     ]),
   }),
 });
+
+const insertSpy = vi.fn().mockReturnValue(defaultInsertResult());
 
 // spec-528 (ac-7): count what the ingest path costs per event. The two tempting
 // ways to implement the run_id fill — resolving it via a lookup, or reading the
@@ -91,6 +97,13 @@ beforeEach(() => {
   // without the clear, a per-POST count assertion sees every earlier test too.
   transactionSpy.mockClear();
   selectSpy.mockClear();
+});
+
+afterEach(() => {
+  // [per std-37] cl-5: restore what a test replaced. Blocks that capture the
+  // written row install a persistent mockReturnValue; without this, the next
+  // block silently inherits it and writes into a stale capture.
+  insertSpy.mockReturnValue(defaultInsertResult());
 });
 
 const validBody = {
