@@ -4,6 +4,18 @@ export type { AcEventPayload, TagAcOptions } from "./types.js";
 export { readAutoActor } from "./actor.js";
 export { deriveEventsUrl } from "./derive-url.js";
 export { isEmissionEnabled, readEmissionKey, buildPayload, emit, emitBatch } from "./emit.js";
+// The client-side time bounds, exported so they can be depended on rather than copied.
+// A server that holds an emission request (spec-525's admission gate waits briefly for a
+// pool slot) must stay well inside them: a wait that approached either would turn "the
+// server held my request for a moment" into "the emitter gave up and warned", losing the
+// event anyway AND failing to relieve the pressure the wait exists to relieve. Asserting
+// against these symbols rather than against 5000/4000 is what keeps that guarantee true
+// if the emitter ever retunes them.
+export {
+  PER_REQUEST_TIMEOUT_MS,
+  FALLBACK_START_DEADLINE_MS,
+  MAX_FALLBACK_CONCURRENCY,
+} from "./emit.js";
 export { buildMetadata } from "./metadata.js";
 
 const META_KEY = "__memex_ac_uids";

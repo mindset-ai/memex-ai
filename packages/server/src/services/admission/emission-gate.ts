@@ -44,8 +44,35 @@ import { resolvePoolMax } from "../../db/pool-size.js";
 export type ShedCause = "key_slice_full" | "instance_ceiling_full";
 
 export type Acquisition =
-  | { readonly ok: true; readonly release: () => void }
-  | { readonly ok: false; readonly cause: ShedCause };
+  | { readonly ok: true; readonly release: () => void; readonly waited: boolean }
+  | { readonly ok: false; readonly cause: ShedCause; readonly waited: boolean };
+
+/**
+ * `waited` is not decoration. It separates the two regimes this gate switches between:
+ * a refusal AFTER waiting means the instance was busy for the whole interval (accidental
+ * overload), while a refusal WITHOUT waiting means the waiter set was already full
+ * (flood). Those want opposite operator responses, so t-5's counter carries it as a
+ * dimension alongside {@link ShedCause}.
+ */
+
+/** Default interval a caller may be held while waiting for a slot. */
+export const DEFAULT_WAIT_MS = 250;
+
+/** Assumed time one emission write occupies a slot — the 26–49 ms logged on 2026-08-11. */
+export const DEFAULT_SERVICE_MS = 30;
+
+/**
+ * Hard ceiling on the configured wait, whatever the environment asks for.
+ *
+ * The emitter aborts any single request at 5 s and stops starting fallback requests at
+ * 4 s (`PER_REQUEST_TIMEOUT_MS` / `FALLBACK_START_DEADLINE_MS`, exported from
+ * `@memex-ai-ac/vitest`). A wait approaching either turns "the server held my request
+ * briefly" into "the emitter gave up and warned" — the event is lost anyway AND the
+ * pressure is not relieved. Misconfiguration is clamped rather than obeyed: the caller's
+ * contract outranks our setting. The test pins this against the emitter's exported
+ * symbols rather than against copies of 5000/4000 (ac-18).
+ */
+const MAX_WAIT_MS = 1_000;
 
 /**
  * The fraction of an instance's pool that emission may hold at once.
@@ -101,6 +128,54 @@ export function derivePerKeySlice(ceiling: number): number {
 }
 
 /**
+ * How many callers may be queued for a slot at once.
+ *
+ * DERIVED, not picked: it is what the gate can actually drain inside the interval
+ * (`ceiling` slots turning over every `serviceMs`). Queueing deeper than that guarantees
+ * the tail times out — requests occupying Cloud Run concurrency slots for a refusal they
+ * were always going to get, which is precisely the amplification ac-19 exists to stop.
+ *
+ * Never zero: a gate that queues nobody is the loss system dec-4 rejected.
+ */
+export function deriveMaxWaiters(
+  ceiling: number,
+  waitMs: number,
+  serviceMs: number,
+): number {
+  return Math.max(1, Math.floor((ceiling * waitMs) / serviceMs));
+}
+
+export interface WaitConfig {
+  readonly waitMs: number;
+  /** Undefined means "derive it" — the normal case. */
+  readonly maxWaiters?: number;
+  readonly serviceMs: number;
+}
+
+type Env = Record<string, string | undefined>;
+
+function positiveIntOr<T>(raw: string | undefined, fallback: T): number | T {
+  if (raw === undefined) return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+}
+
+/**
+ * Read the wait knobs from the environment.
+ *
+ * All three are configurable WITHOUT a code change, because ac-2 requires them set from
+ * shadow-mode data: the second deploy of the rollout is meant to be configuration only.
+ * A value compiled in as a literal would make it a code change instead.
+ */
+export function resolveWaitConfig(env: Env = process.env): WaitConfig {
+  return {
+    waitMs: positiveIntOr(env.MEMEX_EMISSION_WAIT_MS, DEFAULT_WAIT_MS),
+    maxWaiters: positiveIntOr(env.MEMEX_EMISSION_MAX_WAITERS, undefined),
+    serviceMs: positiveIntOr(env.MEMEX_EMISSION_SERVICE_MS, DEFAULT_SERVICE_MS),
+  };
+}
+
+/**
  * Hash the credential AS PRESENTED.
  *
  * Deliberately NOT a lookup. Knowing which workspace a key maps to is unnecessary for
@@ -122,6 +197,19 @@ export interface EmissionGateOptions {
   readonly poolMax?: number;
   /** Backstop cap on tracked keys. Defaults to {@link MAX_TRACKED_KEYS}. */
   readonly maxTrackedKeys?: number;
+  /** How long a caller may be held. Clamped to {@link MAX_WAIT_MS}. */
+  readonly waitMs?: number;
+  /** How many callers may queue at once. Defaults to {@link deriveMaxWaiters}. */
+  readonly maxWaiters?: number;
+  /** Assumed slot occupancy per write, used to derive the waiter bound. */
+  readonly serviceMs?: number;
+}
+
+interface Waiter {
+  readonly key: string;
+  readonly settle: (a: Acquisition) => void;
+  readonly timer: ReturnType<typeof setTimeout>;
+  done: boolean;
 }
 
 /**
@@ -143,11 +231,31 @@ export class EmissionGate {
   readonly #held = new Map<string, number>();
   #inFlight = 0;
 
+  /** How long a caller may be held before being refused. */
+  readonly waitMs: number;
+  /** How many callers may queue at once, past which the gate hard-sheds. */
+  readonly maxWaiters: number;
+
+  readonly #queue: Waiter[] = [];
+
   constructor(options: EmissionGateOptions = {}) {
+    const env = resolveWaitConfig();
     const poolMax = options.poolMax ?? resolvePoolMax();
     this.ceiling = deriveCeiling(poolMax);
     this.perKeySlice = derivePerKeySlice(this.ceiling);
     this.maxTrackedKeys = options.maxTrackedKeys ?? MAX_TRACKED_KEYS;
+    // Clamped, never obeyed blindly — see MAX_WAIT_MS.
+    this.waitMs = Math.min(options.waitMs ?? env.waitMs, MAX_WAIT_MS);
+    const serviceMs = options.serviceMs ?? env.serviceMs;
+    this.maxWaiters =
+      options.maxWaiters ??
+      env.maxWaiters ??
+      deriveMaxWaiters(this.ceiling, this.waitMs, serviceMs);
+  }
+
+  /** Callers currently queued for a slot. Non-zero means the gate is contended. */
+  get waiting(): number {
+    return this.#queue.length;
   }
 
   /** Slots currently held across all credentials. */
@@ -169,7 +277,72 @@ export class EmissionGate {
    * saturation would send someone to resize the wrong thing.
    */
   tryAcquire(presentedToken: string): Acquisition {
+    const taken = this.#take(keyOf(presentedToken));
+    return taken.ok
+      ? { ok: true, release: taken.release, waited: false }
+      : { ok: false, cause: taken.cause, waited: false };
+  }
+
+  /**
+   * Take a slot, waiting a bounded moment if the gate is full (dec-4).
+   *
+   * Three outcomes, and the difference between the last two is the whole of ac-19:
+   *   - room now              → resolves immediately, `waited: false`
+   *   - full, queue has space → waits up to {@link waitMs}, then served or refused
+   *   - full, queue also full → refused NOW, `waited: false` (flood regime)
+   *
+   * Waiting is what makes the loss rate acceptable AND what keeps Cloud Run's autoscaler
+   * honest: a waiting request holds its concurrency slot, so the instance looks as busy
+   * as it is. A fast refusal completes in ~1 ms and makes a saturated instance look idle,
+   * so it is never scaled out and keeps refusing. That is why "refuse now" is a different
+   * outcome rather than a conservative version of "wait".
+   */
+  acquire(presentedToken: string): Promise<Acquisition> {
     const key = keyOf(presentedToken);
+
+    const immediate = this.#take(key);
+    if (immediate.ok) {
+      return Promise.resolve({ ok: true, release: immediate.release, waited: false });
+    }
+
+    // Flood regime: the queue is already as deep as the gate can drain inside the
+    // interval, so holding this caller would buy it a refusal it was always going to get
+    // while occupying a request slot the service needs for real traffic.
+    if (this.#queue.length >= this.maxWaiters) {
+      return Promise.resolve({ ok: false, cause: immediate.cause, waited: false });
+    }
+
+    return new Promise<Acquisition>((resolve) => {
+      const waiter: Waiter = {
+        key,
+        done: false,
+        settle: (a) => {
+          if (waiter.done) return;
+          waiter.done = true;
+          clearTimeout(waiter.timer);
+          const at = this.#queue.indexOf(waiter);
+          if (at >= 0) this.#queue.splice(at, 1);
+          resolve(a);
+        },
+        timer: setTimeout(() => {
+          // Report the bound that is blocking it NOW, not the one that blocked it on
+          // arrival — they can differ, and the label drives the operator's response.
+          waiter.settle({ ok: false, cause: this.#blockingCause(key), waited: true });
+        }, this.waitMs),
+      };
+      this.#queue.push(waiter);
+    });
+  }
+
+  /** Which bound would refuse this key right now. */
+  #blockingCause(key: string): ShedCause {
+    return (this.#held.get(key) ?? 0) >= this.perKeySlice
+      ? "key_slice_full"
+      : "instance_ceiling_full";
+  }
+
+  /** The bounds check + increment, shared by the sync and waiting paths. */
+  #take(key: string): { ok: true; release: () => void } | { ok: false; cause: ShedCause } {
     const heldByKey = this.#held.get(key) ?? 0;
 
     if (heldByKey >= this.perKeySlice) {
@@ -203,9 +376,34 @@ export class EmissionGate {
       } else {
         this.#held.set(key, remaining);
       }
+      this.#pump();
     };
 
     return { ok: true, release };
+  }
+
+  /**
+   * Hand freed capacity to the queue.
+   *
+   * Walks in arrival order but skips a waiter whose OWN slice is still full, because both
+   * bounds must hold for a waiter exactly as they do for a fresh caller. Serving the
+   * longest-waiting caller unconditionally would let a loud credential collect slots it
+   * is not entitled to just by queueing first — ac-10's fairness undone by the wait.
+   * Stops as soon as the instance ceiling is the blocker, since no later waiter can
+   * succeed either.
+   */
+  #pump(): void {
+    for (const waiter of [...this.#queue]) {
+      if (waiter.done) continue;
+      if (this.#inFlight >= this.ceiling) return;
+      const taken = this.#take(waiter.key);
+      if (taken.ok) {
+        waiter.settle({ ok: true, release: taken.release, waited: true });
+      } else if (taken.cause === "instance_ceiling_full") {
+        return;
+      }
+      // key_slice_full → this waiter cannot be served yet; try the next one.
+    }
   }
 
   /**
