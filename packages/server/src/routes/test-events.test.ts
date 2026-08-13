@@ -17,14 +17,25 @@ const insertSpy = vi.fn().mockReturnValue({
   }),
 });
 
+// spec-528 (ac-7): count what the ingest path costs per event. The two tempting
+// ways to implement the run_id fill — resolving it via a lookup, or reading the
+// inserted row back to confirm the column landed — each turn one transaction per
+// event into two, and both read as diligence in review. Counting the calls is the
+// only check that catches them; reading the diff is not.
+const transactionSpy = vi.fn();
+const selectSpy = vi.fn();
+
 vi.mock("../db/connection.js", () => ({
   db: {
     insert: () => insertSpy(),
+    select: (...args: unknown[]) => selectSpy(...args),
     // spec-162: the route now writes the log row and the summary upsert inside
     // db.transaction(). Run the callback with a tx that exposes the same insert
     // spy so the payload-shaping assertions below still observe the insert.
-    transaction: (cb: (tx: { insert: () => unknown }) => unknown) =>
-      cb({ insert: () => insertSpy() }),
+    transaction: (cb: (tx: { insert: () => unknown }) => unknown) => {
+      transactionSpy();
+      return cb({ insert: () => insertSpy() });
+    },
   },
 }));
 
@@ -76,6 +87,10 @@ app.route("/api/test-events", testEventsRouter);
 
 beforeEach(() => {
   insertSpy.mockClear();
+  // spec-528: these are module-scoped and accumulate across the whole file —
+  // without the clear, a per-POST count assertion sees every earlier test too.
+  transactionSpy.mockClear();
+  selectSpy.mockClear();
 });
 
 const validBody = {
@@ -593,5 +608,209 @@ describe("POST /api/test-events/batch — spec-489 G1 (batch the burst)", () => 
     expect(row.actor).toBe("wic@mindset.ai");
     expect(row.hidden).toBe(false);
     expect(row.metadata).toEqual({ branch: "main" });
+  });
+});
+
+// spec-528 — `test_events.run_id` and `commit_sha` are columns the emitter has
+// always collected values for and the server has always accepted, filed under
+// `metadata` instead. dec-1 joins the wire server-side FIRST, as a FALLBACK:
+// top-level wins whenever present, metadata fills in only when it is absent.
+//
+// Note the name difference across the boundary — the wire field is `commit_sha`,
+// the metadata key the emitter writes is `commit` (packages/ac-emit-vitest/src/
+// metadata.ts). Reading the wrong one is a silent no-op.
+const AC528 = "mindset-prod/memex-building-itself/specs/spec-528/acs";
+
+describe("POST /api/test-events — run_id / commit_sha filled from metadata (spec-528 dec-1)", () => {
+  // Local capture: the module-scoped insertSpy is re-pointed by earlier blocks
+  // with mockReturnValue (persistent, not …Once), so each test installs its own.
+  function captureInsert() {
+    const insertedValues = vi.fn();
+    insertSpy.mockReturnValue({
+      values: (v: unknown) => {
+        insertedValues(v);
+        return {
+          returning: vi
+            .fn()
+            .mockResolvedValue([{ id: "fake-uuid", createdAt: new Date() }]),
+        };
+      },
+    });
+    return insertedValues;
+  }
+
+  const post = (over: Record<string, unknown>) =>
+    app.request("/api/test-events", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer mxk_test",
+      },
+      body: JSON.stringify({ ...validBody, ...over }),
+    });
+
+  const postBatch = (events: unknown[]) =>
+    app.request("/api/test-events/batch", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer mxk_test",
+      },
+      body: JSON.stringify({ events }),
+    });
+
+  it("stores the top-level run_id / commit_sha when only those are sent (ac-6)", async () => {
+    tagAc(`${AC528}/ac-6`);
+    const insertedValues = captureInsert();
+    const res = await post({ run_id: "31589392781", commit_sha: "112ad9ab" });
+    expect(res.status).toBe(201);
+    const row = insertedValues.mock.calls[0]?.[0];
+    expect(row.runId).toBe("31589392781");
+    expect(row.commitSha).toBe("112ad9ab");
+  });
+
+  it("fills from metadata.run_id / metadata.commit when the top-level fields are absent (ac-6)", async () => {
+    tagAc(`${AC528}/ac-6`);
+    const insertedValues = captureInsert();
+    // The shape every un-upgraded client already sends today — this is what
+    // makes the data exist without anyone installing anything (ac-2).
+    const res = await post({
+      metadata: { run_id: "31588714697", commit: "ffbcf6a1", branch: "main" },
+    });
+    expect(res.status).toBe(201);
+    const row = insertedValues.mock.calls[0]?.[0];
+    expect(row.runId).toBe("31588714697");
+    expect(row.commitSha).toBe("ffbcf6a1");
+  });
+
+  it("prefers the TOP-LEVEL value when BOTH are sent — the case a reversed ?? gets wrong (ac-6)", async () => {
+    tagAc(`${AC528}/ac-6`);
+    const insertedValues = captureInsert();
+    const res = await post({
+      run_id: "top-level-run",
+      commit_sha: "top-level-sha",
+      metadata: { run_id: "metadata-run", commit: "metadata-sha" },
+    });
+    expect(res.status).toBe(201);
+    const row = insertedValues.mock.calls[0]?.[0];
+    // If this flips, cases 1 and 2 both still pass and the defect ships.
+    expect(row.runId).toBe("top-level-run");
+    expect(row.commitSha).toBe("top-level-sha");
+  });
+
+  it("leaves both columns NULL when neither source carries a value (ac-6)", async () => {
+    tagAc(`${AC528}/ac-6`);
+    const insertedValues = captureInsert();
+    const res = await post({ metadata: { branch: "main" } });
+    expect(res.status).toBe(201);
+    const row = insertedValues.mock.calls[0]?.[0];
+    expect(row.runId).toBeNull();
+    expect(row.commitSha).toBeNull();
+  });
+
+  it("fills from metadata on the BATCH path too — processOneEvent serves both (ac-6)", async () => {
+    tagAc(`${AC528}/ac-6`);
+    const insertedValues = captureInsert();
+    // Asserted rather than inferred from the shared call site: a batch path that
+    // diverged later would leave the highest-volume transport unfilled, silently.
+    const res = await postBatch([
+      {
+        ...validBody,
+        test_identifier: "batched.ts::t",
+        metadata: { run_id: "batched-run", commit: "batched-sha" },
+      },
+    ]);
+    expect(res.status).toBe(200);
+    const row = insertedValues.mock.calls[0]?.[0];
+    expect(row.runId).toBe("batched-run");
+    expect(row.commitSha).toBe("batched-sha");
+  });
+
+  it("costs nothing per emission: the DB call counts are identical whether or not the fill fires (ac-7)", async () => {
+    tagAc(`${AC528}/ac-7`);
+    captureInsert();
+
+    const counts = () => ({
+      transactions: transactionSpy.mock.calls.length,
+      inserts: insertSpy.mock.calls.length,
+      selects: selectSpy.mock.calls.length,
+    });
+
+    // Baseline: nothing to fill from, so the fill cannot have run.
+    const bare = await post({ metadata: { branch: "main" } });
+    expect(bare.status).toBe(201);
+    const before = counts();
+
+    transactionSpy.mockClear();
+    insertSpy.mockClear();
+    selectSpy.mockClear();
+
+    // Same request with the metadata the fill reads — the only difference.
+    const filled = await post({
+      metadata: { branch: "main", run_id: "31589392781", commit: "112ad9ab" },
+    });
+    expect(filled.status).toBe(201);
+
+    // Asserted as a delta rather than a magic number: the ingest path already
+    // performs one transaction, one insert and one read per PASSING event (the
+    // read is spec-112's issue auto-resolve at test-events.ts:497, unrelated to
+    // this Spec). What ac-7 protects is that the fill adds NONE of them. The two
+    // tempting implementations — resolving the run id via a lookup, or reading
+    // the inserted row back — would each show up right here as a delta, on a
+    // path peaking at 2 063 POST/min with one transaction per event.
+    expect(counts()).toEqual(before);
+    expect(before.transactions).toBe(1);
+    expect(before.inserts).toBe(1);
+  });
+});
+
+// spec-528 t-3 — the metadata keys are load-bearing for readers that learned to
+// use them during the months the columns were empty. Once `run_id` is a populated
+// column the metadata copy looks like redundancy; deleting it reads as removing
+// duplication, ships green, and silently breaks the `metadata->>'run_id'` reads.
+// The `actor` precedent (spec-115 dec-6) is the model: legacy key stays accepted.
+describe("POST /api/test-events — promotion does not move the metadata keys (spec-528 t-3)", () => {
+  function captureInsert() {
+    const insertedValues = vi.fn();
+    insertSpy.mockReturnValue({
+      values: (v: unknown) => {
+        insertedValues(v);
+        return {
+          returning: vi
+            .fn()
+            .mockResolvedValue([{ id: "fake-uuid", createdAt: new Date() }]),
+        };
+      },
+    });
+    return insertedValues;
+  }
+
+  it("stores run_id, commit, branch and run_url in metadata unchanged after promotion (ac-3)", async () => {
+    tagAc(`${AC528}/ac-3`);
+    const insertedValues = captureInsert();
+    // Exactly the four keys packages/ac-emit-vitest/src/metadata.ts derives from
+    // CI. `branch` and `run_url` have NO column at all — they exist only here.
+    const ciMetadata = {
+      run_id: "31589392781",
+      commit: "112ad9ab",
+      branch: "spec-528/t1-t3-run-id-fallback",
+      run_url: "https://github.com/mindset-ai/memex-ai/actions/runs/31589392781",
+    };
+    const res = await app.request("/api/test-events", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer mxk_test",
+      },
+      body: JSON.stringify({ ...validBody, metadata: ciMetadata }),
+    });
+    expect(res.status).toBe(201);
+    const row = insertedValues.mock.calls[0]?.[0];
+    // Assert the STORED row, not the payload the emitter built — the two are
+    // only the same thing until something in between changes.
+    expect(row.metadata).toEqual(ciMetadata);
+    // And the promotion happened alongside, not instead of.
+    expect(row.runId).toBe("31589392781");
+    expect(row.commitSha).toBe("112ad9ab");
   });
 });

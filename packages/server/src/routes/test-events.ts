@@ -22,8 +22,15 @@
 //   status           required, one of 'pass' | 'fail' | 'error'
 //   test_identifier  optional, text (typically file path + function name)
 //   duration_ms      optional, integer
-//   commit_sha       optional, text (the git SHA the test ran against)
-//   run_id           optional, text (groups events from one CI run)
+//   commit_sha       optional, text (the git SHA the test ran against). When
+//                    absent, filled from metadata.commit (spec-528 dec-1 —
+//                    note the name difference: `commit`, not `commit_sha`).
+//   run_id           optional, text (groups events from one CI run). When
+//                    absent, filled from metadata.run_id (spec-528 dec-1).
+//                    Unlike actor below, these two ARE promoted from metadata:
+//                    they have no competing top-level value, so the fallback
+//                    overrides nothing and fills a column that would otherwise
+//                    stay NULL for every client that has not upgraded.
 //   actor            optional, text (spec-115 dec-6, spec-122) — WHO ran
 //                    the test. Top-level sibling of hidden/metadata. The
 //                    helper auto-populates from env vars; consumers can
@@ -374,6 +381,12 @@ async function processOneEvent(
   // unmodified (ac-12); validation lives here so the protocol shape is
   // consistent regardless of which framework adapter (vitest/jest/pytest)
   // produced the emission.
+  //
+  // spec-528 t-3 (ac-3): `run_id`, `commit`, `branch` and `run_url` are stored
+  // here AND — for the first two — promoted into columns below. That duplication
+  // is load-bearing, not tidy-up debt: external readers learned to query
+  // `metadata->>'run_id'` during the months the columns were empty, and `branch`
+  // / `run_url` have no column at all. Do not prune these keys.
   let metadataForStorage: Record<string, string> | null = null;
   let droppedKeys: string[] = [];
   if (body.metadata !== undefined) {
@@ -394,8 +407,30 @@ async function processOneEvent(
     status: body.status,
     testIdentifier: (body.test_identifier as string | undefined) ?? null,
     durationMs: (body.duration_ms as number | undefined) ?? null,
-    commitSha: (body.commit_sha as string | undefined) ?? null,
-    runId: (body.run_id as string | undefined) ?? null,
+    // spec-528 dec-1: fill from `metadata` as a FALLBACK, never an override —
+    // top-level wins whenever present; the metadata copy fills in only when the
+    // top-level field is absent. Do NOT "simplify" the two sources into one: the
+    // duplication is deliberate. The emitter has always collected these values
+    // (packages/ac-emit-vitest/src/metadata.ts) and filed them under `metadata`,
+    // so every client that has not upgraded — and every hand-rolled emitter —
+    // becomes attributable on this deploy alone, with nothing to install (ac-2).
+    //
+    // Note the name difference across the boundary: the wire field is
+    // `commit_sha`, the metadata key the emitter writes is `commit`.
+    //
+    // The precedence direction is dec-1's adopted READING of [per std-32] cl-20
+    // — that cl-20 states a precedence rule (a top-level value must win over a
+    // metadata copy) rather than a blanket ban on promotion. cl-20 is written
+    // about `actor`, which unlike `run_id` does have a competing top-level value
+    // and feeds a server-side identity resolver (spec-122 dec-8). If the owner of
+    // std-32 reads cl-20 as a general prohibition, dec-1 needs revisiting.
+    //
+    // Read from the validated/narrowed metadata, not the raw body: the size and
+    // shape caps (spec-115 dec-2/dec-3) have already been applied there, and
+    // re-reading the raw bag would bypass them.
+    commitSha:
+      (body.commit_sha as string | undefined) ?? metadataForStorage?.commit ?? null,
+    runId: (body.run_id as string | undefined) ?? metadataForStorage?.run_id ?? null,
     actor: (body.actor as string | undefined) ?? null,
     // spec-358: every ingested result counts. The inbound `hidden` field is
     // ignored — the row is always stored as a counting result. The column is
@@ -486,7 +521,9 @@ async function processOneEvent(
   console.log(
     `[test-events] ${subjectRefValue} ${body.status}` +
       (body.test_identifier ? ` (${body.test_identifier})` : "") +
-      (body.run_id ? ` run=${body.run_id}` : ""),
+      // spec-528: report what was STORED, not what arrived top-level — otherwise
+      // the log stays blank for every client whose run id rides in metadata.
+      (insertValues.runId ? ` run=${insertValues.runId}` : ""),
   );
 
   // spec-112 ac-22: an AC may go green AFTER its satisfying Task is already
