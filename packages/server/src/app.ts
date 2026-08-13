@@ -54,6 +54,7 @@ import { devToolsRouter, shouldMountDevTools } from "./routes/__dev__.js";
 import { resolveEnv } from "./services/usage-events.js";
 import { hostGuard, memexResolver } from "./middleware/memex-resolver.js";
 import { visitorMiddleware } from "./middleware/visitor.js";
+import { emissionAdmission } from "./middleware/emission-admission.js";
 import { rewriteBriefPathToSpec } from "./services/redirects.js";
 import { isAllowedOrigin } from "./middleware/cors-policy.js";
 import { meRouter } from "./routes/me.js";
@@ -128,6 +129,24 @@ app.use("*", async (c, next) => {
   }
   return next();
 });
+
+// spec-525 t-4 — admission control for AC-emission ingest, and the placement is the
+// whole point. It sits HERE, ahead of memexResolver, because everything above is
+// verified DB-free (secureHeaders, cors, hostGuard, the b-105 regex redirect) — so the
+// gate reaches a decision with zero SQL structurally, not by convention.
+//
+// Below this line that stops being true for free: after memexResolver the property
+// would rest on `test-events` staying in RESERVED_API_ROOTS, a dependency that has
+// broken silently twice (it took out unsubscribe, and spec-489's own /batch route).
+//
+// It MUST also precede the router, because `verifyEmissionKey` is a database read and
+// is the route's first act on both POST / and POST /batch — a gate placed after it
+// spends the resource it exists to protect (ac-7).
+//
+// Default mode is SHADOW: bounds are evaluated and would-be sheds counted, nothing is
+// refused. Switching to enforcing is configuration, never a code change (t-6).
+app.use("/api/test-events/*", emissionAdmission);
+app.use("/api/test-events", emissionAdmission);
 
 // Per dec-3: tenants live in the path. memexResolver parses /<namespace>/<memex>/
 // (or /api/<namespace>/<memex>/...) and attaches the resolved namespace + memex
