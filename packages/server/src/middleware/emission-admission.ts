@@ -19,11 +19,16 @@
 // has broken silently twice, taking out unsubscribe and spec-489's own `/batch`
 // route. Ahead of `memexResolver` there is nothing to depend on.
 //
-// WHAT IT DOES NOT DO. It does not authenticate, resolve a memex, or read a body. The
-// gate keys on the bearer token AS PRESENTED, by string handling alone — an
-// unverified, caller-controlled value. That is deliberate (ac-9): resolving the key
-// would cost the query the gate exists to avoid. The per-key slice is a fairness
-// mechanism between credentials, never an authorization one.
+// WHAT IT DOES NOT DO. It does not authenticate and does not resolve a memex. The gate
+// keys on the bearer token AS PRESENTED, by string handling alone — an unverified,
+// caller-controlled value. That is deliberate (ac-9): resolving the key would cost the
+// query the gate exists to avoid. The per-key slice is a fairness mechanism between
+// credentials, never an authorization one.
+//
+// It DOES read the body, but only on `/batch`, and only to size the shed counter in
+// emissions rather than requests (ac-13). That costs no database work — the property
+// ac-7 protects — and no second parse, because Hono caches parsed bodies and the route
+// handler gets this one. See `emissionWeight`.
 
 import type { Context, MiddlewareHandler, Next } from "hono";
 import {
@@ -32,6 +37,8 @@ import {
   type Acquisition,
 } from "../services/admission/emission-gate.js";
 import { resolvePoolMax } from "../db/pool-size.js";
+import { recordEmissionShed } from "../observability/otel/index.js";
+import { MAX_BATCH_EVENTS } from "../routes/test-events.js";
 
 /**
  * The process-wide gate. Lazily built so the pool size and mode are read from the
@@ -48,6 +55,13 @@ export function emissionGate(): EmissionGate {
       poolMax: resolvePoolMax(),
       waitMs: wait.waitMs,
       serviceMs: wait.serviceMs,
+      // spec-525 t-5: the gate imports nothing that could emit a metric — that is the
+      // property t-1 spent its design on — so the instrument is injected here instead.
+      // The same hook fires for a real shed and for a shadow-mode would-be shed, which
+      // is what puts ac-17's counterfactual on ac-13's counter rather than leaving it
+      // in an in-module field.
+      onShed: (weight, cause, waited) =>
+        recordEmissionShed(weight, { cause, waited }),
     });
   }
   return gate;
@@ -77,16 +91,30 @@ function presentedToken(c: Context): string {
 }
 
 /**
- * How many EMISSIONS this request carries, for the shed counter's unit (ac-13).
+ * How many EMISSIONS this request carries — the shed counter's unit (ac-13).
  *
- * Deliberately derived from the PATH, not the body: reading the body here would defeat
- * the point of deciding early, and `/batch` carries up to MAX_BATCH_EVENTS = 500
- * events that `emitBatch` drops wholesale on a 429 — so one shed batch can destroy 500
- * emissions while a per-request count reads 1. t-5 owns the instrument; this is the
- * hook it reads. A path-derived figure is a floor, and t-5 may refine it.
+ * 1 for the single-event route. For `/batch`, the batch's actual length: `emitBatch`
+ * drops the WHOLE bucket on a 429 with no fallback, so one shed batch destroys up to
+ * MAX_BATCH_EVENTS = 500 verification results while a per-request count reads 1 — and
+ * that gap widens as Half B moves more clients onto batching.
+ *
+ * **Reading the body here is free, not a compromise.** Hono caches parsed bodies
+ * (`bodyCache`, hono/dist/request.js), so the route handler's own `c.req.json()` gets
+ * this same parse rather than a second one. It costs no database work, which is the
+ * property ac-7 protects — and it is skipped entirely for the single-event route.
+ *
+ * Falls back to 1 on anything malformed: a body we cannot read is a request we cannot
+ * size, and guessing high would inflate the very measurement ac-2's budget comes from.
  */
-function isBatchPath(c: Context): boolean {
-  return c.req.path.endsWith("/batch");
+async function emissionWeight(c: Context): Promise<number> {
+  if (!c.req.path.endsWith("/batch")) return 1;
+  try {
+    const body = (await c.req.json()) as { events?: unknown };
+    if (!Array.isArray(body?.events)) return 1;
+    return Math.min(Math.max(body.events.length, 1), MAX_BATCH_EVENTS);
+  } catch {
+    return 1;
+  }
 }
 
 /**
@@ -102,7 +130,10 @@ export const emissionAdmission: MiddlewareHandler = async (
   next: Next,
 ) => {
   const g = emissionGate();
-  const acquisition: Acquisition = await g.acquire(presentedToken(c));
+  const acquisition: Acquisition = await g.acquire(
+    presentedToken(c),
+    await emissionWeight(c),
+  );
 
   if (!acquisition.ok) {
     // Shadow mode never lands here: its acquire admits unconditionally and records the
@@ -130,5 +161,3 @@ export const emissionAdmission: MiddlewareHandler = async (
   }
 };
 
-/** Exposed for t-5's counter, which needs to know whether a shed cost 1 event or 500. */
-export { isBatchPath };

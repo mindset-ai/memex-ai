@@ -240,6 +240,19 @@ export interface EmissionGateOptions {
   readonly serviceMs?: number;
   /** Shadow (count only) or enforcing. Defaults to the resolved environment. */
   readonly mode?: GateMode;
+  /**
+   * Called on every shed — real (enforcing) AND simulated (shadow). t-5's counter is
+   * wired here rather than imported, so this module keeps the zero-dependency property
+   * everything else in it follows from: it still imports nothing but `node:crypto` and
+   * a zero-import pool declaration, and there is a test that fails if that grows.
+   *
+   * `weight` is the number of EMISSIONS the shed destroyed, not requests refused — the
+   * caller supplies it because only the caller can see the batch (ac-13).
+   *
+   * Wiring shadow through the SAME hook is what lets ac-17's would-be shed count reach
+   * ac-13's counter; before this it lived only in {@link wouldShed}.
+   */
+  readonly onShed?: (weight: number, cause: ShedCause, waited: boolean) => void;
 }
 
 interface Waiter {
@@ -281,6 +294,7 @@ export class EmissionGate {
   constructor(options: EmissionGateOptions = {}) {
     const env = resolveWaitConfig();
     this.mode = options.mode ?? resolveGateMode();
+    this.#onShed = options.onShed;
     const poolMax = options.poolMax ?? resolvePoolMax();
     this.ceiling = deriveCeiling(poolMax);
     this.perKeySlice = derivePerKeySlice(this.ceiling);
@@ -308,6 +322,19 @@ export class EmissionGate {
    */
   get wouldShed(): WouldShedCount {
     return { total: this.#wouldShedTotal, byCause: { ...this.#wouldShedByCause } };
+  }
+
+  readonly #onShed?: (weight: number, cause: ShedCause, waited: boolean) => void;
+
+  /** Report a shed without letting a caller's throw escape into the request path. */
+  #reportShed(weight: number, cause: ShedCause, waited: boolean): void {
+    if (!this.#onShed) return;
+    try {
+      this.#onShed(weight, cause, waited);
+    } catch {
+      // Telemetry must never break admission. A counter that throws would turn every
+      // shed into a 500 — the load-protection mechanism becoming the outage.
+    }
   }
 
   #wouldShedTotal = 0;
@@ -345,11 +372,11 @@ export class EmissionGate {
    * opposite operator responses, so attributing a self-inflicted refusal to instance
    * saturation would send someone to resize the wrong thing.
    */
-  tryAcquire(presentedToken: string): Acquisition {
+  tryAcquire(presentedToken: string, weight = 1): Acquisition {
     const taken = this.#take(keyOf(presentedToken));
-    return taken.ok
-      ? { ok: true, release: taken.release, waited: false }
-      : { ok: false, cause: taken.cause, waited: false };
+    if (taken.ok) return { ok: true, release: taken.release, waited: false };
+    this.#reportShed(weight, taken.cause, false);
+    return { ok: false, cause: taken.cause, waited: false };
   }
 
   /**
@@ -366,9 +393,14 @@ export class EmissionGate {
    * so it is never scaled out and keeps refusing. That is why "refuse now" is a different
    * outcome rather than a conservative version of "wait".
    */
-  acquire(presentedToken: string): Promise<Acquisition> {
+  acquire(presentedToken: string, weight = 1): Promise<Acquisition> {
     const key = keyOf(presentedToken);
-    return this.mode === "shadow" ? this.#admitAndSimulate(key) : this.#decide(key);
+    return this.mode === "shadow"
+      ? this.#admitAndSimulate(key, weight)
+      : this.#decide(key).then((a) => {
+          if (!a.ok) this.#reportShed(weight, a.cause, a.waited);
+          return a;
+        });
   }
 
   /**
@@ -388,7 +420,7 @@ export class EmissionGate {
    * The simulation is deliberately NOT awaited: awaiting it would reintroduce exactly the
    * latency this design exists to avoid.
    */
-  #admitAndSimulate(key: string): Promise<Acquisition> {
+  #admitAndSimulate(key: string, weight = 1): Promise<Acquisition> {
     this.#realInFlight += 1;
     this.#realHeld.set(key, (this.#realHeld.get(key) ?? 0) + 1);
 
@@ -407,6 +439,9 @@ export class EmissionGate {
       } else {
         this.#wouldShedTotal += 1;
         this.#wouldShedByCause[simulated.cause] += 1;
+        // Through the SAME hook the enforcing path uses, so a week of shadow data is
+        // directly comparable to enforcing data on the same instrument (ac-17, ac-14).
+        this.#reportShed(weight, simulated.cause, simulated.waited);
       }
     });
 
