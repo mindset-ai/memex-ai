@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { rehypeRefLinkifier } from './chat/refLinkifier';
+import { specRefComponents } from './specRef/specRefAnchor';
+import { rehypeSpecRefLinkifier } from './chat/specRefLinkifier';
 import { MarkdownText } from './chat/MarkdownText';
 import { phaseDisplayName } from '../utils/phaseDisplay';
 import type { Decision, Comment } from '../api/types';
@@ -71,7 +73,7 @@ interface DecisionPanelProps {
 
 export function DecisionPanel({ docId, decisions, commentsByDecision = {}, forceShowComments: _forceShowComments, onCommentsChange, onUpdate, highlightDecisionHandle, onJumpToAc, canWrite = true, canEdit = true, specPhase, promptContext, orgBlocks }: DecisionPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
-  const decisionRehypePlugins = [rehypeRefLinkifier];
+  const decisionRehypePlugins = [rehypeRefLinkifier, rehypeSpecRefLinkifier];
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const chat = useChat();
   const { user } = useAuth();
@@ -419,7 +421,7 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
                   <div className="mt-2 pl-2 border-l-2 border-edge-subtle">
                     <span className="text-[10px] uppercase tracking-wider text-muted font-medium">Context</span>
                     <div className="prose-dark prose-sm mt-0.5 opacity-80 *:my-1 [&_h1]:text-sm [&_h2]:text-sm [&_h3]:text-xs [&_h1]:font-semibold [&_h2]:font-semibold [&_h3]:font-medium">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={decisionRehypePlugins}>{dec.context}</ReactMarkdown>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={decisionRehypePlugins} components={specRefComponents}>{dec.context}</ReactMarkdown>
                     </div>
                   </div>
                 )}
@@ -555,7 +557,7 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
                       <div className="mt-2 pl-2 border-l-2 border-edge-subtle">
                         <span className="text-[10px] uppercase tracking-wider text-muted font-medium">Context</span>
                         <div className="prose-dark prose-sm mt-0.5 opacity-80 *:my-1 [&_h1]:text-sm [&_h2]:text-sm [&_h3]:text-xs [&_h1]:font-semibold [&_h2]:font-semibold [&_h3]:font-medium">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={decisionRehypePlugins}>{dec.context}</ReactMarkdown>
+                          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={decisionRehypePlugins} components={specRefComponents}>{dec.context}</ReactMarkdown>
                         </div>
                       </div>
                     )}
@@ -726,7 +728,7 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
                         <div className="pl-2 border-l-2 border-status-success-border/50">
                           <span className="text-[10px] uppercase tracking-wider text-status-success-text font-medium">Decision</span>
                           <div className="prose-dark prose-sm mt-0.5 *:my-1 [&_h1]:text-sm [&_h2]:text-sm [&_h3]:text-xs [&_h1]:font-semibold [&_h2]:font-semibold [&_h3]:font-medium">
-                            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={decisionRehypePlugins}>{dec.resolution}</ReactMarkdown>
+                            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={decisionRehypePlugins} components={specRefComponents}>{dec.resolution}</ReactMarkdown>
                           </div>
                         </div>
                       )}

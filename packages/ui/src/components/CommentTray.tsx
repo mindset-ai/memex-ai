@@ -2,6 +2,9 @@ import { useState, useEffect } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { rehypeRefLinkifier } from './chat/refLinkifier';
+import { specRefHandle } from './specRef/specRefAnchor';
+import { SpecRefPill } from './specRef/SpecRefPill';
+import { rehypeSpecRefLinkifier } from './chat/specRefLinkifier';
 import { rehypePerRefLinkifier } from './chat/perRefLinkifier';
 import type { Comment, CommentTargetType } from '../api/types';
 import { useAuth } from './AuthContext';
@@ -241,6 +244,11 @@ export function CommentMarkdown({
 }) {
   const components: Components = {
     a: ({ children, href, node }) => {
+      // spec-529: a bare `spec-N` becomes the live pill. Checked FIRST, then this
+      // surface's existing `[per dec-N]` handling, then a plain anchor — the two
+      // ref forms are orthogonal and neither may swallow the other.
+      const specHandle = specRefHandle(node);
+      if (specHandle) return <SpecRefPill handle={specHandle} />;
       const props = (node?.properties ?? {}) as Record<string, unknown>;
       const perRef = (props['data-per-ref'] ?? props['dataPerRef']) as
         | string
@@ -273,7 +281,7 @@ export function CommentMarkdown({
     >
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeRefLinkifier, rehypePerRefLinkifier]}
+        rehypePlugins={[rehypeRefLinkifier, rehypeSpecRefLinkifier, rehypePerRefLinkifier]}
         components={components}
       >
         {content}

@@ -27,7 +27,29 @@ export interface FetchDocsOptions {
    *  each doc's tags in one batched round-trip so cards can render chips. Pass
    *  any combination; unknown tokens are ignored server-side so the union is
    *  safe to extend. */
-  include?: ReadonlyArray<'driftCount' | 'acHealth' | 'assignees' | 'tags'>;
+  include?: ReadonlyArray<
+    | 'driftCount'
+    | 'acHealth'
+    | 'assignees'
+    | 'tags'
+    | 'taskProgress'
+    | 'lastActivity'
+  >;
+  /**
+   * spec-529: resolve exactly these doc handles, in ONE request. This is how a
+   * document view answers every `spec-N` its body mentions without a fetch per
+   * reference. The server caps the set and drops malformed entries, so a body is
+   * safe to hand straight through.
+   */
+  handles?: ReadonlyArray<string>;
+  /**
+   * spec-529: include archived docs. The reference resolver MUST set this. A
+   * reference to an archived Spec is exactly the case the card's banner exists
+   * for, and without this the server filters those rows out, the handle resolves
+   * as absent, and the reference renders as plain text — telling the reader
+   * nothing about the fact that what they are pointed at has been archived.
+   */
+  includeArchived?: boolean;
   /**
    * spec-136 t-4: tag-facet filter as `scope::value`/flat strings. Sent as
    * repeated `?tags=` params (the server also accepts CSV). The server ANDs
@@ -58,6 +80,13 @@ export async function fetchDocs(
   if (opts?.include?.length) params.set('include', opts.include.join(','));
   // spec-136 t-4: repeated `?tags=` params (server also accepts CSV). Skip
   // empty/whitespace entries so a stray blank never trips the server's 400.
+  if (opts?.includeArchived) params.set('includeArchived', 'true');
+  // spec-529: repeated `?handles=` params (the server also accepts CSV).
+  if (opts?.handles?.length) {
+    for (const h of opts.handles) {
+      if (h.trim().length > 0) params.append('handles', h);
+    }
+  }
   if (opts?.tags?.length) {
     for (const t of opts.tags) {
       if (t.trim().length > 0) params.append('tags', t);

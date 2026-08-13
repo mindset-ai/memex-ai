@@ -4,6 +4,8 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import { rehypeRefLinkifier } from './chat/refLinkifier';
+import { specRefComponents } from './specRef/specRefAnchor';
+import { rehypeSpecRefLinkifier } from './chat/specRefLinkifier';
 import { Button } from './ui';
 
 interface PromptModalProps {
@@ -114,7 +116,8 @@ export function PromptModal({ prompt, loading, onClose, title = 'Implementation 
             <div className="prose-dark max-w-none text-sm [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
-                rehypePlugins={[rehypeHighlight, rehypeRefLinkifier]}
+                rehypePlugins={[rehypeHighlight, rehypeRefLinkifier, rehypeSpecRefLinkifier]}
+                components={specRefComponents}
               >
                 {editableText}
               </ReactMarkdown>

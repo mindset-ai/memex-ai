@@ -1,6 +1,9 @@
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { rehypeRefLinkifier } from './refLinkifier';
+import { specRefHandle } from '../specRef/specRefAnchor';
+import { SpecRefPill } from '../specRef/SpecRefPill';
+import { rehypeSpecRefLinkifier } from './specRefLinkifier';
 
 /**
  * Compact markdown renderer for short-to-medium LLM-sourced strings that appear
@@ -32,17 +35,23 @@ export function MarkdownText({
   if (inline) {
     const components: Components = {
       p: ({ children: c }) => <>{c}</>,
-      a: ({ children: c, href }) => (
-        <a href={href} target="_blank" rel="noopener noreferrer" className="underline text-accent hover:text-accent/80">
-          {c}
-        </a>
-      ),
+      a: ({ children: c, href, node }) => {
+        // spec-529: a bare `spec-N` resolves in-app; everything else keeps the
+        // external-link treatment this surface already gives anchors.
+        const specHandle = specRefHandle(node);
+        if (specHandle) return <SpecRefPill handle={specHandle} />;
+        return (
+          <a href={href} target="_blank" rel="noopener noreferrer" className="underline text-accent hover:text-accent/80">
+            {c}
+          </a>
+        );
+      },
     };
     return (
       <span className={className}>
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
-          rehypePlugins={[rehypeRefLinkifier]}
+          rehypePlugins={[rehypeRefLinkifier, rehypeSpecRefLinkifier]}
           components={components}
         >
           {children}
@@ -57,13 +66,17 @@ export function MarkdownText({
     >
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeRefLinkifier]}
+        rehypePlugins={[rehypeRefLinkifier, rehypeSpecRefLinkifier]}
         components={{
-          a: ({ children: c, href }) => (
-            <a href={href} target="_blank" rel="noopener noreferrer" className="underline text-accent hover:text-accent/80">
-              {c}
-            </a>
-          ),
+          a: ({ children: c, href, node }) => {
+            const specHandle = specRefHandle(node);
+            if (specHandle) return <SpecRefPill handle={specHandle} />;
+            return (
+              <a href={href} target="_blank" rel="noopener noreferrer" className="underline text-accent hover:text-accent/80">
+                {c}
+              </a>
+            );
+          },
         }}
       >
         {children}

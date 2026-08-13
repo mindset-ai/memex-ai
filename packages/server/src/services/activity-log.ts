@@ -98,7 +98,7 @@ export function mapEventToRow(event: ChangeEvent): ActivityLogInsert {
 // defect loudly: a structured error log + a process counter that metrics/tests
 // assert on. Reads (viewed/searched/assessed/called) legitimately may carry no
 // channel and are exempt; only state-changing actions are attribution-bearing.
-const ATTRIBUTION_BEARING_ACTIONS: ReadonlySet<ChangeEvent["action"]> = new Set([
+export const ATTRIBUTION_BEARING_ACTIONS: ReadonlySet<ChangeEvent["action"]> = new Set([
   "created",
   "updated",
   "deleted",

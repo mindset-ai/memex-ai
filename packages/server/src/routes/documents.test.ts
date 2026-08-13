@@ -101,6 +101,8 @@ describe("GET /api/docs", () => {
       includeDriftCount: false,
       includeAcHealth: false,
       includeAssignees: false,
+      includeTaskProgress: false,
+      includeLastActivity: false,
       // spec-521 (ac-5): the archive view is the one caller that asks for archived
       // rows; every other read passes false explicitly.
       includeArchived: false,
@@ -116,6 +118,8 @@ describe("GET /api/docs", () => {
       includeDriftCount: false,
       includeAcHealth: false,
       includeAssignees: false,
+      includeTaskProgress: false,
+      includeLastActivity: false,
       // spec-521 (ac-5): the archive view is the one caller that asks for archived
       // rows; every other read passes false explicitly.
       includeArchived: false,
@@ -131,6 +135,8 @@ describe("GET /api/docs", () => {
       includeDriftCount: true,
       includeAcHealth: false,
       includeAssignees: false,
+      includeTaskProgress: false,
+      includeLastActivity: false,
       // spec-521 (ac-5): the archive view is the one caller that asks for archived
       // rows; every other read passes false explicitly.
       includeArchived: false,
@@ -146,6 +152,8 @@ describe("GET /api/docs", () => {
       includeDriftCount: false,
       includeAcHealth: true,
       includeAssignees: false,
+      includeTaskProgress: false,
+      includeLastActivity: false,
       // spec-521 (ac-5): the archive view is the one caller that asks for archived
       // rows; every other read passes false explicitly.
       includeArchived: false,
@@ -161,6 +169,8 @@ describe("GET /api/docs", () => {
       includeDriftCount: true,
       includeAcHealth: true,
       includeAssignees: false,
+      includeTaskProgress: false,
+      includeLastActivity: false,
       // spec-521 (ac-5): the archive view is the one caller that asks for archived
       // rows; every other read passes false explicitly.
       includeArchived: false,
@@ -176,6 +186,8 @@ describe("GET /api/docs", () => {
       includeDriftCount: false,
       includeAcHealth: false,
       includeAssignees: true,
+      includeTaskProgress: false,
+      includeLastActivity: false,
       includeArchived: false,
     });
   });

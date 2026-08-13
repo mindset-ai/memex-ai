@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { rehypeRefLinkifier } from './chat/refLinkifier';
+import { specRefComponents } from './specRef/specRefAnchor';
+import { rehypeSpecRefLinkifier } from './chat/specRefLinkifier';
 import {
   fetchDoc,
   fetchTaskComments,
@@ -242,7 +244,7 @@ export function ExecutionPlanModal({
                   {/* spec-389: theme-aware prose (see ChatMarkdown) — `prose-invert`
                       was a dead no-op that washed out in light mode. */}
                   <div className="prose-dark max-w-none wrap-break-word text-sm [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRefLinkifier]}>{readiness.content}</ReactMarkdown>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRefLinkifier, rehypeSpecRefLinkifier]} components={specRefComponents}>{readiness.content}</ReactMarkdown>
                   </div>
                 </div>
               )}
@@ -263,7 +265,7 @@ export function ExecutionPlanModal({
                     <p className="text-xs text-muted italic">— Empty —</p>
                   ) : (
                     <div className="prose-dark max-w-none text-sm [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRefLinkifier]}>{section.content}</ReactMarkdown>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRefLinkifier, rehypeSpecRefLinkifier]} components={specRefComponents}>{section.content}</ReactMarkdown>
                     </div>
                   )}
                 </section>

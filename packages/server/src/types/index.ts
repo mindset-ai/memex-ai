@@ -30,6 +30,28 @@ export interface DocSummaryAssignee {
   email: string | null;
 }
 
+/**
+ * spec-529: the task roll-up the reference CARD shows as its task split (the
+ * pill face carries only the handle and a phase chip). Derived by
+ * `taskProgressByDoc` from the same rows the Spec's own task list reads, so the
+ * two can never disagree for one Spec.
+ */
+export interface TaskProgress {
+  total: number;
+  complete: number;
+  inProgress: number;
+  notStarted: number;
+}
+
+/**
+ * spec-529: WHEN a Spec last changed and WHAT changed, read from the activity log
+ * because `documents` carries no general updated-at column.
+ */
+export interface LastActivity {
+  at: Date;
+  narrative: string;
+}
+
 export interface DocSummary {
   id: string;
   memexId: string;
@@ -91,6 +113,18 @@ export interface DocSummary {
   // Scope AC-3). Specs with zero active ACs get the field OMITTED (absence-of-signal,
   // b-66 Scope AC-4) so the UI's "no commitments" branch trips naturally.
   acHealth?: AcHealth;
+  /**
+   * spec-529 (ac-10): per-Spec task progress, populated only when listDocs is
+   * called with `includeTaskProgress`. Absent when the Spec has no tasks —
+   * absence is the signal (the pill renders no fraction rather than `0/0`),
+   * matching how `acHealth` treats a Spec with no commitments.
+   */
+  taskProgress?: TaskProgress;
+  /**
+   * spec-529 (ac-2): the Spec's most recent logged activity, populated only under
+   * `includeLastActivity`. Absent when nothing has been logged against it.
+   */
+  lastActivity?: LastActivity;
   // Set when ?include=assignees is requested (spec-118 ac-18). The Spec's current
   // assignee(s); OMITTED when the Spec has no assignees so the card's "Unassigned"
   // branch trips. Independent of role — an assignee is not necessarily an editor.

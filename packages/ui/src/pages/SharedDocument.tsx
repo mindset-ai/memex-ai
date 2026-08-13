@@ -3,6 +3,8 @@ import { useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import { Logo } from '../components/Logo';
 import { rehypeRefLinkifier } from '../components/chat/refLinkifier';
+import { specRefComponents } from '../components/specRef/specRefAnchor';
+import { rehypeSpecRefLinkifier } from '../components/chat/specRefLinkifier';
 import { Button } from '../components/ui/Button';
 import { TextArea } from '../components/ui/TextArea';
 import {
@@ -202,7 +204,7 @@ function SectionBlock({
         <h2 className="text-xl font-semibold text-heading">{decodeHtmlEntities(section.title)}</h2>
       )}
       <div className="prose prose-sm max-w-none text-primary">
-        <ReactMarkdown rehypePlugins={[rehypeRefLinkifier]}>{section.content}</ReactMarkdown>
+        <ReactMarkdown rehypePlugins={[rehypeRefLinkifier, rehypeSpecRefLinkifier]} components={specRefComponents}>{section.content}</ReactMarkdown>
       </div>
 
       {/* Comments list */}
@@ -279,7 +281,7 @@ export function CommentRow({
           rehypeRefLinkifier). Comment CONTENT is markdown and is NOT entity-decoded —
           ReactMarkdown handles entities, and re-decoding could corrupt code spans. */}
       <div className="prose prose-sm max-w-none text-primary">
-        <ReactMarkdown rehypePlugins={[rehypeRefLinkifier]}>{comment.content}</ReactMarkdown>
+        <ReactMarkdown rehypePlugins={[rehypeRefLinkifier, rehypeSpecRefLinkifier]} components={specRefComponents}>{comment.content}</ReactMarkdown>
       </div>
     </div>
   );
