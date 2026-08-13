@@ -131,6 +131,9 @@ import { AuthProvider, RequireAuth, useAuth, computeReturnLanding } from './comp
 import { recordLastMemex } from './utils/lastMemex';
 import { ThemeProvider } from './components/ThemeContext';
 import { ChatProvider } from './components/ChatContext';
+// spec-529: ONE status set per tenant layout, so every reference pill under it —
+// pages, panels, trays, portalled modals — resolves in a single shared request.
+import { SpecRefStatusProvider } from './components/specRef/SpecRefStatusProvider';
 import { AppShell } from './components/AppShell';
 import { ExploreCompanionMount } from './onboarding/ExploreCompanionMount';
 import { DocumentShell } from './components/DocumentShell';
@@ -280,13 +283,15 @@ function TenantLayout() {
     // PageHeader can show its name + 🌐 badge (no membership row to read them from).
     return (
       <PublicMemexProvider value={probe.memex}>
-        <ChatProvider>
+        <SpecRefStatusProvider>
+      <ChatProvider>
           <AppShell>
             <Fragment key={`${namespace}/${memex}`}>
               <Outlet />
             </Fragment>
           </AppShell>
         </ChatProvider>
+    </SpecRefStatusProvider>
       </PublicMemexProvider>
     );
   }
@@ -330,7 +335,8 @@ function TenantLayout() {
   // child pages keep their previous tenant's data (loadDocs is a stable
   // callback; useDocChangeStream captures tenantBase() once on connect).
   return (
-    <ChatProvider>
+    <SpecRefStatusProvider>
+      <ChatProvider>
       {/* spec-200: WhatsNewProvider lets the sidebar user menu re-open the
           popup and gives the ribbon the menu anchor to animate "into" on
           dismiss — so it wraps BOTH the ribbon and AppShell. */}
@@ -349,6 +355,7 @@ function TenantLayout() {
         <ExploreCompanionMount namespace={namespace ?? ''} memex={memex ?? ''} />
       </WhatsNewProvider>
     </ChatProvider>
+    </SpecRefStatusProvider>
   );
 }
 
@@ -705,10 +712,12 @@ function FlatShell({ children }: { children: React.ReactNode }) {
   // spec-507: the fourth and quietest spec-444 gate lived here — it walled deep links
   // to flat routes (/settings/*, /org) too. Removed with the other three.
   return (
-    <ChatProvider>
+    <SpecRefStatusProvider>
+      <ChatProvider>
       <OrgConsentDialog />
       <AppShell>{children}</AppShell>
     </ChatProvider>
+    </SpecRefStatusProvider>
   );
 }
 
