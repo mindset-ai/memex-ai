@@ -5,6 +5,8 @@
 // this needed a database to test, the design would be wrong.
 
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { EmissionGate, deriveCeiling, derivePerKeySlice } from "./emission-gate.js";
 import { resolvePoolMax, DEFAULT_POOL_MAX } from "../../db/pool-size.js";
@@ -244,5 +246,47 @@ describe("spec-525 ac-11: the per-key structure cannot grow without limit", () =
     const gate = new EmissionGate({ poolMax: 8 });
     expect(gate.maxTrackedKeys).toBeGreaterThanOrEqual(gate.ceiling);
     expect(Number.isFinite(gate.maxTrackedKeys)).toBe(true);
+  });
+});
+
+// t-1's fifth criterion: no database statement is issued by ANY path in this module.
+//
+// The direct half of that claim already has a test — emission-gate-wait.test.ts asserts
+// `emission-gate.ts` imports nothing from `db/` except `pool-size.js`. What it cannot
+// see is one hop further out: that assertion still passes if someone adds a
+// `db/connection` import inside `pool-size.js` itself, which would drag a live postgres
+// client into the gate through the one door it is allowed to use. This closes that hop.
+//
+// Deliberately NOT tagged to ac-7. ac-7's subject is the ROUTE — "the route returns 429
+// before any query runs" — and the route still authenticates (a DB select via
+// verifyEmissionKey) before the gate is consulted, because mounting the gate ahead of
+// authentication is t-4. Tagging this here would turn ac-7 green over a path that still
+// queries before shedding. The module-level property below is a necessary condition for
+// ac-7, not ac-7 itself; it goes green when t-4 lands.
+describe("spec-525 t-1: the gate's zero-database property holds transitively", () => {
+  it("pool-size.js — the gate's only db/ import — itself imports nothing", () => {
+    // Structural, because the claim is about what the module CANNOT reach, and no
+    // runtime test can prove the absence of a query on a path it did not take.
+    const source = readFileSync(
+      join(__dirname, "..", "..", "db", "pool-size.ts"),
+      "utf-8",
+    );
+    const imports = source.match(/^\s*import\s.+$/gm) ?? [];
+    expect(imports).toEqual([]);
+    // Belt and braces: a require() or a dynamic import() would satisfy the check above
+    // while doing exactly what it forbids.
+    expect(source).not.toMatch(/\brequire\s*\(|\bimport\s*\(/);
+  });
+
+  it("the gate reaches nothing that could open a connection, one hop out", () => {
+    const gateSource = readFileSync(join(__dirname, "emission-gate.ts"), "utf-8");
+    // Every module the gate imports, by relative path.
+    const relativeImports = (
+      gateSource.match(/from "(\.[^"]+)"/g) ?? []
+    ).map((m) => m.replace(/^from "|"$/g, ""));
+    // Today that is exactly one. If this grows, each new entry needs the same
+    // zero-import audit as pool-size.ts above — the assertion is here to force that
+    // conversation rather than let the hop count creep up unnoticed.
+    expect(relativeImports).toEqual(["../../db/pool-size.js"]);
   });
 });
