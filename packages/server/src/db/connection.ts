@@ -8,6 +8,7 @@ import postgres from "postgres";
 import * as schema from "./schema.js";
 import { instrumentSqlClientIfEnabled } from "../observability/otel/index.js";
 import { guardContextlessWrite, setRlsSubjectRuntime } from "./rls-context-guard.js";
+import { resolvePoolMax } from "./pool-size.js";
 
 const connectionString = process.env.DATABASE_URL;
 
@@ -31,7 +32,12 @@ const socketPath = process.env.CLOUD_SQL_SOCKET;
 // raise it. Sizing the pool up (via DB_POOL_MAX) is spec-332's decision surface
 // — don't bump it silently here. Overridable per-env via DB_POOL_MAX (e.g.
 // local dev and tests, where a single process wants more parallelism).
-const poolMax = Number(process.env.DB_POOL_MAX ?? 5);
+// spec-525 t-1: resolved through the shared, zero-import declaration so the admission
+// gate derives its ceiling from the SAME number this pool is sized with (ac-12), and so
+// junk input can't reach either. This was `Number(process.env.DB_POOL_MAX ?? 5)`, which
+// yields NaN for a malformed value — harmless-looking here, and not harmless at all in a
+// bound whose every comparison would then be false.
+const poolMax = resolvePoolMax();
 const poolOptions = {
   max: poolMax,
   // Seconds an idle connection lingers before being closed. Keeps drained

@@ -108,4 +108,118 @@ export function recordRlsContextViolation(
 export function __resetDbTelemetryForTests(): void {
   singleton = null;
   rlsViolationCounter = null;
+  emissionShedEvents = null;
+  emissionShedRequests = null;
 }
+
+// ── Emission admission shed metric (spec-525 t-5, ac-13 / ac-14) ─────────────
+// Same shape as the RLS counter above and for the same reason: a correctness /
+// load signal, not a DB-health one, so it rides the shared MeterProvider on its
+// own meter rather than db-telemetry's instruments.
+//
+// TWO instruments, not one, and that is ac-14's requirement rather than taste.
+// `/api/test-events/batch` carries up to MAX_BATCH_EVENTS = 500 events and the
+// emitter drops the WHOLE bucket on a 429 with no fallback (emit.ts). So one shed
+// batch of 500 and 500 shed single POSTs are identical on the event axis and
+// completely different situations — the first is one CI file, the second is a
+// client hammering the un-batched path. Only a second axis separates them.
+let emissionShedEvents: Counter | null = null;
+let emissionShedRequests: Counter | null = null;
+
+/** The label set. Bounded and low-cardinality BY CONSTRUCTION — see recordEmissionShed. */
+export interface EmissionShedLabels {
+  /** Which bound refused: the credential's own slice, or the instance ceiling. */
+  readonly cause: "key_slice_full" | "instance_ceiling_full";
+  /**
+   * Whether the request waited before being refused. Not decoration: a refusal AFTER
+   * waiting means the instance was busy for the whole interval (accidental overload,
+   * where holding the slot is correct); a refusal WITHOUT waiting means the waiter set
+   * was already full (a flood, where refusing instantly preserves capacity). Opposite
+   * operator responses, so it is a dimension rather than a footnote.
+   */
+  readonly waited: boolean;
+}
+
+/**
+ * Record one shed (or, in shadow mode, one would-be shed).
+ *
+ * `events` is the number of EMISSIONS lost, not requests refused — 1 for the
+ * single-event route, the batch's length for `/batch`. No-op unless OTLP telemetry is
+ * configured, exactly like {@link recordRlsContextViolation}: telemetry-off is the
+ * normal local state, and an instrument that threw there would turn every shed into a
+ * 500 — a load-protection mechanism becoming an outage.
+ *
+ * **The credential is never a label**, hashed or otherwise. The gate runs ahead of
+ * authentication on a public route, so the set of presented tokens is caller-controlled
+ * and unbounded; labelling it would be a metrics-cardinality problem an attacker can
+ * drive at will. Only `cause` (2 values) and `waited` (2) are carried — four series.
+ */
+export function recordEmissionShed(
+  events: number,
+  labels: EmissionShedLabels,
+  config: OtelConfig = readOtelConfig(),
+): void {
+  __emissionShedProbe.record(events, labels);
+  if (!config.enabled) return;
+  if (!emissionShedEvents || !emissionShedRequests) {
+    const meter = getDbTelemetry(config).provider.getMeter("memex.emission");
+    emissionShedEvents ??= meter.createCounter("memex.emission.shed.events", {
+      description:
+        "AC emissions lost to admission shedding (a shed batch counts its full length).",
+    });
+    emissionShedRequests ??= meter.createCounter("memex.emission.shed.requests", {
+      description:
+        "Requests refused by admission shedding — the companion axis to shed.events.",
+    });
+  }
+  const attrs = { cause: labels.cause, waited: String(labels.waited) };
+  emissionShedEvents.add(events, attrs);
+  emissionShedRequests.add(1, attrs);
+}
+
+/**
+ * Test-only in-memory mirror of what {@link recordEmissionShed} recorded.
+ *
+ * It exists because the property under test is the COUNTING CONTRACT — that a batch of
+ * 500 adds 500 rather than 1, that requests are a separate axis, that no credential
+ * reaches a label — and asserting that through a real OTLP exporter would test the
+ * OpenTelemetry SDK instead of this Spec. It mirrors unconditionally so the contract is
+ * observable in the normal telemetry-off state of dev and CI.
+ */
+export const __emissionShedProbe = (() => {
+  let events = 0;
+  let requests = 0;
+  const byCause: Record<string, number> = {};
+  const byWaited: Record<string, number> = {};
+  return {
+    record(n: number, labels: EmissionShedLabels): void {
+      events += n;
+      requests += 1;
+      byCause[labels.cause] = (byCause[labels.cause] ?? 0) + n;
+      const w = String(labels.waited);
+      byWaited[w] = (byWaited[w] ?? 0) + 1;
+    },
+    reset(): void {
+      events = 0;
+      requests = 0;
+      for (const k of Object.keys(byCause)) delete byCause[k];
+      for (const k of Object.keys(byWaited)) delete byWaited[k];
+    },
+    get events() {
+      return events;
+    },
+    get requests() {
+      return requests;
+    },
+    snapshot(): { events: number; requests: number } {
+      return { events, requests };
+    },
+    byLabel(which: "cause" | "waited"): Record<string, number> {
+      return which === "cause" ? { ...byCause } : { ...byWaited };
+    },
+    /** The label keys actually attached — asserted to never include a credential. */
+    labelKeys(): string[] {
+      return ["cause", "waited"];
+    },
+  };
+})();
