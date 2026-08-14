@@ -29,7 +29,11 @@
 
 import { describe, expect, it } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
-import { EMISSION_GATE_HEADER } from "../middleware/emission-admission.js";
+// From the GATE, never the middleware: the middleware reaches db/connection through
+// routes/test-events.js, which demands DATABASE_URL at module load and would kill this
+// file on import against a remote host — exactly how the 2026-08-14 int deploy failed,
+// and the same trap spec-515 hit twice before it.
+import { EMISSION_GATE_HEADER } from "../services/admission/emission-gate.js";
 import { SMOKE_BASE_URL, SMOKE_ENV } from "./smoke-env.js";
 
 const AC_MARKER = "mindset-prod/memex-building-itself/specs/spec-525/acs/ac-20";
