@@ -20,9 +20,20 @@ const connectionBudget = (maxInstances: number, dbPoolMax: number) =>
   maxInstances * (dbPoolMax + 1);
 
 // Intended per-env scaling — the values carried in each memex-<env>-deploy-env secret.
-// Ceiling = max_connections − superuser_reserved_connections (prod: 50 − 3 = 47).
+//
+// The ceiling here is the one the 2026-08-03 FATAL and the 2026-08-11 outage were measured
+// against: max_connections 50 − superuser_reserved 3 = 47. **It is history, not today's number** —
+// dec-2 raised max_connections to 200 on 2026-08-12, so prod now has 197 usable. The historical
+// figure is kept deliberately, because the assertions below are about the incident configurations
+// and would stop meaning anything against 197.
+//
+// Today's ceiling is not a constant anywhere: spec-518 t-7's guard READS it from Postgres at
+// deploy time (`src/deploy/scaling-budget.ts`, exercised by
+// spec-518-applied-scaling.regression.test.ts), precisely because a recorded ceiling outlived its
+// machine here once already.
+const INCIDENT_CEILING = 47;
 const ENV_PLAN = {
-  prod: { maxInstances: 8, dbPoolMax: 4, ceiling: 47 },
+  prod: { maxInstances: 8, dbPoolMax: 4, ceiling: INCIDENT_CEILING },
 } as const;
 
 describe("spec-518 ac-8: Cloud Run scaling flags are env-keyed with safe defaults", () => {

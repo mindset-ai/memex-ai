@@ -323,6 +323,18 @@ DATABASE_URL="${DB_URL}" bash "${PKG_DIR}/scripts/apply-hand-migrations.sh"
 # of Step 5 — DB_URL stays valid for the backfills without re-establishing the proxy.
 echo "Schema migrations complete (1a/1b) — proxy stays up for post-cutover backfills (Step 5)."
 
+# ── Step 3b: connection-budget PRE-FLIGHT (spec-518 t-7) ──────
+# The cheap save: refuse to touch prod at all if the scaling config is not explicit, or if the
+# values about to be applied do not fit the connection ceiling. Runs HERE because the proxy from
+# Step 3 is up, so the ceiling is read from Postgres (`pg_settings`) rather than from
+# `gcloud sql describe`'s recorded flags — prod ran a week on a recorded ceiling sized for a
+# machine that no longer existed (spec-518 dec-2). On prod an absent MAX_INSTANCES / MIN_INSTANCES /
+# DB_POOL_MAX aborts: `${VAR:-default}` below turns a missing variable into a live configuration
+# change, and that default is the trap rather than the arithmetic. On int the guard warns and
+# continues (spec-518 dec-5) — int violates the corrected invariant at its own defaults
+# (2 × 3 × (5+1) = 36 against 22 usable) and survives it, because int's load never extends the pools.
+DB_URL="${DB_URL}" pnpm run deploy:verify-scaling -- --mode=plan
+
 # ── Step 4: Deploy to Cloud Run ───────────────────────────────
 echo ""
 echo "Deploying to Cloud Run..."
@@ -409,10 +421,19 @@ REMOVE_CONVERSION_SECRETS="${REMOVE_CONVERSION_SECRETS#,}"  # strip leading comm
 # survive. --min-instances/--max-instances are ENV-KEYED per-env (spec-518): MIN_INSTANCES /
 # MAX_INSTANCES come from the memex-<env>-deploy-env secret and default to 0/3 (today's
 # behaviour) when unset, so prod and int can differ and the live scaling can't drift from
-# config. Budget invariant (spec-518 / db/connection.ts:29): MAX_INSTANCES × (DB_POOL_MAX + 1
-# relay LISTEN) must stay under the DB's effective ceiling (prod ~47) — a value pair that
-# violates it can exhaust connections (the 2026-08-03 FATAL). DB_POOL_MAX is the per-env pool
-# cap (prod=4 under maxScale 8 → 8×(4+1)=40<47; spec-489/spec-518/spec-332); omitted when unset.
+# config. Budget invariant (spec-518 t-7) — now ASSERTED, in Steps 3b and 4b, not merely stated
+# here. The single-term form this comment used to carry (MAX_INSTANCES × (DB_POOL_MAX + 1) < ~47)
+# was not wrong, it was a sum with terms missing, and it was green throughout BOTH of this Spec's
+# incidents:
+#     Σ over every Cloud Run service on this Cloud SQL instance of
+#       2 × MAX_INSTANCES × (DB_POOL_MAX + 1 relay LISTEN)   +   admin reserve
+#     ≤ max_connections − superuser_reserved − reserved      (read from Postgres, not from gcloud)
+# The 2× is the cutover: a draining revision holds its pool while serving nothing, so a deploy is
+# the one moment the budget must hold twice over — and the only moment anyone changes the config.
+# Prod today: 2×8×(4+1)=80 + backstage 2×3×(10+1)=66 + admin 5 = 151 against 197 usable (dec-2
+# raised max_connections 50 → 200 on 2026-08-12; the old ~47 is what the 2026-08-03 FATAL and the
+# 2026-08-11 outage were measured against). DB_POOL_MAX is the per-env pool cap (prod=4 under
+# maxScale 8; spec-489/spec-518/spec-332); omitted when unset.
 # MEMEX_EMISSION_* (spec-525 t-6) are the admission gate's knobs: GATE_MODE (shadow|enforcing —
 # default shadow, the SAFE one, so a wiring mistake under-protects rather than silently
 # enforcing untuned limits), WAIT_MS and MAX_WAITERS. All three optional; unset means the code
@@ -436,6 +457,27 @@ gcloud run deploy "${SERVICE}" \
   --update-env-vars "^|^NODE_ENV=production|DATABASE_URL=postgresql://${RUNTIME_DB_USER}:${RUNTIME_DB_PASS_ENC}@localhost:${DB_PORT}/${DB_NAME}|CLOUD_SQL_SOCKET=/cloudsql/${CLOUD_SQL_INSTANCE_CONN}|GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}|EMAIL_FROM=${EMAIL_FROM}|APP_BASE_URL=${APP_BASE_URL}|OAUTH_ENABLED=1|MEMEX_RLS_GUARD_THROW=1|SLACK_CLIENT_ID=${SLACK_CLIENT_ID}|SLACK_OAUTH_REDIRECT_URI=${API_BASE_URL}/api/auth/slack/callback|KMS_KEY_NAME=projects/${GCP_PROJECT}/locations/${REGION}/keyRings/memex/cryptoKeys/slack-tokens${DB_POOL_MAX+|DB_POOL_MAX=${DB_POOL_MAX}}${HIDDEN_FEATURES+|HIDDEN_FEATURES=${HIDDEN_FEATURES}}${SIGNUP_DOMAIN_ALLOWLIST+|SIGNUP_DOMAIN_ALLOWLIST=${SIGNUP_DOMAIN_ALLOWLIST}}${STRIPE_PREMIUM_MONTHLY_PRICE_ID+|STRIPE_PREMIUM_MONTHLY_PRICE_ID=${STRIPE_PREMIUM_MONTHLY_PRICE_ID}}${STRIPE_PREMIUM_ANNUAL_PRICE_ID+|STRIPE_PREMIUM_ANNUAL_PRICE_ID=${STRIPE_PREMIUM_ANNUAL_PRICE_ID}}${STRIPE_ENTERPRISE_MONTHLY_PRICE_ID+|STRIPE_ENTERPRISE_MONTHLY_PRICE_ID=${STRIPE_ENTERPRISE_MONTHLY_PRICE_ID}}${STRIPE_ENTERPRISE_ANNUAL_PRICE_ID+|STRIPE_ENTERPRISE_ANNUAL_PRICE_ID=${STRIPE_ENTERPRISE_ANNUAL_PRICE_ID}}${OTEL_EXPORTER_OTLP_ENDPOINT+|OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT}}${MEMEX_OTEL_EXPORT_INTERVAL_MS+|MEMEX_OTEL_EXPORT_INTERVAL_MS=${MEMEX_OTEL_EXPORT_INTERVAL_MS}}${EMAIL_ACTIVATION_FROM+|EMAIL_ACTIVATION_FROM=${EMAIL_ACTIVATION_FROM}}${EMAIL_ACTIVATION_REPLY_TO+|EMAIL_ACTIVATION_REPLY_TO=${EMAIL_ACTIVATION_REPLY_TO}}${EMAIL_SENDER_NAME+|EMAIL_SENDER_NAME=${EMAIL_SENDER_NAME}}${ACTIVATION_EMAILS_ENABLED+|ACTIVATION_EMAILS_ENABLED=${ACTIVATION_EMAILS_ENABLED}}${ACTIVATION_CONNECT_GO_LIVE+|ACTIVATION_CONNECT_GO_LIVE=${ACTIVATION_CONNECT_GO_LIVE}}${STORAGE_PROVIDER+|STORAGE_PROVIDER=${STORAGE_PROVIDER}}${STORAGE_GCS_BUCKET+|STORAGE_GCS_BUCKET=${STORAGE_GCS_BUCKET}}${MEMEX_EMISSION_GATE_MODE+|MEMEX_EMISSION_GATE_MODE=${MEMEX_EMISSION_GATE_MODE}}${MEMEX_EMISSION_WAIT_MS+|MEMEX_EMISSION_WAIT_MS=${MEMEX_EMISSION_WAIT_MS}}${MEMEX_EMISSION_MAX_WAITERS+|MEMEX_EMISSION_MAX_WAITERS=${MEMEX_EMISSION_MAX_WAITERS}}" \
   --update-secrets "${SECRETS_WIRING}" \
   ${REMOVE_CONVERSION_SECRETS:+--remove-secrets="${REMOVE_CONVERSION_SECRETS}"}
+
+# ── Step 4b: assert what the deploy ACTUALLY applied (spec-518 t-7) ──
+# Every check that runs before this line reads the SOURCE — this file's flag syntax,
+# deploy-config.sh's exports, the budget arithmetic in a regression test. All of them were green
+# throughout the 2026-08-03 and 2026-08-11 incidents, because none of them can observe what
+# reached the running revision. This one reads the OUTCOME: it resolves the revision traffic is
+# actually on (never spec.template, which is intent), compares every value config SET against
+# what that revision carries, and re-checks the connection budget on the numbers in force,
+# summed over EVERY Cloud Run service attached to this Cloud SQL instance (`backstage` included —
+# it carries no pool cap and appeared in no arithmetic until now, spec-518 issue-2).
+#
+# Deliberately AFTER the cutover: what was applied cannot be known before applying it. So this
+# gate is loud, not preventive — on a mismatch, roll back by re-running the deploy workflow
+# (workflow_dispatch) against the previous SHA. A mismatch aborts in EVERY environment: a value
+# set in config that did not arrive is a plumbing defect with no environmental excuse, and int is
+# where it must be caught, since int deploys first.
+#
+# Placed BEFORE Step 5, so an abort here also skips the post-cutover data backfills. That is
+# acceptable and deliberate: 1d/1f are idempotent and resume on the next deploy (spec-417 dec-6),
+# and a deploy whose applied configuration is wrong should not go on to do more work.
+DB_URL="${DB_URL}" pnpm run deploy:verify-scaling -- --mode=applied
 
 # ── Step 5: Post-cutover data backfills (spec-417 dec-6) ──────
 # The new revision is now serving 100% of traffic. These DATA backfills/generation
