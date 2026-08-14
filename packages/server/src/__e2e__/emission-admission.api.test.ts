@@ -27,6 +27,7 @@ import { mintEmissionKey } from "../services/emission-keys.js";
 import {
   emissionGate,
   __setEmissionGateForTest,
+  EMISSION_GATE_HEADER,
 } from "../middleware/emission-admission.js";
 import { EmissionGate } from "../services/admission/emission-gate.js";
 
@@ -34,6 +35,7 @@ const SPEC = "mindset-prod/memex-building-itself/specs/spec-525/acs";
 const AC_NO_DB = `${SPEC}/ac-7`; // a shed touches no database, and precedes auth
 const AC_NOTHING_HELD = `${SPEC}/ac-8`; // nothing is held on the server's behalf
 const AC_STILL_201 = `${SPEC}/ac-16`; // an admitted request still WRITES before it responds
+const AC_MODE_MARKER = `${SPEC}/ac-20`; // the gate names its effective mode on every response
 
 const createdUserIds: string[] = [];
 const createdMemexIds: string[] = [];
@@ -217,5 +219,64 @@ describe("spec-525 ac-16: an admitted request still WRITES before it responds", 
     // gate holds no slot and no payload.
     expect(emissionGate().inFlight).toBe(0);
     expect(emissionGate().trackedKeys).toBe(0);
+  });
+});
+
+// spec-525 t-9 / dec-5 / ac-20 — the marker header, which is the smoke suite's only
+// evidence that the gate is mounted AND in the mode the environment intended.
+//
+// Both failures it guards are invisible from outside without it: a middleware that
+// never registered behaves exactly as before (no error, no log, no protection), and a
+// shadow gate returns 200 to everything just as an enforcing one does until it is under
+// load. This is the same class of defect flat-api-mounts.ts exists for.
+describe("spec-525 ac-20: the gate names its effective mode on every response", () => {
+  it("an ADMITTED response carries the marker — the case a healthy deployment's smoke reaches", async () => {
+    tagAc(AC_MODE_MARKER);
+    __setEmissionGateForTest(null); // the real, environment-derived gate
+
+    const res = await post("/api/test-events", body(), emissionKey);
+    expect(res.status).toBe(201);
+    // Presence IS the proof the middleware ran: nothing else in the stack emits it.
+    expect(res.headers.get(EMISSION_GATE_HEADER)).toBe("shadow");
+  });
+
+  it("a REFUSED response carries it too, so an operator can see WHY they were refused", async () => {
+    tagAc(AC_MODE_MARKER);
+    installSaturatedGate(); // enforcing, already full
+    try {
+      const res = await post("/api/test-events", body(), emissionKey);
+      expect(res.status).toBe(429);
+      expect(res.headers.get(EMISSION_GATE_HEADER)).toBe("enforcing");
+    } finally {
+      __setEmissionGateForTest(null);
+    }
+  });
+
+  it("the marker follows the MODE, not the outcome — this is what makes the smoke assertion meaningful", async () => {
+    tagAc(AC_MODE_MARKER);
+    // The sharper failure t-9 guards is a wiring mistake that ships the wrong mode. If
+    // the header reported the outcome (admitted/refused) instead of the mode, a shadow
+    // gate and an enforcing-but-unloaded gate would look identical — exactly the
+    // ambiguity this criterion removes.
+    __setEmissionGateForTest(
+      new EmissionGate({ poolMax: 8, mode: "enforcing", waitMs: 0 }),
+    );
+    try {
+      const res = await post("/api/test-events", body(), emissionKey);
+      expect(res.status).toBe(201); // admitted — the gate has room
+      expect(res.headers.get(EMISSION_GATE_HEADER)).toBe("enforcing"); // …and says so
+    } finally {
+      __setEmissionGateForTest(null);
+    }
+  });
+
+  it("carries the mode and NOTHING else — no credential, no hash, no counts", async () => {
+    tagAc(AC_MODE_MARKER);
+    __setEmissionGateForTest(null);
+    const res = await post("/api/test-events", body(), emissionKey);
+    // The same bound ac-14 places on the metric labels: the gate runs ahead of
+    // authentication on a public route, so anything caller-derived is caller-controlled.
+    expect(res.headers.get(EMISSION_GATE_HEADER)).toMatch(/^(shadow|enforcing)$/);
+    expect(res.headers.get(EMISSION_GATE_HEADER)).not.toContain(emissionKey);
   });
 });

@@ -118,6 +118,31 @@ async function emissionWeight(c: Context): Promise<number> {
 }
 
 /**
+ * The marker header naming the gate's effective mode (spec-525 dec-5, ac-20).
+ *
+ * It is the smoke suite's ONLY evidence for both of t-9's claims, and it can be, because
+ * the middleware itself sets it: **its presence proves the gate is mounted**, since
+ * nothing else in the stack emits it. Asserting a status code instead would prove
+ * nothing — a shadow gate returns 200 to everything and so does an unmounted route.
+ *
+ * Its VALUE proves the mode is what the environment intended, which is the sharper
+ * failure: miss t-6's deploy.sh wiring and the environment silently takes the code
+ * default, so a deploy can ship shadow while everyone believes enforcement is on. An
+ * enforcing gate also returns 200 to everything until it is under load, so nothing
+ * else distinguishes them from outside.
+ *
+ * Same shape as `x-memex-tenant: exempt` (spec-515), chosen there for the same reason:
+ * a positive marker, because statuses and bodies are ambiguous.
+ *
+ * It carries the MODE AND NOTHING ELSE — no credential, no hash of one, no tenant id,
+ * no counts. The same bound ac-14 places on the metric labels, for the same reason: the
+ * gate runs ahead of authentication on a public route, so anything caller-derived is
+ * caller-controlled. dec-5 weighs the disclosure in full; note the surface is a
+ * POST-only ingest route, not `/api/health`.
+ */
+export const EMISSION_GATE_HEADER = "x-memex-emission-gate";
+
+/**
  * Admission control for `/api/test-events/*`.
  *
  * In **shadow** mode (the default, and what the first deploy runs) the gate evaluates
@@ -130,6 +155,10 @@ export const emissionAdmission: MiddlewareHandler = async (
   next: Next,
 ) => {
   const g = emissionGate();
+  // Set BEFORE the decision so both outcomes carry it: the admitted path because that
+  // is the only case a healthy deployment's smoke can rely on reaching, and the refused
+  // path so a client operator can see why they were refused.
+  c.header(EMISSION_GATE_HEADER, g.mode);
   const acquisition: Acquisition = await g.acquire(
     presentedToken(c),
     await emissionWeight(c),
