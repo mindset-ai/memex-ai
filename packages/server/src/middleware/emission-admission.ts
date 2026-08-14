@@ -34,8 +34,15 @@ import type { Context, MiddlewareHandler, Next } from "hono";
 import {
   EmissionGate,
   resolveWaitConfig,
+  EMISSION_GATE_HEADER,
   type Acquisition,
 } from "../services/admission/emission-gate.js";
+
+// Re-exported for callers already importing it from here. It LIVES in the gate module
+// because the post-deploy smoke needs the name and must not import this file — this one
+// reaches db/connection through routes/test-events.js, which demands DATABASE_URL at
+// module load and kills a smoke run at import. See the constant's own note.
+export { EMISSION_GATE_HEADER };
 import { resolvePoolMax } from "../db/pool-size.js";
 import { recordEmissionShed } from "../observability/otel/index.js";
 import { MAX_BATCH_EVENTS } from "../routes/test-events.js";
@@ -116,31 +123,6 @@ async function emissionWeight(c: Context): Promise<number> {
     return 1;
   }
 }
-
-/**
- * The marker header naming the gate's effective mode (spec-525 dec-5, ac-20).
- *
- * It is the smoke suite's ONLY evidence for both of t-9's claims, and it can be, because
- * the middleware itself sets it: **its presence proves the gate is mounted**, since
- * nothing else in the stack emits it. Asserting a status code instead would prove
- * nothing — a shadow gate returns 200 to everything and so does an unmounted route.
- *
- * Its VALUE proves the mode is what the environment intended, which is the sharper
- * failure: miss t-6's deploy.sh wiring and the environment silently takes the code
- * default, so a deploy can ship shadow while everyone believes enforcement is on. An
- * enforcing gate also returns 200 to everything until it is under load, so nothing
- * else distinguishes them from outside.
- *
- * Same shape as `x-memex-tenant: exempt` (spec-515), chosen there for the same reason:
- * a positive marker, because statuses and bodies are ambiguous.
- *
- * It carries the MODE AND NOTHING ELSE — no credential, no hash of one, no tenant id,
- * no counts. The same bound ac-14 places on the metric labels, for the same reason: the
- * gate runs ahead of authentication on a public route, so anything caller-derived is
- * caller-controlled. dec-5 weighs the disclosure in full; note the surface is a
- * POST-only ingest route, not `/api/health`.
- */
-export const EMISSION_GATE_HEADER = "x-memex-emission-gate";
 
 /**
  * Admission control for `/api/test-events/*`.

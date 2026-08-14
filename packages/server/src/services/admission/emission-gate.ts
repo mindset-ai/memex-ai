@@ -41,6 +41,22 @@ import { resolvePoolMax } from "../../db/pool-size.js";
  * — one credential over-emitting, versus the instance genuinely saturated — so t-5's
  * counter labels by this rather than reporting an undifferentiated total (ac-14).
  */
+/**
+ * The marker header naming the gate's effective mode (spec-525 dec-5, ac-20).
+ *
+ * IT LIVES HERE, not in the middleware, for a reason that cost an int deploy on
+ * 2026-08-14. The post-deploy smoke needs only the header NAME, but importing the
+ * middleware to get it pulls `routes/test-events.js` -> `db/connection`, which demands
+ * DATABASE_URL **at module load** — and the smoke suite hits a remote host with no
+ * database. The file died on import, before any assertion or skip guard could run.
+ *
+ * That is the same trap spec-515 hit TWICE, documented in memex-resolver.ts's re-export
+ * note, and the same fix: the constant belongs in a module the smoke can import safely.
+ * This one is provably safe — it imports nothing but `node:crypto` and a zero-import
+ * pool declaration, with a test that fails if that grows, including one hop out.
+ */
+export const EMISSION_GATE_HEADER = "x-memex-emission-gate";
+
 export type ShedCause = "key_slice_full" | "instance_ceiling_full";
 
 export type Acquisition =
