@@ -24,6 +24,7 @@ import {
   buildLegacyProposedChangeBody,
   parseProposedChangeBody,
 } from "./standards.js";
+import { addClausesToSection } from "./clauses.js";
 import { listComments } from "./comments.js";
 import { createDocDraft } from "./documents.js";
 import { createDecision } from "./decisions.js";
@@ -474,10 +475,19 @@ describe("proposeStandardChange (t-8)", () => {
     createdDocIds.push(bp.id);
     const sectionId = bp.sections[0].id;
 
+    // spec-530 t-2: a proposal names the CLAUSES that change; the section is derived.
+    const [clause] = await addClausesToSection(memexId, sectionId, [
+      { body: "Always cache writes.", facets: [] },
+    ]);
     const result = await proposeStandardChange(
       memexId,
-      sectionId,
-      "Cache writes through, except for mutating endpoints.",
+      [
+        {
+          op: "edit",
+          clauseId: clause.id,
+          after: "Cache writes through, except for mutating endpoints.",
+        },
+      ],
       "observed pattern in repo",
     );
 
@@ -504,21 +514,26 @@ describe("proposeStandardChange (t-8)", () => {
       sections: [{ sectionType: "do", content: "x" }],
     });
     createdDocIds.push(bp.id);
+    // spec-530 t-2: empty replacement text is still refused — now per-operation.
+    const [clause] = await addClausesToSection(memexId, bp.sections[0].id, [
+      { body: "x", facets: [] },
+    ]);
     await expect(
-      proposeStandardChange(memexId, bp.sections[0].id, "  "),
+      proposeStandardChange(memexId, [{ op: "edit", clauseId: clause.id, after: "  " }]),
     ).rejects.toBeInstanceOf(ValidationError);
   });
 
-  it("rejects sections that don't belong to a standard", async () => {
+  // spec-530 t-2: this used to pass a non-standard SECTION id. At the clause grain the
+  // guard moves earlier and gets stronger — only standards have clauses, so a
+  // non-standard target cannot be named at all: it resolves to nothing.
+  it("rejects a target that is not a live standard clause", async () => {
     const draft = await createDocDraft(memexId, "Spec doc", "Purpose", "spec");
     createdDocIds.push(draft.id);
     await expect(
-      proposeStandardChange(
-        memexId,
-        draft.sections[0].id,
-        "Some replacement",
-      ),
-    ).rejects.toBeInstanceOf(ValidationError);
+      proposeStandardChange(memexId, [
+        { op: "edit", clauseId: draft.sections[0].id, after: "Some replacement" },
+      ]),
+    ).rejects.toBeInstanceOf(NotFoundError);
   });
 
   // spec-530 t-1: the LEGACY writer keeps its round-trip test — rows in this shape
