@@ -383,7 +383,9 @@ export const sectionsTools: ToolSpec[] = [
       // (re-handing the vocabulary) leaves no orphan clause (dec-9). Returns null when
       // the Memex has no vocabulary (no verdict required).
       const facetIds = await validateClauseFacets(memexId, input.facets as string[] | undefined);
-      const clause = await createClause(memexId, entity.row.id, body, position);
+      // spec-530 t-3: thread identity so the regenerated section row carries WHO +
+      // HOW [per std-32]. Editing a clause IS editing the Standard's rule text.
+      const clause = await createClause(memexId, entity.row.id, body, position, reqCtx(ctx));
       if (facetIds !== null) {
         await persistClauseFacets(memexId, doc.id, clause.id, facetIds, reqCtx(ctx));
       }
@@ -451,7 +453,7 @@ export const sectionsTools: ToolSpec[] = [
         );
       }
       const { memexId, doc, slugs, entity } = resolved;
-      const clause = await updateClause(memexId, entity.row.id, body);
+      const clause = await updateClause(memexId, entity.row.id, body, reqCtx(ctx));
       // Re-classify only when a verdict is supplied (omit = unchanged, dec-9).
       if (input.facets !== undefined) {
         const facetIds = await validateClauseFacets(memexId, input.facets as string[]);
@@ -499,7 +501,7 @@ export const sectionsTools: ToolSpec[] = [
         );
       }
       const { memexId, doc, entity } = resolved;
-      const clause = await deleteClause(memexId, entity.row.id);
+      const clause = await deleteClause(memexId, entity.row.id, reqCtx(ctx));
       if (ctx.verbose) {
         const state = await fullDocState(memexId, doc.id);
         const url = await ctx.workspaceUrl(memexId);
