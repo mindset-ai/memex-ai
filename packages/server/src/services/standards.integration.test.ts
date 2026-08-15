@@ -498,14 +498,18 @@ describe("proposeStandardChange (t-8)", () => {
 
     // Body must round-trip through the parser so the React UI (t-12) can extract
     // the proposed text without ambiguity.
-    // spec-530 t-1: proposeStandardChange still writes the legacy whole-section
-    // shape (t-2 migrates it), so this asserts the `legacy` branch explicitly
-    // rather than assuming there is only one proposal shape.
+    // spec-530 t-2: the body now carries the clause OPERATIONS, with the target
+    // addressed by handle and the "before" read by the server from the live clause.
     const parsed = parseProposedChangeBody(result.comment.content);
-    expect(parsed?.kind).toBe("legacy");
-    expect(parsed?.kind === "legacy" ? parsed.proposed : null).toBe(
-      "Cache writes through, except for mutating endpoints.",
-    );
+    expect(parsed?.kind).toBe("clause-ops");
+    expect(parsed?.kind === "clause-ops" ? parsed.operations : null).toEqual([
+      {
+        op: "edit",
+        clause: `cl-${clause.seq}`,
+        before: "Always cache writes.",
+        after: "Cache writes through, except for mutating endpoints.",
+      },
+    ]);
   });
 
   it("rejects empty proposedContent", async () => {

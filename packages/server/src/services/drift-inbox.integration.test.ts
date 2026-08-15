@@ -313,7 +313,13 @@ describe("listDriftInbox", () => {
 
     const fencedRow = page.items.find((r) => r.commentId === fenced.comment.id);
     expect(fencedRow?.commentType).toBe("plan_revision");
-    expect(fencedRow?.proposedContent).toBe("Check Y AND Z.");
+    // spec-530 t-2: a clause-grained proposal has no single "proposed body" — it is a
+    // set of per-clause operations. The read layer therefore falls through to the raw
+    // comment content (the same path an unfenced proposal takes) rather than
+    // synthesising a rendering nobody proposed. t-7 replaces this by carrying the
+    // structured operations to the client and rendering a diff per clause.
+    expect(fencedRow?.proposedContent).toContain("Check Y AND Z.");
+    expect(fencedRow?.proposedContent).not.toBeNull();
 
     const unfencedRow = page.items.find((r) => r.commentId === unfenced.id);
     expect(unfencedRow?.commentType).toBe("plan_revision");
