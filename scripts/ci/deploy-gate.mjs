@@ -9,8 +9,8 @@
 // start unless the `test` workflow concluded SUCCESS for the EXACT commit SHA.
 //
 // WHY A GUARD JOB, NOT A `workflow_run` TRIGGER (dec-1). deploy.yml selects int vs
-// prod entirely from `github.ref_name` (environment.name, ENV, the env-scoped
-// DEPLOY_ENV_FILE secret) and its concurrency group keys off `github.ref`. A
+// prod entirely from `github.ref_name` (environment.name, ENV, DEPLOY_CONFIG_PROJECT,
+// and the env-scoped SMOKE_* secrets) and its concurrency group keys off `github.ref`. A
 // `workflow_run` trigger REWRITES github.ref/ref_name to the default branch
 // (develop), which would silently collapse a prod (main) deploy onto INT config +
 // secrets. So the trigger stays `push`, the deploy job is untouched, and this gate
