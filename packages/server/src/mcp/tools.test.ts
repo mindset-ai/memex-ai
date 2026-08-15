@@ -652,7 +652,16 @@ describe("MCP Tool handlers via HTTP", () => {
     tagAc(SPEC161_AC(11));
     vi.mocked(createClause).mockResolvedValue(testMutate({ ...CLAUSE_ROW, seq: 7 }));
     const res = await mcpCall("add_clause", { ref: STANDARD_SECTION_REF, body: "New clause.", verbose: false });
-    expect(createClause).toHaveBeenCalledWith(TEST_MEMEX_ID, TEST_SECTION_ID, "New clause.", undefined);
+    // spec-530 t-3: the trailing RequestCtx is what attributes the section row the
+    // write regenerates [per std-32]. Assert the channel rather than accepting
+    // anything — an unthreaded ctx is the defect, and it would pass expect.anything().
+    expect(createClause).toHaveBeenCalledWith(
+      TEST_MEMEX_ID,
+      TEST_SECTION_ID,
+      "New clause.",
+      undefined,
+      expect.objectContaining({ channel: "mcp" }),
+    );
     expect(res.result.content[0].text).toContain("cl-7");
   });
 
@@ -667,7 +676,12 @@ describe("MCP Tool handlers via HTTP", () => {
     tagAc(SPEC161_AC(11));
     vi.mocked(updateClause).mockResolvedValue(testMutate({ ...CLAUSE_ROW, seq: 1 }));
     const res = await mcpCall("edit_clause", { ref: CLAUSE_REF, body: "Edited.", verbose: false });
-    expect(updateClause).toHaveBeenCalledWith(TEST_MEMEX_ID, TEST_CLAUSE_ID, "Edited.");
+    expect(updateClause).toHaveBeenCalledWith(
+      TEST_MEMEX_ID,
+      TEST_CLAUSE_ID,
+      "Edited.",
+      expect.objectContaining({ channel: "mcp" }),
+    );
     expect(res.result.content[0].text).toContain("cl-1");
   });
 
@@ -682,7 +696,11 @@ describe("MCP Tool handlers via HTTP", () => {
     tagAc(SPEC161_AC(11));
     vi.mocked(deleteClause).mockResolvedValue(testMutate({ ...CLAUSE_ROW, seq: 1 }));
     const res = await mcpCall("delete_clause", { ref: CLAUSE_REF, verbose: false });
-    expect(deleteClause).toHaveBeenCalledWith(TEST_MEMEX_ID, TEST_CLAUSE_ID);
+    expect(deleteClause).toHaveBeenCalledWith(
+      TEST_MEMEX_ID,
+      TEST_CLAUSE_ID,
+      expect.objectContaining({ channel: "mcp" }),
+    );
     expect(res.result.content[0].text).toContain("cl-1");
   });
 

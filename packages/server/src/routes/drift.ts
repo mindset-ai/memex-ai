@@ -82,6 +82,17 @@ drift.post("/proposals/:commentId/accept", async (c) => {
       "Proposal body is missing the proposed-content block; cannot extract replacement text.",
     );
   }
+  // spec-530 t-1: this route is dead code and has been since spec-161 made Standards
+  // clause-backed — `updateSection` hard-rejects on a Standard, so the line below
+  // throws for every real proposal, and nothing in the UI calls this endpoint. t-4
+  // settles its fate (delete, or re-point at `accept_standard_change`). Until then,
+  // refuse a clause-grained proposal with a reason instead of feeding it to a call
+  // that cannot work.
+  if (parsed.kind === "clause-ops") {
+    throw new ValidationError(
+      "This proposal is clause-grained. Applying it goes through the accept verb, not this route (spec-530 t-4).",
+    );
+  }
 
   await updateSection(memexId, comment.sectionId, parsed.proposed);
   const resolved = await resolveComment(memexId, comment.id, "accepted", restCtx(c));

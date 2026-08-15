@@ -21,6 +21,7 @@ import {
   scanForAmbiguousBareDecisionReferences,
   proposeStandardChange,
   buildProposedChangeBody,
+  buildLegacyProposedChangeBody,
   parseProposedChangeBody,
 } from "./standards.js";
 import { listComments } from "./comments.js";
@@ -487,8 +488,12 @@ describe("proposeStandardChange (t-8)", () => {
 
     // Body must round-trip through the parser so the React UI (t-12) can extract
     // the proposed text without ambiguity.
+    // spec-530 t-1: proposeStandardChange still writes the legacy whole-section
+    // shape (t-2 migrates it), so this asserts the `legacy` branch explicitly
+    // rather than assuming there is only one proposal shape.
     const parsed = parseProposedChangeBody(result.comment.content);
-    expect(parsed?.proposed).toBe(
+    expect(parsed?.kind).toBe("legacy");
+    expect(parsed?.kind === "legacy" ? parsed.proposed : null).toBe(
       "Cache writes through, except for mutating endpoints.",
     );
   });
@@ -516,14 +521,21 @@ describe("proposeStandardChange (t-8)", () => {
     ).rejects.toBeInstanceOf(ValidationError);
   });
 
-  it("buildProposedChangeBody and parseProposedChangeBody round-trip arbitrary content", () => {
-    const body = buildProposedChangeBody(
+  // spec-530 t-1: the LEGACY writer keeps its round-trip test — rows in this shape
+  // exist in the database until t-11 converts them, so reading them must stay
+  // proven. The clause-grained contract that replaces it has its own suite in
+  // `proposal-body.spec-530.test.ts`.
+  it("buildLegacyProposedChangeBody and parseProposedChangeBody round-trip arbitrary content", () => {
+    const body = buildLegacyProposedChangeBody(
       "rule-1",
       "Line 1\nLine 2\n```code``` inside",
       "rationale here",
     );
     const parsed = parseProposedChangeBody(body);
-    expect(parsed?.proposed).toBe("Line 1\nLine 2\n```code``` inside");
+    expect(parsed?.kind).toBe("legacy");
+    expect(parsed?.kind === "legacy" ? parsed.proposed : null).toBe(
+      "Line 1\nLine 2\n```code``` inside",
+    );
     expect(body).toContain("rationale here");
   });
 });

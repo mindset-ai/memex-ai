@@ -428,6 +428,74 @@ export async function updateStandardByInstruction(
 const PROPOSED_CONTENT_FENCE_OPEN = "~~~proposed-content";
 const PROPOSED_CONTENT_FENCE_CLOSE = "~~~";
 
+// spec-530 t-1 (dec-1) — the clause-grained contract that supersedes the whole-section
+// one above. A proposal is an ordered SET of operations on ONE section's clauses.
+const PROPOSED_CLAUSES_FENCE_OPEN = "~~~proposed-clauses";
+const PROPOSED_CLAUSES_FENCE_CLOSE = "~~~";
+const PROPOSAL_SCHEMA_VERSION = 1;
+
+/**
+ * One operation in a proposal. The target is always a canonical `cl-N` handle, never a
+ * position [per std-10] — an ordinal captured at authoring time is stale by construction,
+ * since a clause inserted ahead of the target shifts it (see spec-530 s-3, issue-1).
+ *
+ * `before` is the target clause's body AS READ WHEN THE PROPOSAL WAS AUTHORED. It is the
+ * staleness evidence dec-3's guard compares against at accept time, and it is captured by
+ * the SERVER from live clauses — never accepted from the caller, who could otherwise forge
+ * agreement with a clause they never read.
+ *
+ * `add` has no `before` (there is nothing there yet); it names an ANCHOR it sits relative
+ * to, and dec-3's check for it is that the anchor still exists.
+ */
+export type ClauseOperation =
+  | { op: "edit"; clause: string; before: string; after: string }
+  | { op: "delete"; clause: string; before: string }
+  | { op: "add"; anchor: string; placement: "before" | "after"; body: string };
+
+/**
+ * What a `plan_revision` body turned out to be. `legacy` is a pre-spec-530 whole-section
+ * replacement: readable, but not applyable by the clause-grained accept path. Stragglers
+ * are converted by spec-530 t-11; until then a reader DEGRADES rather than crashing, which
+ * is why this is a discriminated result and not a throw (spec-530 ac-18).
+ */
+export type ParsedProposal =
+  | { kind: "clause-ops"; operations: ClauseOperation[] }
+  | { kind: "legacy"; proposed: string };
+
+/**
+ * Extract the text between a fence pair, or null when the fence isn't there.
+ *
+ * Both fences are LINE-ANCHORED — a `~~~` has to start a line to close the block. That is
+ * ordinary markdown fence semantics, and here it is what makes the encoding total: the
+ * JSON payload is a single line, so a `~~~` occurring INSIDE a clause body can never be
+ * mistaken for the terminator. The previous bare-`indexOf` parser truncated at the first
+ * `~~~` anywhere in the content, which is the class of silent corruption this contract
+ * cannot afford now that it carries the text an accept applies verbatim.
+ */
+function extractFenced(body: string, open: string, close: string): string | null {
+  const openAt = body.indexOf(open);
+  if (openAt === -1) return null;
+  // The open fence must itself start a line (or the body).
+  if (openAt > 0 && body[openAt - 1] !== "\n") return null;
+  const after = body.slice(openAt + open.length);
+  const closeAt = after.indexOf(`\n${close}`);
+  if (closeAt === -1) return null;
+  return after.slice(0, closeAt).replace(/^\r?\n/, "").replace(/\r?\n$/, "");
+}
+
+/** A one-line, human-readable summary of what the proposal does, for the comment header. */
+function summarizeOperations(operations: ClauseOperation[]): string {
+  const counts = { edit: 0, add: 0, delete: 0 };
+  for (const o of operations) counts[o.op] += 1;
+  const parts = [
+    counts.edit > 0 ? `${counts.edit} edited` : null,
+    counts.add > 0 ? `${counts.add} added` : null,
+    counts.delete > 0 ? `${counts.delete} deleted` : null,
+  ].filter((p): p is string => p !== null);
+  const total = operations.length;
+  return `${total} clause operation${total === 1 ? "" : "s"} (${parts.join(", ")})`;
+}
+
 export interface ProposeStandardChangeResult {
   /** The standard the section belongs to. */
   standard: Doc;
@@ -443,6 +511,41 @@ export interface ProposeStandardChangeResult {
  * exact contract.
  */
 export function buildProposedChangeBody(
+  sectionType: string,
+  operations: ClauseOperation[],
+  rationale?: string,
+): string {
+  const rat = rationale?.trim() && rationale.trim().length > 0
+    ? rationale.trim()
+    : "(no rationale provided)";
+  // The payload is JSON rather than nested markdown fences, deliberately. A proposal
+  // now carries up to 2N clause bodies (a before AND an after per operation), and real
+  // clause bodies contain code blocks — the previous contract already had to pick `~~~`
+  // because ``` was common, and with 2N bodies a delimiter-based encoding eventually
+  // meets its own delimiter. JSON escaping makes the round-trip exact for ANY content,
+  // which is what ac-7 requires and what dec-3's byte-for-byte comparison depends on.
+  // The human reads the rendered diff on the Inbox row (t-7), not this block.
+  const payload = JSON.stringify({ v: PROPOSAL_SCHEMA_VERSION, operations });
+  return [
+    `**Proposed change to section [${sectionType}]** — ${summarizeOperations(operations)}`,
+    "",
+    rat,
+    "",
+    PROPOSED_CLAUSES_FENCE_OPEN,
+    payload,
+    PROPOSED_CLAUSES_FENCE_CLOSE,
+  ].join("\n");
+}
+
+/**
+ * The PRE-spec-530 writer: one whole-section replacement in a `~~~proposed-content`
+ * fence. Retained ONLY so `proposeStandardChange` keeps working unchanged until t-2
+ * migrates it to the operation set — at which point this goes, and nothing writes the
+ * legacy shape any more. `parseProposedChangeBody` still READS it after that (t-9), for
+ * the stragglers t-11 converts. Two writers would be drift; a writer plus a reader for
+ * rows already in the database is a migration.
+ */
+export function buildLegacyProposedChangeBody(
   sectionType: string,
   proposed: string,
   rationale?: string,
@@ -461,23 +564,71 @@ export function buildProposedChangeBody(
   ].join("\n");
 }
 
+/** Shape-check one decoded operation. A malformed entry makes the WHOLE payload
+ *  unparseable rather than silently dropping an operation — a proposal that applies
+ *  a subset of what was reviewed is the failure ac-10 exists to prevent. */
+function isClauseOperation(value: unknown): value is ClauseOperation {
+  if (typeof value !== "object" || value === null) return false;
+  const o = value as Record<string, unknown>;
+  if (o.op === "edit") {
+    return (
+      typeof o.clause === "string" &&
+      typeof o.before === "string" &&
+      typeof o.after === "string"
+    );
+  }
+  if (o.op === "delete") {
+    return typeof o.clause === "string" && typeof o.before === "string";
+  }
+  if (o.op === "add") {
+    return (
+      typeof o.anchor === "string" &&
+      (o.placement === "before" || o.placement === "after") &&
+      typeof o.body === "string"
+    );
+  }
+  return false;
+}
+
 /**
  * Parser companion for buildProposedChangeBody — pull the proposed-content payload
  * out of a comment body. Returns null if the comment isn't shaped like a proposal.
  * Exported for the React UI / future server-side accept flow.
  */
-export function parseProposedChangeBody(
-  body: string,
-): { proposed: string } | null {
-  const start = body.indexOf(PROPOSED_CONTENT_FENCE_OPEN);
-  if (start === -1) return null;
-  const after = body.slice(start + PROPOSED_CONTENT_FENCE_OPEN.length);
-  const end = after.indexOf(PROPOSED_CONTENT_FENCE_CLOSE);
-  if (end === -1) return null;
-  // Strip the leading newline that always follows the open fence + the trailing
-  // newline before the close fence.
-  const proposed = after.slice(0, end).replace(/^\r?\n/, "").replace(/\r?\n$/, "");
-  return { proposed };
+export function parseProposedChangeBody(body: string): ParsedProposal | null {
+  // The clause-grained shape first — it is what everything written from spec-530
+  // onwards carries.
+  const payload = extractFenced(
+    body,
+    PROPOSED_CLAUSES_FENCE_OPEN,
+    PROPOSED_CLAUSES_FENCE_CLOSE,
+  );
+  if (payload !== null) {
+    try {
+      const decoded: unknown = JSON.parse(payload);
+      const ops = (decoded as { operations?: unknown })?.operations;
+      if (Array.isArray(ops) && ops.length > 0 && ops.every(isClauseOperation)) {
+        return { kind: "clause-ops", operations: ops };
+      }
+    } catch {
+      // Fall through: a corrupt payload is not a proposal we can apply. Returning
+      // null (rather than throwing) keeps one bad row from breaking the Inbox for
+      // every other item on the page.
+    }
+    return null;
+  }
+
+  // A pre-spec-530 whole-section replacement. Still readable, NOT applyable by the
+  // clause-grained accept path — the caller decides what to do with that (t-11
+  // converts the stragglers; t-9 renders them as unapplyable-with-a-reason).
+  const legacy = extractFenced(
+    body,
+    PROPOSED_CONTENT_FENCE_OPEN,
+    PROPOSED_CONTENT_FENCE_CLOSE,
+  );
+  if (legacy !== null) return { kind: "legacy", proposed: legacy };
+
+  return null;
 }
 
 export async function proposeStandardChange(
@@ -502,7 +653,11 @@ export async function proposeStandardChange(
   // Account-scope + standard-type check.
   const standard = await loadOwnedStandard(memexId, section.docId);
 
-  const body = buildProposedChangeBody(section.sectionType, proposedContent, rationale);
+  // spec-530 t-1: still writes the LEGACY whole-section shape. t-2 moves this
+  // function to the clause-grained operation set (`buildProposedChangeBody`); until
+  // then behaviour here is unchanged, so nothing downstream shifts under a
+  // half-migrated writer.
+  const body = buildLegacyProposedChangeBody(section.sectionType, proposedContent, rationale);
 
   // Two emits per dec-2 (spec-143) — mirrors flagDrift's dual emit:
   //  - comment.created fires from inside addComment for any tab subscribed to the standard doc.

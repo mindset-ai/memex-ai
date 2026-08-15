@@ -136,7 +136,15 @@ function normalizeProposedContent(
 ): string | null {
   if (commentType !== "plan_revision") return null;
   const parsed = parseProposedChangeBody(content);
-  if (parsed && parsed.proposed.trim().length > 0) return parsed.proposed;
+  // spec-530 t-1: only the LEGACY shape yields a single replacement text. A
+  // clause-grained proposal is a set of operations and has no one "proposed body" —
+  // it falls through to the raw content below, exactly as an unfenced proposal does,
+  // until t-7 carries the structured operations to the client and renders per-clause
+  // diffs. Deliberately no synthesised rendering here: inventing one would put text
+  // on screen that no one proposed.
+  if (parsed?.kind === "legacy" && parsed.proposed.trim().length > 0) {
+    return parsed.proposed;
+  }
   // Unfenced proposal: surface the raw body so the row still renders a diff
   // rather than falling through to a blob.
   return content;
