@@ -50,6 +50,7 @@ import postgres from "postgres";
 import {
   CLOUD_RUN_DEFAULT_MAX_INSTANCES,
   SCALING_KEYS,
+  type Emission,
   type ScalingKey,
   type ServiceObservation,
   comparePlan,
@@ -59,6 +60,7 @@ import {
   isProd,
   parseRevisionScaling,
   parseServingRevisions,
+  planEmissions,
   usableConnections,
 } from "../src/deploy/scaling-budget.js";
 
@@ -91,11 +93,18 @@ function gcloudJson(args: string[]): unknown {
   return JSON.parse(out);
 }
 
-/** Ceiling from Postgres — the value in force, not the value recorded. */
-async function readCeiling(): Promise<number | undefined> {
+/**
+ * Ceiling and current usage from Postgres — the values in force, not the values recorded.
+ *
+ * `inUse` is what ac-2 asks for ("verified in pg_stat_activity"), read at the one moment
+ * it is most worth reading: immediately after a cutover, when both revisions may still
+ * hold pools. It is an observation, not a bound — see scaling-budget.ts on why a usage
+ * sample cannot stand in for the budget.
+ */
+async function readDbFacts(): Promise<{ usable?: number; inUse?: number }> {
   if (!DB_URL) {
     readFailures.push("no DB_URL — cannot read the connection ceiling from Postgres");
-    return undefined;
+    return {};
   }
   // max: 1 and a short timeout: this runs during a deploy, against the ceiling it is measuring.
   const sql = postgres(DB_URL, { max: 1, idle_timeout: 5, connect_timeout: 10 });
@@ -108,7 +117,7 @@ async function readCeiling(): Promise<number | undefined> {
     const maxConnections = get("max_connections");
     if (!Number.isFinite(maxConnections)) {
       readFailures.push("pg_settings returned no max_connections");
-      return undefined;
+      return {};
     }
     const superuserReserved = get("superuser_reserved_connections");
     const reserved = get("reserved_connections");
@@ -122,12 +131,78 @@ async function readCeiling(): Promise<number | undefined> {
       `  ceiling (read from Postgres): max_connections ${maxConnections} − superuser ${superuserReserved || 0} ` +
         `− reserved ${Number.isFinite(reserved) ? reserved : 0} = ${usable} usable`,
     );
-    return usable;
+
+    // ac-2's observation. Non-fatal on its own: a usage sample is not the budget, and
+    // the budget is checked separately against the configured bound.
+    let inUse: number | undefined;
+    try {
+      const [row] = await sql<{ count: string }[]>`select count(*)::text as count from pg_stat_activity`;
+      inUse = Number(row?.count);
+      if (!Number.isFinite(inUse)) inUse = undefined;
+      else console.log(`  in use right now (pg_stat_activity): ${inUse} of ${usable} usable`);
+    } catch {
+      console.log("  ⚠ could not read pg_stat_activity — the usage observation is skipped");
+    }
+
+    return { usable, inUse };
   } catch (err) {
     readFailures.push(`could not read the ceiling from Postgres: ${(err as Error).message}`);
-    return undefined;
+    return {};
   } finally {
     await sql.end({ timeout: 5 }).catch(() => {});
+  }
+}
+
+/**
+ * Record this run's verdict against the criteria only a deploy can witness.
+ *
+ * Strictly telemetry: it runs AFTER the verdict, never instead of it, and it cannot
+ * change the exit code. A failed emission costs an AC its freshness until the next
+ * deploy — never a deploy. No retries: a 429 here means the server is shedding load,
+ * and this runs at a cutover, which is precisely the wrong moment to insist.
+ */
+async function emitDeployObservations(emissions: Emission[], revision?: string): Promise<void> {
+  if (emissions.length === 0) return;
+  if (/^(false|0|no|off)$/i.test(process.env.MEMEX_EMIT ?? "")) return;
+
+  const key = process.env.MEMEX_EMIT_KEY;
+  if (!key) {
+    console.log("  ⚠ MEMEX_EMIT_KEY unset — deploy-observed ACs keep their previous state");
+    return;
+  }
+
+  const testIdentifier = `packages/server/scripts/verify-scaling-budget.ts::${ENV}::applied`;
+  const body = {
+    events: emissions.map((e) => ({
+      ...e,
+      test_identifier: testIdentifier,
+      duration_ms: 0,
+      metadata: {
+        service: SERVICE,
+        revision: revision ?? "",
+        source: "deploy-guard",
+      },
+    })),
+  };
+
+  try {
+    const res = await fetch("https://memex.ai/api/test-events/batch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) {
+      console.log(`  ⚠ AC emission returned ${res.status}: ${(await res.text()).slice(0, 300)}`);
+      return;
+    }
+    console.log(
+      `  ✓ recorded ${emissions.length} deploy-observed acceptance criteria ` +
+        `(${emissions.map((e) => `${e.ac_uid.split("/").pop()}=${e.status}`).join(" ")})`,
+    );
+  } catch (err) {
+    // Swallow. Emission must never be able to break a deploy.
+    console.log(`  ⚠ AC emission failed (non-fatal): ${(err as Error).message}`);
   }
 }
 
@@ -197,7 +272,7 @@ async function main(): Promise<void> {
   );
 
   requireEnv();
-  const usable = await readCeiling();
+  const { usable, inUse } = await readDbFacts();
 
   let live: LiveService[] = [];
   if (readFailures.length === 0) {
@@ -278,6 +353,21 @@ async function main(): Promise<void> {
 
   for (const w of warnings) console.log(`  ⚠ ${w}`);
   for (const f of failures) console.error(`  ✗ ${f}`);
+
+  // Record the verdict against the criteria only a deploy can witness — AFTER the
+  // verdict is final, and never in place of it. `observed` is the honest gate: a run
+  // that could not read emits nothing, because "we didn't look" is not a result.
+  await emitDeployObservations(
+    planEmissions({
+      mode,
+      env: ENV,
+      observed: readFailures.length === 0 && self !== undefined,
+      fatal: failures.length > 0,
+      connectionsInUse: inUse,
+      usable,
+    }),
+    self?.observation.revision,
+  );
 
   if (failures.length > 0) {
     console.error("");

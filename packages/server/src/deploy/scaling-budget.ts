@@ -357,6 +357,94 @@ export function decideOutcome({
   return { fatal: failures.length > 0, failures, warnings };
 }
 
+// ── Emission: the deploy is the only witness these criteria have ──────────────
+//
+// Five of this Spec's acceptance criteria assert something about a DEPLOY — "after any
+// prod deploy the applied values equal the pinned ones", "prod serves maxScale 8 /
+// minScale 1", "total prod connections stay below the ceiling, verified in
+// pg_stat_activity". No unit test can move them: their subject is a real cutover
+// against a real database, and the only process that observes it is this guard.
+//
+// Memex derives an AC's verification state from `test_events` — there is no "mark
+// verified" field — so without an emitter these read UNTESTED forever while being
+// checked on every single deploy. That is the same shape as the untagged assertion
+// that left ac-17 red: a green check nobody is told about.
+//
+// The semantics this buys are better than a test's, not merely equivalent:
+//   pass   every prod deploy that clears both gates
+//   fail   the first one that does not — which is the signal that matters
+//   stale  after 7 days with no deploy, because "after ANY prod deploy" SHOULD
+//          expire when deploys stop. A unit test cannot express that; this can.
+export const DEPLOY_OBSERVED_ACS = {
+  /** the applied values match the intended per-env plan, read off the live revision */
+  appliedMatchesPlan: "ac-14",
+  /** live maxScale/minScale/DB_POOL_MAX equal that env's deploy-env secret */
+  equalsSecret: "ac-9",
+  /** no silent scale-down to 3, no console-only drift, after ANY prod deploy */
+  noDrift: "ac-1",
+  /** maxScale raised from 3 and minScale ≥ 1, surviving every deploy */
+  ceilingDurablyHigher: "ac-6",
+  /** total connections stay below the effective ceiling — pg_stat_activity */
+  belowCeiling: "ac-2",
+} as const;
+
+const SPEC_ACS = "mindset-prod/memex-building-itself/specs/spec-518/acs";
+
+export type Emission = { ac_uid: string; status: "pass" | "fail" };
+
+/**
+ * Which criteria this run is entitled to speak for, and with what verdict.
+ *
+ * Three refusals, each deliberate:
+ *
+ * - **`plan` mode emits nothing.** Nothing has been applied yet; a green from the
+ *   pre-flight would assert an outcome that has not happened.
+ * - **Only prod emits.** ac-14, ac-1 and ac-6 name prod explicitly, and int's config is
+ *   deliberately unset (t-4) so its comparison is vacuous. An int deploy turning a
+ *   prod-shaped criterion green is exactly the lie this Spec exists to stop.
+ * - **A run that could not READ emits nothing** — not even a fail. "We didn't look" and
+ *   "we looked and it was wrong" are different facts, and only the second is a verdict.
+ */
+export function planEmissions({
+  mode,
+  env,
+  observed,
+  fatal,
+  connectionsInUse,
+  usable,
+}: {
+  mode: "plan" | "applied";
+  env: string;
+  /** true when the live reads (gcloud + Postgres) all succeeded */
+  observed: boolean;
+  fatal: boolean;
+  /** from pg_stat_activity; undefined when it could not be read */
+  connectionsInUse?: number;
+  usable?: number;
+}): Emission[] {
+  if (mode !== "applied" || !isProd(env) || !observed) return [];
+
+  const verdict: "pass" | "fail" = fatal ? "fail" : "pass";
+  const emissions: Emission[] = [
+    DEPLOY_OBSERVED_ACS.appliedMatchesPlan,
+    DEPLOY_OBSERVED_ACS.equalsSecret,
+    DEPLOY_OBSERVED_ACS.noDrift,
+    DEPLOY_OBSERVED_ACS.ceilingDurablyHigher,
+  ].map((ac) => ({ ac_uid: `${SPEC_ACS}/${ac}`, status: verdict }));
+
+  // ac-2 is a separate OBSERVATION, not the same verdict re-stated: it asks what
+  // pg_stat_activity actually shows, which is a different question from whether the
+  // configuration matched. Emitted only when that read succeeded.
+  if (connectionsInUse !== undefined && usable !== undefined) {
+    emissions.push({
+      ac_uid: `${SPEC_ACS}/${DEPLOY_OBSERVED_ACS.belowCeiling}`,
+      status: connectionsInUse < usable ? "pass" : "fail",
+    });
+  }
+
+  return emissions;
+}
+
 // ── Reporting ─────────────────────────────────────────────────────────────────
 
 /** The enumeration a reader needs to spot a term that should be there and isn't. */
