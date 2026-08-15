@@ -303,5 +303,17 @@ fi
 if [ -n "${MAX_INSTANCES+set}" ]; then
   export MAX_INSTANCES
 fi
+# DB_POOL_MAX — spec-518 t-7: exported for the same reason, and it took a red prod deploy to
+# notice it wasn't. The value has always been read correctly by deploy.sh's own gcloud line
+# (${DB_POOL_MAX+|DB_POOL_MAX=...} expands in THAT shell, where a plain sourced assignment is
+# visible), so prod has run the right pool for weeks. But a plain assignment is not exported, so
+# no CHILD process could see it — and t-7's guard is a child process. Its first prod run therefore
+# reported DB_POOL_MAX absent while the canonical secret carried DB_POOL_MAX=4 and Cloud Run was
+# applying it. Three states, not two: declared, in force, and VISIBLE to the thing checking.
+# int could never have caught this, because int genuinely does not set the value.
+# Same set-vs-unset semantics, so an env that never sets it still deploys byte-for-byte unchanged.
+if [ -n "${DB_POOL_MAX+set}" ]; then
+  export DB_POOL_MAX
+fi
 
 echo "[deploy-config] ENV=$ENV  project=$GCP_PROJECT  host=$PUBLIC_HOST  api=$API_PUBLIC_HOST"

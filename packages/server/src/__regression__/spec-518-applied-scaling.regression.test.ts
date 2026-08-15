@@ -19,6 +19,8 @@
 // here. It is proved by the deploy running it on int, then prod — see t-7.
 
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { tagAc } from "@memex-ai-ac/vitest";
 import {
   ADMIN_SESSION_RESERVE,
@@ -257,6 +259,46 @@ describe("spec-518 ac-20: a mismatch is fatal in every environment", () => {
       revision: { serving: ["memex-api-00623-zpb"], expectedLatestReady: "memex-api-00623-zpb" },
     });
     expect(clean.fatal).toBe(false);
+  });
+});
+
+describe("spec-518 ac-20: the guard can SEE what config set — a third state, not two", () => {
+  // Found by the guard's own first prod run (2026-08-14, run 31832139745), which aborted at the
+  // pre-flight reporting `DB_POOL_MAX is ABSENT from prod config` while `memex-prod-deploy-env`
+  // carried DB_POOL_MAX=4 and Cloud Run was applying it.
+  //
+  // Both facts were true. `deploy.sh`'s own gcloud line reads the value through
+  // ${DB_POOL_MAX+|DB_POOL_MAX=...}, which expands in THAT shell, where a plain sourced
+  // assignment is visible — so prod has run the right pool all along. But a plain assignment is
+  // not exported, and the guard is a CHILD process. MIN_INSTANCES / MAX_INSTANCES already carried
+  // explicit export guards for exactly this reason; DB_POOL_MAX never needed one until something
+  // outside the deploy shell had to read it.
+  //
+  // So the Spec's "declared vs in force" pair is really a triple: declared, in force, and VISIBLE
+  // to whatever is checking. int could not have caught this — int genuinely does not set the value,
+  // so its guard run was correct and silent.
+  const DEPLOY_CONFIG = readFileSync(
+    join(__dirname, "..", "..", "..", "..", "scripts", "deploy-config.sh"),
+    "utf-8",
+  );
+
+  it.each(["MIN_INSTANCES", "MAX_INSTANCES", "DB_POOL_MAX"])(
+    "%s is exported, so a child process sees what the per-env config set",
+    (key) => {
+      tagAc(AC_MISMATCH_FATAL);
+      expect(DEPLOY_CONFIG).toMatch(
+        new RegExp(`if \\[ -n "\\$\\{${key}\\+set\\}" \\]; then\\s*\\n\\s*export ${key}`),
+      );
+    },
+  );
+
+  it("the export keeps set-vs-unset semantics — an env that never sets it stays unchanged", () => {
+    tagAc(AC_MISMATCH_FATAL);
+    // An UNGUARDED `export DB_POOL_MAX` would export an empty value on int, which deploy.sh's
+    // ${DB_POOL_MAX+...} would then treat as SET and push to Cloud Run — blanking a live pool.
+    // So there must be exactly one occurrence, and the assertion above proves that one is guarded.
+    const occurrences = DEPLOY_CONFIG.match(/export DB_POOL_MAX/g) ?? [];
+    expect(occurrences).toHaveLength(1);
   });
 });
 
