@@ -19,19 +19,29 @@ if (!connectionString) {
 // Cloud SQL socket path (e.g. /cloudsql/project:region:instance)
 const socketPath = process.env.CLOUD_SQL_SOCKET;
 
-// Connection budget. Originally sized against the 2026-06-04 prod incident,
-// when prod Cloud SQL was db-f1-micro with max_connections=25 (~22 usable). The
-// instance has since been upgraded: prod is now db-custom-1-3840 with
-// max_connections=50 (doc-13; verified live 2026-07-21). The postgres-js
-// DEFAULTS are max:10 per pool and idle_timeout:0 (idle connections are NEVER
-// closed), so three Cloud Run instances at full pool + one relay LISTEN each
-// (spec-156) must stay under that ceiling, with slack for deploy overlap and
-// revision churn (old instances pinned by long-lived SSE streams). Cap the pool
-// and reap idles so the steady-state budget is 3 × (5 + 1 LISTEN) = 18 — now
-// well under 50, so this default is conservative and there is real headroom to
-// raise it. Sizing the pool up (via DB_POOL_MAX) is spec-332's decision surface
-// — don't bump it silently here. Overridable per-env via DB_POOL_MAX (e.g.
-// local dev and tests, where a single process wants more parallelism).
+// Connection budget. Originally sized against the 2026-06-04 prod incident, when prod
+// Cloud SQL was db-f1-micro with max_connections=25 (~22 usable). The postgres-js
+// DEFAULTS are max:10 per pool and idle_timeout:0 (idle connections are NEVER closed),
+// so each Cloud Run instance costs `pool + 1` — the +1 being the spec-156 relay LISTEN,
+// one persistent connection per instance that idle-reaping cannot touch by design.
+//
+// Prod today (verified live 2026-08-15): db-custom-4-15360, max_connections=200 → 197
+// usable, and DB_POOL_MAX=4 under MAX_INSTANCES=8. **The budget is a SUM over every
+// service on the instance, doubled for a deploy cutover, not a product over one:**
+//
+//     Σ services of  2 × MAX_INSTANCES × (pool + 1)  + admin reserve  ≤ usable
+//
+// = 80 (memex-api) + 66 (backstage) + 5 = 151 of 197. The single-term form this comment
+// carried until 2026-08-15 — `3 × (5 + 1 LISTEN) = 18` against 50 — was not wrong, it was
+// a sum with terms missing, and it read green through both of spec-518's incidents: the
+// draining revision at a cutover, `backstage`, and admin sessions were all uncounted.
+// Derivation and history: src/deploy/scaling-budget.ts (which asserts it on every deploy,
+// against the values actually applied), std-9 §prod, std-26 §6 Gotchas #12–13.
+//
+// Sizing the pool up (via DB_POOL_MAX) is spec-332's decision surface — don't bump it
+// silently here; a deploy now refuses values that breach the budget. Overridable per-env
+// via DB_POOL_MAX (e.g. local dev and tests, where a single process wants more
+// parallelism).
 // spec-525 t-1: resolved through the shared, zero-import declaration so the admission
 // gate derives its ceiling from the SAME number this pool is sized with (ac-12), and so
 // junk input can't reach either. This was `Number(process.env.DB_POOL_MAX ?? 5)`, which
