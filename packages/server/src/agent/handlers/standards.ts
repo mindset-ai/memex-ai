@@ -155,7 +155,7 @@ export const standardsTools: ToolSpec[] = [
     name: "propose_standard_change",
     annotations: { title: "Propose Standard change", readOnlyHint: false, destructiveHint: false },
     description:
-      "Propose a correction to a standard's RULE TEXT, at the clause grain. Name the clauses that should change and what they should say; the section is derived from them. Lands as a typed `plan_revision` comment (sourced 'agent') the standard owner reviews. Operations: `edit` a clause (pass its `cl-N` ref + the new `body`), `delete` a clause (ref only), or `add` a clause (pass the ANCHOR clause's `cl-N` ref, a `placement`, and the new `body`). Every operation in one call must target the same section — a proposal is one section's business. You do NOT supply the current text: the server reads it from the live clause, and that reading is what lets the accept detect the clause changing underneath the proposal.",
+      "Propose a correction to a standard's RULE TEXT, at the clause grain. Name the clauses that should change and what they should say; the section is derived from them. Lands as a typed plan_revision comment (sourced 'agent') the standard owner reviews. Each entry in `operations` is one of three kinds: an edit (the clause's cl-N ref plus its new text), a delete (the ref alone), or an add (the ANCHOR clause's cl-N ref, which side of it to insert on, and the new text). Every entry in one call must target the same section — a proposal is one section's business. You do NOT supply the clause's current text: the server reads it from the live clause, and that reading is what lets the accept detect the clause changing underneath the proposal.",
     schema: {
       operations: z
         .array(

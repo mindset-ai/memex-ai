@@ -271,6 +271,7 @@ const AC_REF_ADDRESSING =
 describe("spec-143 ac-14: drift verbs address by canonical ref, not UUID", () => {
   let sectionRef: string;
   let sectionUuid: string;
+  let proposalClauseRef: string;
 
   beforeAll(async () => {
     // Standards are born with no body section via create_doc — they're authored
@@ -284,13 +285,18 @@ describe("spec-143 ac-14: drift verbs address by canonical ref, not UUID", () =>
     const section = std.sections.find((s) => s.sectionType === "rule")!;
     sectionUuid = section.id;
     sectionRef = `${actor.account.slug}/main/standards/${std.handle}/sections/s-${section.seq}`;
+    // spec-530 t-2: propose_standard_change targets CLAUSES now, so this fixture
+    // needs one. flag_drift below still addresses the SECTION — the two verbs
+    // deliberately keep different grains (an observation is about a rule; a
+    // proposal is a change to specific clause text).
+    const seeded = await createClause(actor.account.id, sectionUuid, "Original rule body.");
+    proposalClauseRef = `${actor.account.slug}/main/standards/${std.handle}/clauses/cl-${seeded.seq}`;
   });
 
-  it("propose_standard_change accepts a canonical section ref", async () => {
+  it("propose_standard_change accepts a canonical clause ref", async () => {
     tagAc(AC_REF_ADDRESSING);
     const res = await callTool(actor.user.id, "propose_standard_change", {
-      ref: sectionRef,
-      proposedContent: "Corrected rule body.",
+      operations: [{ op: "edit", ref: proposalClauseRef, body: "Corrected rule body." }],
       rationale: "ac-14 ref addressing",
     });
     expect(res.isError).toBeFalsy();
@@ -301,11 +307,10 @@ describe("spec-143 ac-14: drift verbs address by canonical ref, not UUID", () =>
     expect(comments.some((c) => c.commentType === "plan_revision")).toBe(true);
   });
 
-  it("propose_standard_change rejects a raw section UUID (even the real one)", async () => {
+  it("propose_standard_change rejects a raw UUID (even a real one)", async () => {
     tagAc(AC_REF_ADDRESSING);
     const res = await callTool(actor.user.id, "propose_standard_change", {
-      ref: sectionUuid,
-      proposedContent: "should never land",
+      operations: [{ op: "edit", ref: sectionUuid, body: "should never land" }],
     });
     expect(res.isError).toBe(true);
     expect(res.content[0].text).toMatch(/UUID inputs no longer accepted|pass the ref/i);

@@ -36,6 +36,7 @@ import {
 import { makeTestMemex } from "../services/test-helpers.js";
 import { createDocDraft } from "../services/documents.js";
 import { createStandard } from "../services/standards.js";
+import { createClause } from "../services/clauses.js";
 import { createIssue } from "../services/issues.js";
 import { addSection } from "../services/sections.js";
 import { addComment } from "../services/comments.js";
@@ -855,6 +856,7 @@ describe("audit: b-36 D-8 — every terse mutation/list response emits `ref:` an
   // `ref:` to the comment that lands under the standard's std-N handle.
   let driftSectionRef: string;
   let proposeSectionRef: string;
+  let proposeClauseRef: string;
 
   beforeAll(async () => {
     memexId = await makeTestMemex("probe-ref");
@@ -1004,6 +1006,14 @@ describe("audit: b-36 D-8 — every terse mutation/list response emits `ref:` an
     const stdBase = `${slugs.namespace}/${slugs.memex}/standards/${std.handle}`;
     driftSectionRef = `${stdBase}/sections/s-${std.sections.find((s) => s.sectionType === "rule-drift")!.seq}`;
     proposeSectionRef = `${stdBase}/sections/s-${std.sections.find((s) => s.sectionType === "rule-propose")!.seq}`;
+    // spec-530 t-2: propose_standard_change targets a CLAUSE now, so the probe
+    // standard needs one. flag_drift keeps the section grain.
+    const probeClause = await createClause(
+      memexId,
+      std.sections.find((s) => s.sectionType === "rule-propose")!.id,
+      "Original rule body for propose probe.",
+    );
+    proposeClauseRef = `${stdBase}/clauses/cl-${probeClause.seq}`;
   });
 
   type ProbeCase = {
@@ -1342,8 +1352,9 @@ describe("audit: b-36 D-8 — every terse mutation/list response emits `ref:` an
         "propose_standard_change",
         {
           input: () => ({
-            ref: proposeSectionRef,
-            proposedContent: "Probe: corrected rule body.",
+            operations: [
+              { op: "edit", ref: proposeClauseRef, body: "Probe: corrected rule body." },
+            ],
             rationale: "probe rationale",
           }),
         },
