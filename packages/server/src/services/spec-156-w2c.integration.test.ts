@@ -20,6 +20,7 @@ import { bus, type ChangeEvent } from "./bus.js";
 import { getMutateMetrics } from "./mutate.js";
 import { registerClient } from "./oauth/clients.js";
 import { createStandard, proposeStandardChange } from "./standards.js";
+import { addClausesToSection } from "./clauses.js";
 import { createDocDraft } from "./documents.js";
 import { createTask } from "./tasks.js";
 import { createDecision } from "./decisions.js";
@@ -80,11 +81,21 @@ describe("spec-156 ac-17: proposeStandardChange dual-emits standard_drift.create
     createdDocIds.push(bp.id);
     const sectionId = bp.sections[0].id;
 
+    // spec-530 t-2: proposals target clauses; the emit contract under test is
+    // unchanged by that (the dual standard_drift/comment pair still fires).
+    const [clause] = await addClausesToSection(memexId, sectionId, [
+      { body: "Always cache writes.", facets: [] },
+    ]);
     const events = await captureEvents(async () => {
       await proposeStandardChange(
         memexId,
-        sectionId,
-        "Cache writes through, except for mutating endpoints.",
+        [
+          {
+            op: "edit",
+            clauseId: clause.id,
+            after: "Cache writes through, except for mutating endpoints.",
+          },
+        ],
         "observed pattern in repo",
       );
     });
@@ -116,7 +127,12 @@ describe("spec-156 ac-17: proposeStandardChange dual-emits standard_drift.create
     });
     createdDocIds.push(bp.id);
 
-    const result = await proposeStandardChange(memexId, bp.sections[0].id, "replacement");
+    const [brandClause] = await addClausesToSection(memexId, bp.sections[0].id, [
+      { body: "x", facets: [] },
+    ]);
+    const result = await proposeStandardChange(memexId, [
+      { op: "edit", clauseId: brandClause.id, after: "replacement" },
+    ]);
     // Compile-time: only a Mutated<…> type-checks here.
     const unwrapped = requireMutated(result);
     expect(unwrapped.comment.commentType).toBe("plan_revision");

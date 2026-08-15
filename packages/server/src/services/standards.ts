@@ -631,33 +631,97 @@ export function parseProposedChangeBody(body: string): ParsedProposal | null {
   return null;
 }
 
+/**
+ * What a CALLER supplies: which clauses change and what they should say. Targets are
+ * clause ids resolved from `cl-N` refs at the boundary [per std-10]. Note what is
+ * absent — the caller never supplies a "before". That text is read by the server from
+ * the live clause, because a caller who could supply it could forge agreement with a
+ * clause they never read, and dec-3's whole guard rests on that text being evidence.
+ */
+export type ProposalOperationInput =
+  | { op: "edit"; clauseId: string; after: string }
+  | { op: "delete"; clauseId: string }
+  | { op: "add"; anchorClauseId: string; placement: "before" | "after"; body: string };
+
+/** The clause a given operation targets (the edited/deleted one, or an add's anchor). */
+function targetClauseId(op: ProposalOperationInput): string {
+  return op.op === "add" ? op.anchorClauseId : op.clauseId;
+}
+
 export async function proposeStandardChange(
   memexId: string,
-  standardSectionId: string,
-  proposedContent: string,
+  operations: ProposalOperationInput[],
   rationale?: string,
   options: { authorName?: string } = {},
   ctx: RequestCtx = {},
 ): Promise<Mutated<ProposeStandardChangeResult>> {
-  if (typeof proposedContent !== "string" || proposedContent.trim().length === 0) {
-    throw new ValidationError("proposedContent must be a non-empty string");
+  if (!Array.isArray(operations) || operations.length === 0) {
+    throw new ValidationError(
+      "A proposal must carry at least one clause operation (edit, add, or delete).",
+    );
+  }
+
+  // Load every targeted clause, memex-scoped and live. A soft-deleted target is
+  // refused rather than silently skipped: proposing an edit to a clause that no longer
+  // exists is a mistake worth surfacing at authoring time, not at accept time.
+  const rows = await Promise.all(
+    operations.map(async (op) => {
+      const id = targetClauseId(op);
+      const clause = await db.query.standardClauses.findFirst({
+        where: and(eq(standardClauses.id, id), eq(standardClauses.memexId, memexId)),
+      });
+      if (!clause) throw new NotFoundError(`Clause ${id} not found`);
+      if (clause.status === "deleted") {
+        throw new ValidationError(
+          `Clause cl-${clause.seq} is deleted and cannot be the target of a proposal.`,
+        );
+      }
+      return clause;
+    }),
+  );
+
+  // dec-1: a proposal is ONE section's business. The section is DERIVED from the
+  // clauses rather than supplied, so it cannot disagree with them — and a set that
+  // spans two sections has no coherent review item, since the Inbox row renders one
+  // section's diff (ac-8).
+  const sectionIds = [...new Set(rows.map((r) => r.sectionId))];
+  if (sectionIds.length > 1) {
+    throw new ValidationError(
+      `A proposal targets one section's clauses; this set spans ${sectionIds.length}. Split it into one proposal per section.`,
+    );
   }
 
   const section = await db.query.docSections.findFirst({
-    where: eq(docSections.id, standardSectionId),
+    where: eq(docSections.id, sectionIds[0]),
   });
   if (!section) {
-    throw new NotFoundError(`Section ${standardSectionId} not found`);
+    throw new NotFoundError(`Section ${sectionIds[0]} not found`);
   }
 
   // Account-scope + standard-type check.
   const standard = await loadOwnedStandard(memexId, section.docId);
 
-  // spec-530 t-1: still writes the LEGACY whole-section shape. t-2 moves this
-  // function to the clause-grained operation set (`buildProposedChangeBody`); until
-  // then behaviour here is unchanged, so nothing downstream shifts under a
-  // half-migrated writer.
-  const body = buildLegacyProposedChangeBody(section.sectionType, proposedContent, rationale);
+  // Build the stored operations: handles for targets, server-read text for the
+  // "before". Order is the caller's, preserved exactly (ac-7).
+  const stored: ClauseOperation[] = operations.map((op, i) => {
+    const clause = rows[i];
+    const handle = `cl-${clause.seq}`;
+    if (op.op === "edit") {
+      if (typeof op.after !== "string" || op.after.trim().length === 0) {
+        throw new ValidationError(`Operation ${i + 1} (edit ${handle}) needs replacement text.`);
+      }
+      return { op: "edit", clause: handle, before: clause.body, after: op.after };
+    }
+    if (op.op === "delete") {
+      return { op: "delete", clause: handle, before: clause.body };
+    }
+    if (typeof op.body !== "string" || op.body.trim().length === 0) {
+      throw new ValidationError(`Operation ${i + 1} (add near ${handle}) needs a clause body.`);
+    }
+    return { op: "add", anchor: handle, placement: op.placement, body: op.body };
+  });
+
+  const body = buildProposedChangeBody(section.sectionType, stored, rationale);
 
   // Two emits per dec-2 (spec-143) — mirrors flagDrift's dual emit:
   //  - comment.created fires from inside addComment for any tab subscribed to the standard doc.
@@ -669,7 +733,7 @@ export async function proposeStandardChange(
     async () => {
       const comment = await addComment(
         memexId,
-        standardSectionId,
+        section.id,
         options.authorName ?? "Memex agent",
         body,
         {
