@@ -38,6 +38,7 @@ import {
 import { makeTestMemex } from "../services/test-helpers.js";
 import { createDocDraft } from "../services/documents.js";
 import { createStandard } from "../services/standards.js";
+import { createClause } from "../services/clauses.js";
 import { createIssue } from "../services/issues.js";
 import { addSection } from "../services/sections.js";
 import { addComment } from "../services/comments.js";
@@ -274,6 +275,7 @@ describe("regression: every entity-acting MCP tool emits `ref:` and no raw UUID 
   // `ref:` to the comment that lands under the standard's std-N handle.
   let driftSectionRef: string;
   let proposeSectionRef: string;
+  let proposeClauseRef: string;
 
   beforeAll(async () => {
     memexId = await makeTestMemex("ref-emit");
@@ -413,6 +415,14 @@ describe("regression: every entity-acting MCP tool emits `ref:` and no raw UUID 
     const stdBase = `${slugs.namespace}/${slugs.memex}/standards/${std.handle}`;
     driftSectionRef = `${stdBase}/sections/s-${std.sections.find((s) => s.sectionType === "rule-drift")!.seq}`;
     proposeSectionRef = `${stdBase}/sections/s-${std.sections.find((s) => s.sectionType === "rule-propose")!.seq}`;
+    // spec-530 t-2: propose_standard_change targets a CLAUSE now. flag_drift keeps
+    // the section grain — an observation is about a rule, a proposal changes clause text.
+    const probeClause = await createClause(
+      memexId,
+      std.sections.find((s) => s.sectionType === "rule-propose")!.id,
+      "RefEmit: original rule body.",
+    );
+    proposeClauseRef = `${stdBase}/clauses/cl-${probeClause.seq}`;
   });
 
   // Build the per-tool case registry. One per shared spec that emits a
@@ -702,8 +712,9 @@ describe("regression: every entity-acting MCP tool emits `ref:` and no raw UUID 
         "propose_standard_change",
         {
           input: () => ({
-            ref: proposeSectionRef,
-            proposedContent: "RefEmit: corrected rule body.",
+            operations: [
+              { op: "edit", ref: proposeClauseRef, body: "RefEmit: corrected rule body." },
+            ],
             rationale: "refemit rationale",
           }),
         },

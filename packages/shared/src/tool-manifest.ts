@@ -447,8 +447,8 @@ export const toolManifest: ToolManifestEntry[] = [
   {
     name: 'propose_standard_change',
     summary:
-      'Propose a corrected version of a standard section. Lands as a typed `plan_revision` comment (sourced \'agent\') with the full proposed replacement and a rationale, for the standard owner to accept or reject in the Drift Inbox.',
-    args: 'propose_standard_change(ref, proposedContent, rationale?)',
+      'Propose a correction to a standard\'s rule text, at the clause grain: name the clauses that should change and what they should say. Lands as a typed `plan_revision` comment (sourced \'agent\') for the standard owner to accept or reject in the Drift Inbox. Every clause in one proposal must belong to the same section, and you never supply a clause\'s current text — the server reads it, so an accept can tell whether the clause moved underneath the proposal.',
+    args: 'propose_standard_change(operations, rationale?)',
     group: 'build',
     readOnlyHint: false,
     homePhase: null,
