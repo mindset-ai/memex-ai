@@ -15,12 +15,14 @@ import {
   documents,
   decisions,
   docComments,
+  docSections,
   tasks,
   users,
 } from "../db/schema.js";
 import { createMcpServer } from "./tools.js";
 import { createDocDraft } from "../services/documents.js";
 import { createStandard } from "../services/standards.js";
+import { createClause } from "../services/clauses.js";
 
 const created = {
   users: [] as string[],
@@ -331,5 +333,83 @@ describe("spec-143 ac-14: drift verbs address by canonical ref, not UUID", () =>
     });
     expect(res.isError).toBe(true);
     expect(res.content[0].text).toMatch(/UUID inputs no longer accepted|pass the ref/i);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// spec-530 t-3 — the attribution seam, end to end through the MCP verbs.
+//
+// The service-level proof lives in `services/clauses-attribution.spec-530.
+// integration.test.ts`. This block proves the WIRING: that the handlers actually
+// hand their RequestCtx down, so a real MCP call lands attributed. Without it the
+// seam could exist and every production write still be anonymous — which is
+// precisely the shape of the defect being fixed (a capability present in the code
+// and absent on the path anyone uses).
+// ─────────────────────────────────────────────────────────────────────────
+const AC_CLAUSE_ATTRIBUTION =
+  "mindset-prod/memex-building-itself/specs/spec-530/acs/ac-21";
+
+describe("spec-530 ac-21: clause verbs attribute the section row over MCP", () => {
+  let sectionUuid: string;
+  let sectionRef: string;
+  let clauseRef: string;
+
+  beforeAll(async () => {
+    const std = await createStandard(actor.account.id, {
+      title: "Spec530 ClauseAttribution",
+      sections: [{ sectionType: "rule", content: "The original rule." }],
+    });
+    created.docs.push(std.id);
+    const section = std.sections.find((s) => s.sectionType === "rule")!;
+    sectionUuid = section.id;
+    sectionRef = `${actor.account.slug}/main/standards/${std.handle}/sections/s-${section.seq}`;
+    // Seed the clause through the service with NO ctx, so the section's attribution
+    // columns start NULL. The assertions below then prove the transition
+    // null → attributed, rather than reading a value some earlier call left behind.
+    const seeded = await createClause(actor.account.id, sectionUuid, "The original rule.");
+    clauseRef = `${actor.account.slug}/main/standards/${std.handle}/clauses/cl-${seeded.seq}`;
+  });
+
+  it("starts unattributed — the precondition the MCP calls must change", async () => {
+    tagAc(AC_CLAUSE_ATTRIBUTION);
+    expect((await sectionAttribution()).actorUserId).toBeNull();
+  });
+
+  async function sectionAttribution() {
+    const row = await db.query.docSections.findFirst({
+      where: eq(docSections.id, sectionUuid),
+    });
+    return { actorUserId: row!.actorUserId, actorName: row!.actorName, channel: row!.channel };
+  }
+
+  it("edit_clause stamps the calling user and channel='mcp' on the section", async () => {
+    tagAc(AC_CLAUSE_ATTRIBUTION);
+    const res = await callTool(actor.user.id, "edit_clause", {
+      ref: clauseRef,
+      body: "The corrected rule.",
+      facets: [],
+    });
+    expect(res.isError).toBeFalsy();
+
+    const attribution = await sectionAttribution();
+    expect(attribution.actorUserId).toBe(actor.user.id);
+    // HOW: an MCP call is channel 'mcp' [per std-32 cl-4]. A null here would be the
+    // unattributed write cl-8 calls a visible defect.
+    expect(attribution.channel).toBe("mcp");
+    expect(attribution.actorName).toBeTruthy();
+  });
+
+  it("add_clause stamps the calling user and channel='mcp' on the section", async () => {
+    tagAc(AC_CLAUSE_ATTRIBUTION);
+    const res = await callTool(actor.user.id, "add_clause", {
+      ref: sectionRef,
+      body: "An added rule.",
+      facets: [],
+    });
+    expect(res.isError).toBeFalsy();
+
+    const attribution = await sectionAttribution();
+    expect(attribution.actorUserId).toBe(actor.user.id);
+    expect(attribution.channel).toBe("mcp");
   });
 });
