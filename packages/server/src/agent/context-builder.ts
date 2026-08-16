@@ -314,7 +314,17 @@ export async function buildDriftContext(
           `- PROPOSAL ${item.commentHandle} by ${item.authorName}: ${truncateBody(item.content)}`,
         );
         if (item.proposedContent) {
-          lines.push(`  Proposed new rule: ${truncateBody(item.proposedContent)}`);
+          // spec-530 t-6 (ac-22): NOT truncated, unlike everything else here.
+          // The cap exists so a Memex with many open items cannot blow the context
+          // window, and that reasoning holds for text the agent reads ABOUT the
+          // work. It does not hold for the payload the agent must reproduce
+          // verbatim: cutting this does not degrade a summary, it makes the
+          // operation impossible — and silently, because a cut string looks like a
+          // whole one. A user watched exactly that happen: the proposal stopped
+          // mid-clause after a URL and the agent refused to apply what it could not
+          // read. The clause grain (dec-1) is what keeps this affordable — a
+          // proposal is one aspect's worth of text now, not a 50-clause section.
+          lines.push(`  Proposed new rule: ${item.proposedContent.trim()}`);
         }
       } else {
         lines.push(

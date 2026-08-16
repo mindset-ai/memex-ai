@@ -174,3 +174,59 @@ describe("buildDriftContext", () => {
     expect(result.context).not.toContain("across");
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// spec-530 t-6 (ac-22) — the proposed replacement text reaches the agent WHOLE.
+//
+// DRIFT_BODY_MAX is sound for text the agent reads ABOUT the work: it exists so a
+// Memex with many open items cannot blow the context window. It is not sound for
+// the payload the agent must reproduce verbatim — truncating that does not degrade
+// a summary, it makes the operation impossible, and silently, because a cut string
+// looks like a whole one. This is the defect a user hit: the agent watched the
+// proposal stop mid-clause after a URL and refused to apply what it could not read.
+// ─────────────────────────────────────────────────────────────────────────
+const AC_UNTRUNCATED = "mindset-prod/memex-building-itself/specs/spec-530/acs/ac-22";
+
+// Comfortably past the 500-char cap, with a marker at the very end.
+const LONG_PROPOSAL = `${"The corrected rule text. ".repeat(40)}FINAL-CLAUSE-MARKER`;
+
+describe("spec-530 ac-22: the agent reads a proposal whole", () => {
+  it("does not truncate proposedContent, however long it is", async () => {
+    tagAc(AC_UNTRUNCATED);
+    vi.mocked(listDriftInbox).mockResolvedValueOnce(
+      page([
+        row({
+          commentType: "plan_revision",
+          content: "Proposing a correction.",
+          proposedContent: LONG_PROPOSAL,
+        }),
+      ]),
+    );
+
+    const result = await buildDriftContext("memex-1");
+
+    // The whole payload, including its last characters — the part a cap eats first.
+    expect(result.context).toContain(LONG_PROPOSAL);
+    expect(result.context).toContain("FINAL-CLAUSE-MARKER");
+    // And no ellipsis on the proposal line: the tell that something was cut.
+    const proposalLine = result.context
+      .split("\n")
+      .find((l) => l.includes("Proposed new rule:"));
+    expect(proposalLine).toBeDefined();
+    expect(proposalLine).not.toContain("…");
+  });
+
+  it("still truncates observation bodies — the cap keeps its real job", async () => {
+    tagAc(AC_UNTRUNCATED);
+    const longObservation = `${"The code diverged in this way. ".repeat(40)}TAIL-MARKER`;
+    vi.mocked(listDriftInbox).mockResolvedValueOnce(
+      page([row({ commentType: "drift", content: longObservation })]),
+    );
+
+    const result = await buildDriftContext("memex-1");
+
+    // Context stays bounded for the text the agent only reads about.
+    expect(result.context).not.toContain("TAIL-MARKER");
+    expect(result.context).toContain("…");
+  });
+});
