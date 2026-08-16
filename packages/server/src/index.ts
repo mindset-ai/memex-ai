@@ -5,6 +5,8 @@ import { app } from "./app.js";
 import { cleanupExpiredDomainVerificationTokens } from "./services/domain-verification.js";
 import { warnIfLlmNotConfigured } from "./agent/anthropic-client.js";
 import { startBusObservability } from "./services/bus-observability.js";
+import { startEmissionGateHeartbeat } from "./observability/emission-shed-log.js";
+import { emissionGate } from "./middleware/emission-admission.js";
 import { startActivityLogSink } from "./services/activity-log.js";
 import { startUsageBackendSink } from "./services/usage-backend-sink.js";
 import { startUsageForwarder } from "./services/usage-forwarder.js";
@@ -34,6 +36,12 @@ const server = serve({ fetch: app.fetch, port }, (info) => {
   // doc-16 dec-3: passive observability for write-vs-emit divergence. The
   // timer is .unref()'d so it doesn't keep the process alive during shutdown.
   startBusObservability()?.unref();
+  // spec-525 t-11 / ac-21: the emission gate's window record. Same cadence and the same
+  // .unref() discipline as the line above — but it NEVER skips a quiet window, because a
+  // window with nothing shed is the observation it exists to make readable. Records with
+  // zero counters mean the instrument works and nothing was refused; no records at all
+  // mean it is broken. The gate is passed lazily so it is still built on first use.
+  startEmissionGateHeartbeat({ gate: () => emissionGate() })?.unref();
   // b-60 t-3: the activity_log sink — one bus subscriber that persists every
   // interaction for Pulse. Advisory: insert failures are swallowed, writes are
   // detached from the emit path.
