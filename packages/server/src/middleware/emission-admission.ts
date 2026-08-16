@@ -34,6 +34,7 @@ import type { Context, MiddlewareHandler, Next } from "hono";
 import {
   EmissionGate,
   resolveWaitConfig,
+  resolveGateMode,
   EMISSION_GATE_HEADER,
   type Acquisition,
 } from "../services/admission/emission-gate.js";
@@ -45,6 +46,7 @@ import {
 export { EMISSION_GATE_HEADER };
 import { resolvePoolMax } from "../db/pool-size.js";
 import { recordEmissionShed } from "../observability/otel/index.js";
+import { logEmissionShed } from "../observability/emission-shed-log.js";
 import { MAX_BATCH_EVENTS } from "../routes/test-events.js";
 
 /**
@@ -67,8 +69,23 @@ export function emissionGate(): EmissionGate {
       // The same hook fires for a real shed and for a shadow-mode would-be shed, which
       // is what puts ac-17's counterfactual on ac-13's counter rather than leaving it
       // in an in-module field.
-      onShed: (weight, cause, waited) =>
-        recordEmissionShed(weight, { cause, waited }),
+      // spec-525 t-11 / ac-21: TWO instruments, deliberately, because they answer
+      // different questions. The counter is the alertable one ac-13 requires — and it is
+      // a no-op until an OTLP endpoint exists, which it does in neither environment
+      // today. The log line is the READABLE one: Cloud Run ships stdout to Cloud Logging,
+      // which aggregates across instances and survives their recycling, so t-10 can
+      // actually read the shadow window. Removing either one loses a distinct property.
+      onShed: (weight, cause, waited) => {
+        recordEmissionShed(weight, { cause, waited });
+        // `gate` rather than a captured mode: it is assigned before any shed can fire,
+        // and it reports the mode that actually refused — including one a test injected.
+        logEmissionShed({
+          events: weight,
+          cause,
+          waited,
+          mode: gate?.mode ?? resolveGateMode(),
+        });
+      },
     });
   }
   return gate;
