@@ -63,8 +63,10 @@ export interface SessionPayload {
 // Fail-open: an unset or empty var yields [] — never throws, never hides by default.
 // Kept here as the single reusable parse site for sibling specs (spec-147/spec-148).
 // To CHANGE what's hidden per environment, see docs/feature-hiding.md (the runbook):
-// the value that survives a deploy lives in the DEPLOY_ENV_FILE GitHub Actions secret,
-// NOT the live Cloud Run env var or the GCP memex-<env>-deploy-env secret.
+// the value that survives a deploy lives in the GCP Secret Manager secret
+// memex-<env>-deploy-env, NOT the live Cloud Run env var. (Until spec-518 t-6 this
+// comment named the DEPLOY_ENV_FILE GitHub secret, which CI no longer reads and which
+// has since been deleted.)
 export function getHiddenFeatures(): string[] {
   return (process.env.HIDDEN_FEATURES ?? "")
     .split(",")

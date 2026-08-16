@@ -5,12 +5,19 @@ How to hide/unhide soft-launched features per environment — and, more importan
 the next deploy.
 
 > **TL;DR — to durably change what's hidden on an environment, edit the
-> `HIDDEN_FEATURES` line inside the GitHub Actions environment secret
-> `DEPLOY_ENV_FILE` (scoped to the `prod` / `int` environment).** That secret is
-> what CI reads on every deploy. Editing the live Cloud Run env var, the local
-> `scripts/deploy.<env>.env`, or the GCP `memex-<env>-deploy-env` secret will
-> *not* survive the next merge-to-`main`/`develop` deploy. See
+> `HIDDEN_FEATURES` line in the GCP Secret Manager secret `memex-<env>-deploy-env`.**
+> That secret is what CI reads on every deploy. Editing the live Cloud Run env var,
+> or a local `scripts/deploy.<env>.env`, will *not* survive the next
+> merge-to-`main`/`develop` deploy. See
 > [Where the value actually lives](#where-the-value-actually-lives).
+
+> **⚠ This runbook said the opposite until 2026-08-15.** It named the GitHub Actions
+> secret `DEPLOY_ENV_FILE` as the authoritative store and called the GCP secret
+> "effectively a red herring". That was true when written and became false with
+> spec-518 t-6 (PRs #589 / #599), which pointed CI at the canonical secret and then
+> removed the step that wrote the blob. `DEPLOY_ENV_FILE` has since been deleted from
+> the GitHub environments. **Do not follow an older copy of this page** — its step 3
+> would recreate a secret that nothing reads.
 
 ## What `HIDDEN_FEATURES` does
 
@@ -35,37 +42,51 @@ The value is a comma-separated slug list, e.g. `HIDDEN_FEATURES="spec-pause,home
 
 ## Where the value actually lives
 
-This is the part that causes confusion. There are **three** places the value can
-appear, but for a normal (CI) deploy **only one governs**:
+There are **two** places the value can appear (a third exists only on a developer's
+machine), and for a normal CI deploy **only one governs**:
 
 | # | Store | Read by | Authoritative for |
 |---|-------|---------|-------------------|
-| 1 | **GitHub Actions environment secret `DEPLOY_ENV_FILE`** (one per env: `prod`, `int`) — holds the entire `deploy.<env>.env` body | The `deploy` CI job ([`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml)) writes it to `scripts/deploy.<env>.env`, then `deploy-config.sh` sources it | **Every CI deploy** (merge to `main` → prod, `develop` → int). **This is the one that matters.** |
+| 1 | **GCP Secret Manager secret `memex-<env>-deploy-env`** — holds the entire per-env config body | `scripts/deploy-config.sh`, because the `deploy` CI job ([`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml)) sets `DEPLOY_CONFIG_SOURCE: secret` | **Every CI deploy** (merge to `main` → prod, `develop` → int). **This is the one that matters.** |
 | 2 | Live Cloud Run env var on `memex-api` | The running container | The current revision *only*. Overwritten by the next CI deploy. |
-| 3 | GCP Secret Manager secret `memex-<env>-deploy-env` | `deploy-config.sh` **only when no local `scripts/deploy.<env>.env` exists** | Laptop deploys with no local file. **Not read in CI** — CI always writes the local file from `DEPLOY_ENV_FILE`, which wins. Effectively a red herring for the deploy pipeline. |
+| 3 | Local `scripts/deploy.<env>.env` | `deploy-config.sh`, **only** when `DEPLOY_CONFIG_SOURCE` is unset *and* the file exists | An ad-hoc local/break-glass deploy from a laptop. **Never present in CI** — the step that used to write it was removed (spec-518 t-6). Gitignored. |
 
 ### Why (1) wins in CI
 
 `deploy-config.sh` resolves its config source like this:
 
+- `DEPLOY_CONFIG_SOURCE=secret` → fetch GCP Secret Manager `memex-<env>-deploy-env` **← what CI sets**
 - `DEPLOY_CONFIG_SOURCE=local` → use `scripts/deploy.<env>.env`
-- `DEPLOY_CONFIG_SOURCE=secret` → fetch GCP Secret Manager `memex-<env>-deploy-env`
-- **unset (the default)** → if `scripts/deploy.<env>.env` is present, use it; otherwise fetch the GCP secret.
+- unset → if `scripts/deploy.<env>.env` is present use it, otherwise fetch the GCP secret
 
-The CI deploy job writes `scripts/deploy.<env>.env` from the `DEPLOY_ENV_FILE`
-secret *before* running the deploy, so the local-file branch always wins and the
-GCP secret is never consulted. Then
-[`packages/server/deploy.sh`](../packages/server/deploy.sh) injects the value with
+CI pins the source explicitly:
+
+```yaml
+DEPLOY_CONFIG_SOURCE: secret
+DEPLOY_CONFIG_PROJECT: memex-ai-${{ github.ref_name == 'main' && 'prod' || 'int' }}
+```
+
+and writes no local file at all, so the local-override branch is unreachable from CI.
+Then [`packages/server/deploy.sh`](../packages/server/deploy.sh) injects the value with
 `gcloud run deploy --update-env-vars HIDDEN_FEATURES=<value>`.
+
+**Confirm it per deploy, don't assume it.** Every deploy log prints its resolved source:
+
+```
+[deploy-config] source=SECRET-MANAGER secret=memex-prod-deploy-env project=memex-ai-prod
+```
+
+`source=LOCAL-OVERRIDE` in a CI log would mean the pinning has regressed — that exact
+silent bypass is what spec-518 t-6 was created to fix, and it ran unnoticed for weeks.
 
 ### Why editing (2) or (3) doesn't stick
 
 - **(2) Live Cloud Run env var** — a manual
   `gcloud run services update ... --update-env-vars=HIDDEN_FEATURES=...` changes
-  the serving revision immediately, but the next CI deploy reads `DEPLOY_ENV_FILE`
-  and overwrites it. (This is the "I bumped it and it reverted" loop.)
-- **(3) GCP `memex-<env>-deploy-env`** — only the canonical-on-paper copy. CI
-  doesn't read it. Changing it alone does nothing to CI deploys.
+  the serving revision immediately, but the next CI deploy re-asserts the value from
+  the canonical secret and overwrites it. (This is the "I bumped it and it reverted" loop.)
+- **(3) Local `scripts/deploy.<env>.env`** — exists only on your machine, is gitignored,
+  and is never created in CI. Editing it changes your own break-glass deploys and nothing else.
 
 ## Deploy-time semantics: unset ≠ empty
 
@@ -83,37 +104,45 @@ GCP secret is never consulted. Then
 Runtime is **fail-open**: an unset/empty `HIDDEN_FEATURES` on the running server
 makes `getHiddenFeatures()` return `[]` → nothing hidden.
 
+> The same set-vs-unset rule governs every optional per-env key, and for a key a
+> **child process** must read — as opposed to `deploy.sh`'s own shell — the key also
+> needs an explicit `export` guard in `deploy-config.sh`. A plain assignment is visible
+> to `deploy.sh` and invisible to anything it spawns; that gap cost a refused prod deploy
+> on 2026-08-14 (spec-518, `DB_POOL_MAX`).
+
 ## Durably change what's hidden (the procedure that sticks)
 
-GitHub Actions secrets are **write-only opaque blobs** — there is no way to patch
-one line in place; you re-upload the whole `DEPLOY_ENV_FILE` body. Because the
-local `scripts/deploy.<env>.env` and the GCP `memex-<env>-deploy-env` secret are
-meant to mirror it, the safe flow is: rebuild the full body from the canonical GCP
-copy, edit the one line, push it back to GitHub, and re-sync the GCP copy.
+Unlike a GitHub Actions secret, the GCP secret **can be read back** — so this is a
+read-modify-write on one store, with no mirror to keep in sync:
 
 ```bash
 ENV=prod                              # or int
 PROJECT=memex-ai-${ENV}
-SRC=scripts/deploy.${ENV}.env
 NEW_VALUE="spec-pause"                # the desired full slug list
+TMP=$(mktemp)
 
-# 1. Rebuild the full config body from the canonical GCP copy, flipping ONE line.
+# 1. Pull the current body, flipping ONE line.
 gcloud secrets versions access latest --secret="memex-${ENV}-deploy-env" --project="$PROJECT" \
   | sed -E "s/^(export[[:space:]]+)?HIDDEN_FEATURES=.*/HIDDEN_FEATURES=\"${NEW_VALUE}\"/" \
-  > "$SRC"
+  > "$TMP"
 
-# 2. Sanity-check just the line you changed.
-grep HIDDEN_FEATURES "$SRC"
+# 2. Sanity-check the line you changed AND that nothing else moved.
+grep HIDDEN_FEATURES "$TMP"
+diff <(gcloud secrets versions access latest --secret="memex-${ENV}-deploy-env" --project="$PROJECT") "$TMP"
 
-# 3. Push the whole body to the GitHub env secret CI actually reads (the durable fix).
-gh secret set DEPLOY_ENV_FILE --env "$ENV" --repo mindset-ai/memex-ai < "$SRC"
+# 3. Push the new version.
+gcloud secrets versions add "memex-${ENV}-deploy-env" --project="$PROJECT" --data-file="$TMP"
 
-# 4. Keep the canonical GCP copy in sync so the two stores don't drift.
-gcloud secrets versions add "memex-${ENV}-deploy-env" --project="$PROJECT" --data-file="$SRC"
+# 4. Read it back from GCP — verify the write rather than trusting it.
+gcloud secrets versions access latest --secret="memex-${ENV}-deploy-env" --project="$PROJECT" \
+  | grep HIDDEN_FEATURES
 
-# 5. The local file holds DB coordinates — remove it once done (CI regenerates it).
-rm "$SRC"
+rm "$TMP"                             # the body holds DB coordinates
 ```
+
+The `diff` in step 2 is not ceremony: `sed` over a whole config body is one bad regex
+away from dropping a line, and a key silently absent from the next deploy is a live
+configuration change (spec-518's whole subject). One line should differ.
 
 The change takes effect on the **next deploy** of that env (merge to `main`/`develop`,
 or a manual "Deploy" workflow_dispatch). To also flip the *currently live* revision
@@ -137,10 +166,11 @@ the next CI deploy will revert it.
 gcloud run services describe memex-api --project=memex-ai-prod --region=us-east4 \
   --format="value(spec.template.spec.containers[0].env)" | tr ';' '\n' | grep HIDDEN_FEATURES
 
-# Which GitHub env secrets exist (values are write-only, can't be read back):
-gh secret list --env prod --repo mindset-ai/memex-ai
+# What the NEXT deploy will apply (readable, unlike the old GitHub secret):
+gcloud secrets versions access latest --secret=memex-prod-deploy-env --project=memex-ai-prod \
+  | grep HIDDEN_FEATURES
 ```
 
-(`DEPLOY_ENV_FILE` is what governs the next deploy, but its value can't be read
-back — confirm intended changes by inspecting the live service after a deploy, or
-the GCP `memex-<env>-deploy-env` copy if it's been kept in sync.)
+Those two commands answering differently is the normal state between a durable edit
+and the deploy that applies it — and if they disagree *after* a deploy, the deploy
+did not read what you think it read. Check the `[deploy-config] source=` line in its log.

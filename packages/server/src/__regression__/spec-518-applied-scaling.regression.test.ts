@@ -31,6 +31,7 @@ import {
   decideOutcome,
   parseRevisionScaling,
   parseServingRevisions,
+  planEmissions,
   serviceTerm,
   usableConnections,
 } from "../deploy/scaling-budget.js";
@@ -299,6 +300,80 @@ describe("spec-518 ac-20: the guard can SEE what config set — a third state, n
     // So there must be exactly one occurrence, and the assertion above proves that one is guarded.
     const occurrences = DEPLOY_CONFIG.match(/export DB_POOL_MAX/g) ?? [];
     expect(occurrences).toHaveLength(1);
+  });
+});
+
+// ── DELIBERATELY UNTAGGED ─────────────────────────────────────────────────────
+//
+// These tests carry no tagAc, and that is the point rather than an oversight.
+//
+// planEmissions decides which criteria a run may speak for. The criteria it speaks for
+// — ac-14, ac-9, ac-1, ac-6, ac-2 — assert things about a REAL prod deploy. Tagging
+// these unit tests to them would turn those criteria green from a laptop, which is
+// exactly the substitution the whole guard exists to prevent: a check that reads true
+// against the artifact it inspects while being false about the world.
+//
+// So the logic is tested here, and the criteria are moved only by a deploy that
+// actually observed prod. What this file owes them is that the gate is honest.
+describe("spec-518: planEmissions refuses to speak for a deploy that did not happen", () => {
+  const base = { env: "prod", observed: true, fatal: false, connectionsInUse: 27, usable: 197 } as const;
+
+  it("the pre-flight emits nothing — nothing has been applied yet", () => {
+    expect(planEmissions({ ...base, mode: "plan" })).toEqual([]);
+  });
+
+  it("int emits nothing, even on a clean run", () => {
+    // ac-14, ac-1 and ac-6 name prod; int's config is deliberately unset (t-4) so its
+    // comparison is vacuous. An int deploy turning a prod-shaped criterion green would
+    // be the lie this Spec exists to stop.
+    expect(planEmissions({ ...base, mode: "applied", env: "int" })).toEqual([]);
+  });
+
+  it("a run that could not READ emits nothing — not even a failure", () => {
+    // "We didn't look" and "we looked and it was wrong" are different facts, and only
+    // the second is a verdict.
+    expect(planEmissions({ ...base, mode: "applied", observed: false })).toEqual([]);
+    expect(planEmissions({ ...base, mode: "applied", observed: false, fatal: true })).toEqual([]);
+  });
+
+  it("a clean prod run records all five as passing", () => {
+    const emissions = planEmissions({ ...base, mode: "applied" });
+    expect(emissions.map((e) => e.ac_uid.split("/").pop())).toEqual([
+      "ac-14",
+      "ac-9",
+      "ac-1",
+      "ac-6",
+      "ac-2",
+    ]);
+    expect(emissions.every((e) => e.status === "pass")).toBe(true);
+    expect(emissions.every((e) => e.ac_uid.startsWith(`${SPEC}/`))).toBe(true);
+  });
+
+  it("a failing prod run records failures — the signal that matters", () => {
+    const emissions = planEmissions({ ...base, mode: "applied", fatal: true });
+    const byAc = Object.fromEntries(emissions.map((e) => [e.ac_uid.split("/").pop(), e.status]));
+    expect(byAc["ac-14"]).toBe("fail");
+    expect(byAc["ac-1"]).toBe("fail");
+  });
+
+  it("ac-2 is a separate observation, not the verdict restated", () => {
+    // The configuration can match perfectly while the instance is out of connections;
+    // those are different questions, so they get different answers.
+    const overCeiling = planEmissions({ ...base, mode: "applied", connectionsInUse: 197 });
+    const byAc = Object.fromEntries(overCeiling.map((e) => [e.ac_uid.split("/").pop(), e.status]));
+    expect(byAc["ac-2"]).toBe("fail");
+    expect(byAc["ac-14"]).toBe("pass");
+  });
+
+  it("an unreadable pg_stat_activity drops ac-2 rather than guessing", () => {
+    const emissions = planEmissions({
+      mode: "applied",
+      env: "prod",
+      observed: true,
+      fatal: false,
+    });
+    expect(emissions.map((e) => e.ac_uid.split("/").pop())).not.toContain("ac-2");
+    expect(emissions).toHaveLength(4);
   });
 });
 

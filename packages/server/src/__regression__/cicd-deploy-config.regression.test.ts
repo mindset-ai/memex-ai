@@ -88,6 +88,15 @@ describe("spec-168 ac-15: deploy.yml resolves per-env config from the canonical 
 describe("spec-168 ac-1: a single config source → identical running config for every deployer", () => {
   it("the canonical secret is the ONLY per-env config source — no local-override file is written", () => {
     tagAc(`${SPEC}/acs/ac-1`);
+    // spec-518 ac-17 makes the SAME claim from the other side — "exactly one config
+    // source survives; CI no longer writes scripts/deploy.<env>.env at all, so
+    // deploy-config.sh's local-override branch is unreachable from CI." One test can
+    // verify criteria on two Specs, and it should: the assertions below already WERE
+    // ac-17's evidence, they just emitted somewhere else, so ac-17 read UNTESTED while
+    // the thing it asserts was continuously checked. An untagged proof is the same
+    // defect class spec-518 documents — a check that is green about something nobody
+    // is being told.
+    tagAc("mindset-prod/memex-building-itself/specs/spec-518/acs/ac-17");
     // The one source, forced.
     expect(DEPLOY_YML).toMatch(/DEPLOY_CONFIG_SOURCE:\s*secret/);
 

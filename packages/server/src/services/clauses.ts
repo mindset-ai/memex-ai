@@ -21,6 +21,7 @@ import { documents, docSections, standardClauses } from "../db/schema.js";
 import type { DocSection, StandardClause } from "../db/schema.js";
 import { NotFoundError, ValidationError } from "../types/errors.js";
 import { mutate, type Mutated, type RequestCtx } from "./mutate.js";
+import { resolveActorColumns } from "./actor.js";
 import { composeSectionContent, splitSectionIntoClauses } from "./clause-composition.js";
 import { embedAndStoreSection } from "./memex-embeddings.js";
 import { syncClauseRefsTx } from "./clause-refs.js";
@@ -82,9 +83,19 @@ async function maxPositionTx(tx: Tx, sectionId: string): Promise<number> {
   return r?.m ?? 0;
 }
 
+// spec-530 t-3 — the section row a clause write regenerates is activity-bearing
+// [per std-32 cl-9], so it carries WHO + HOW like any other write to it. Resolved
+// ONCE by the caller before its transaction opens (resolveActorColumns does an
+// indexed users lookup) and passed in, so the tx stays free of a round trip.
+type ActorColumns = Awaited<ReturnType<typeof resolveActorColumns>>;
+
 // Recompute and persist the section's derived content from its preamble + live
 // clauses, inside the caller's transaction. Returns the new content.
-async function regenerateSectionContentTx(tx: Tx, section: DocSection): Promise<string> {
+async function regenerateSectionContentTx(
+  tx: Tx,
+  section: DocSection,
+  actor: ActorColumns,
+): Promise<string> {
   const clauses = await liveClausesForSection(tx, section.id);
   // spec-161: a clause-first section (preamble null) IS its clauses — content is their
   // ordered join (dec-7). A legacy decomposed section (preamble set, the spec-150
@@ -98,7 +109,14 @@ async function regenerateSectionContentTx(tx: Tx, section: DocSection): Promise<
       : clauses.map((c) => c.body).join("\n\n");
   await tx
     .update(docSections)
-    .set({ content, updatedAt: new Date() })
+    .set({
+      content,
+      updatedAt: new Date(),
+      // Re-attribute on edit — who touched it last. Same semantics as
+      // updateSection (sections.ts), which this path is the clause-grained
+      // sibling of: editing a clause IS editing the section's text.
+      ...actor,
+    })
     .where(eq(docSections.id, section.id));
   return content;
 }
@@ -117,6 +135,7 @@ export interface DecomposedSection {
 export async function decomposeSection(
   memexId: string,
   sectionId: string,
+  ctx: RequestCtx = {},
 ): Promise<Mutated<DecomposedSection>> {
   const section = await loadOwnedSection(memexId, sectionId);
   if (section.preamble !== null) {
@@ -134,11 +153,13 @@ export async function decomposeSection(
     })),
   ];
 
-  return mutate({}, keys, async () =>
+  const actor = await resolveActorColumns(ctx);
+
+  return mutate(ctx, keys, async () =>
     db.transaction(async (tx) => {
       await tx
         .update(docSections)
-        .set({ preamble, updatedAt: new Date() })
+        .set({ preamble, updatedAt: new Date(), ...actor })
         .where(eq(docSections.id, sectionId));
 
       const startSeq = (await maxClauseSeqTx(tx, section.docId)) + 1;
@@ -170,6 +191,7 @@ export async function createClause(
   sectionId: string,
   body: string,
   position?: number,
+  ctx: RequestCtx = {},
 ): Promise<Mutated<StandardClause>> {
   // spec-161: clauses are created directly on clause-first standard sections (preamble
   // null), so there is no "decompose first" precondition. Legacy decomposed sections
@@ -181,7 +203,9 @@ export async function createClause(
     { memexId, docId: section.docId, entity: "section" as const, action: "updated" as const },
   ];
 
-  return mutate({}, keys, async () =>
+  const actor = await resolveActorColumns(ctx);
+
+  return mutate(ctx, keys, async () =>
     db.transaction(async (tx) => {
       const seq = (await maxClauseSeqTx(tx, section.docId)) + 1;
       const pos = position ?? (await maxPositionTx(tx, sectionId)) + 1;
@@ -190,7 +214,7 @@ export async function createClause(
         .values({ memexId, docId: section.docId, sectionId, seq, position: pos, body })
         .returning();
       await syncClauseRefsTx(tx, row); // spec-179: materialize handle mentions
-      await regenerateSectionContentTx(tx, section);
+      await regenerateSectionContentTx(tx, section, actor);
       return row;
     }),
   ).then((row) => {
@@ -250,7 +274,9 @@ export async function addClausesToSection(
     { memexId, docId: section.docId, entity: "section" as const, action: "updated" as const },
   ];
 
-  const created = await mutate({}, keys, async () =>
+  const actor = await resolveActorColumns(ctx);
+
+  const created = await mutate(ctx, keys, async () =>
     db.transaction(async (tx) => {
       let seq = await maxClauseSeqTx(tx, section.docId);
       let pos = await maxPositionTx(tx, sectionId);
@@ -265,7 +291,7 @@ export async function addClausesToSection(
         await syncClauseRefsTx(tx, row); // spec-179: materialize handle mentions
         rows.push(row);
       }
-      await regenerateSectionContentTx(tx, section);
+      await regenerateSectionContentTx(tx, section, actor);
       return rows;
     }),
   );
@@ -288,6 +314,7 @@ export async function updateClause(
   memexId: string,
   clauseId: string,
   body: string,
+  ctx: RequestCtx = {},
 ): Promise<Mutated<StandardClause>> {
   const clause = await loadOwnedClause(memexId, clauseId);
   const section = await loadOwnedSection(memexId, clause.sectionId);
@@ -297,7 +324,9 @@ export async function updateClause(
     { memexId, docId: clause.docId, entity: "section" as const, action: "updated" as const },
   ];
 
-  return mutate({}, keys, async () =>
+  const actor = await resolveActorColumns(ctx);
+
+  return mutate(ctx, keys, async () =>
     db.transaction(async (tx) => {
       const [row] = await tx
         .update(standardClauses)
@@ -305,7 +334,7 @@ export async function updateClause(
         .where(eq(standardClauses.id, clauseId))
         .returning();
       await syncClauseRefsTx(tx, row); // spec-179: re-derive handle mentions
-      await regenerateSectionContentTx(tx, section);
+      await regenerateSectionContentTx(tx, section, actor);
       return row;
     }),
   ).then((row) => {
@@ -322,6 +351,7 @@ export async function updateClause(
 export async function deleteClause(
   memexId: string,
   clauseId: string,
+  ctx: RequestCtx = {},
 ): Promise<Mutated<StandardClause>> {
   const clause = await loadOwnedClause(memexId, clauseId);
   if (clause.status === "deleted") {
@@ -334,7 +364,9 @@ export async function deleteClause(
     { memexId, docId: clause.docId, entity: "section" as const, action: "updated" as const },
   ];
 
-  return mutate({}, keys, async () =>
+  const actor = await resolveActorColumns(ctx);
+
+  return mutate(ctx, keys, async () =>
     db.transaction(async (tx) => {
       const [row] = await tx
         .update(standardClauses)
@@ -342,7 +374,7 @@ export async function deleteClause(
         .where(eq(standardClauses.id, clauseId))
         .returning();
       await syncClauseRefsTx(tx, row); // spec-179: soft-deleted clause keeps zero refs
-      await regenerateSectionContentTx(tx, section);
+      await regenerateSectionContentTx(tx, section, actor);
       return row;
     }),
   ).then((row) => {

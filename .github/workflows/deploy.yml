@@ -28,8 +28,10 @@ name: deploy
 # only" — so the canonical secret was never read in production. It already held
 # MAX_INSTANCES=8 while prod kept deploying at 3 (spec-518 dec-4).
 #
-# The DEPLOY_ENV_FILE blob is now a stale snapshot kept for one rollout so the
-# switch can be reverted in a line; it is retired in spec-518 ac-17.
+# The DEPLOY_ENV_FILE blob was kept for one rollout as a one-line revert path. It is
+# gone: the step that wrote it was removed 2026-08-12 (ac-17), and the GitHub
+# environment secret itself was deleted 2026-08-15. The canonical Secret Manager
+# config is now the only source a CI deploy can take.
 
 on:
   push:
@@ -59,7 +61,7 @@ jobs:
   #
   # Why a guard JOB, not a `workflow_run` trigger (dec-1): the `deploy` job below
   # selects int-vs-prod entirely from `github.ref_name` (environment, ENV, the
-  # env-scoped DEPLOY_ENV_FILE secret) and its concurrency keys off `github.ref`. A
+  # DEPLOY_CONFIG_PROJECT, env-scoped SMOKE_* secrets) and its concurrency keys off `github.ref`. A
   # `workflow_run` trigger rewrites ref/ref_name to the default branch — which would
   # silently ship a prod (main) deploy on INT config + secrets. So the trigger stays
   # `push`, the deploy job is untouched, and this gate is purely additive.
@@ -157,9 +159,12 @@ jobs:
       # so deleting or renaming that one env line would have silently restored the
       # original bug — quietly, on the next deploy, with a green run. No file, no gun.
       #
-      # The DEPLOY_ENV_FILE secret still exists on both GitHub Environments and is
-      # now unread; delete it there once this has shipped (nothing in the repo
-      # references it any more).
+      # DONE 2026-08-15: the DEPLOY_ENV_FILE secret has been deleted from the GitHub
+      # Environments (it lingered on `prod`; `int` was already clean). It was an unread
+      # secret that still LOOKED live — the same category of misleading artefact as the
+      # max_connections=50 flag that outlived its machine — and it would have become
+      # authoritative again the moment anyone removed `DEPLOY_CONFIG_SOURCE: secret`.
+      # A disarmed trap, now off the floor. Do not recreate it.
 
       - name: Deploy (server + UI + smoke)
         # SMOKE_MCP_TOKEN + SMOKE_SESSION_TOKEN enable the authed write tier of
@@ -197,14 +202,14 @@ jobs:
           MEMEX_EMIT_KEY: ${{ secrets.MEMEX_EMIT_KEY }}
           # spec-428 dec-1/dec-3 — team-identity sender for the welcome + spec-427 drip.
           # Non-sensitive brand copy, so kept as per-environment VARIABLES (not in the
-          # DEPLOY_ENV_FILE secret blob). deploy.sh pushes them to Cloud Run via its
+          # memex-<env>-deploy-env secret). deploy.sh pushes them to Cloud Run via its
           # optional ${VAR+...} wiring, so an unset variable is simply omitted.
           EMAIL_ACTIVATION_FROM: ${{ vars.EMAIL_ACTIVATION_FROM }}
           EMAIL_ACTIVATION_REPLY_TO: ${{ vars.EMAIL_ACTIVATION_REPLY_TO }}
           EMAIL_SENDER_NAME: ${{ vars.EMAIL_SENDER_NAME }}
           # spec-427 dec-9 — the activation-drip master/kill switch. Non-sensitive
           # (0/1), so a per-environment VARIABLE like the sender vars above (not in the
-          # DEPLOY_ENV_FILE blob), enabling a by-hand prod flip + kill from the GitHub
+          # memex-<env>-deploy-env secret), enabling a by-hand prod flip + kill from the GitHub
           # environment UI. deploy.sh wires it to Cloud Run only when set (${VAR+...}),
           # so an unset/absent variable is omitted and the drip stays OFF by default.
           ACTIVATION_EMAILS_ENABLED: ${{ vars.ACTIVATION_EMAILS_ENABLED }}

@@ -113,6 +113,31 @@ export function buildPayload({
     payload.metadata = metadata;
   }
 
+  // spec-528 t-4: send the run id and commit where the wire format declares them.
+  //
+  // Promoted from the MERGED metadata rather than re-read from the environment, so
+  // there is one source of truth: every CI provider buildMetadata already supports
+  // is covered by construction, and a per-call or MEMEX_METADATA_* override lands in
+  // the column too instead of the payload disagreeing with its own metadata.
+  //
+  // Note the name difference across the boundary — the wire field is `commit_sha`,
+  // the metadata key is `commit`. Reversing them is a silent no-op: no error, no
+  // failing test, just a column that stays NULL.
+  //
+  // Omitted entirely when absent, following the `actor` pattern above, so the server
+  // stores NULL rather than "". An empty top-level value would BEAT a good metadata
+  // one under the server's precedence rule (spec-528 dec-1) — the fallback fills in
+  // only when the field is absent, not when it is empty.
+  //
+  // The metadata copies stay (spec-528 ac-3). After this the values travel twice, and
+  // that is intended until someone has audited the readers of the metadata form.
+  if (metadata.run_id) {
+    payload.run_id = metadata.run_id;
+  }
+  if (metadata.commit) {
+    payload.commit_sha = metadata.commit;
+  }
+
   return payload;
 }
 

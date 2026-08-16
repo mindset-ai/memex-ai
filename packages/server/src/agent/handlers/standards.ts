@@ -14,6 +14,7 @@ import {
 import {
   flagDrift,
   proposeStandardChange,
+  type ProposalOperationInput,
 } from "../../services/standards.js";
 import {
   createDocDraft,
@@ -28,6 +29,7 @@ import {
   fullDocState,
   formatState,
   reqCtx,
+  resolveRefArg,
   resolveStandardSectionRef,
   resolveDecisionRefArg,
   type ToolSpec,
@@ -153,16 +155,31 @@ export const standardsTools: ToolSpec[] = [
     name: "propose_standard_change",
     annotations: { title: "Propose Standard change", readOnlyHint: false, destructiveHint: false },
     description:
-      "Propose a corrected version of a standard section. Lands as a typed `plan_revision` comment (sourced 'agent') containing the full proposed replacement and a rationale. The standard owner reviews + accepts in the React UI Drift Inbox.",
+      "Propose a correction to a standard's RULE TEXT, at the clause grain. Name the clauses that should change and what they should say; the section is derived from them. Lands as a typed plan_revision comment (sourced 'agent') the standard owner reviews. Each entry in `operations` is one of three kinds: an edit (the clause's cl-N ref plus its new text), a delete (the ref alone), or an add (the ANCHOR clause's cl-N ref, which side of it to insert on, and the new text). Every entry in one call must target the same section — a proposal is one section's business. You do NOT supply the clause's current text: the server reads it from the live clause, and that reading is what lets the accept detect the clause changing underneath the proposal.",
     schema: {
-      ref: z
-        .string()
-        .describe(
-          "Canonical ref to the standard section, e.g. `<ns>/<mx>/standards/std-7/sections/s-3` — the same `ref:` form get_doc / search_memex emit. NOT a UUID.",
-        ),
-      proposedContent: z
-        .string()
-        .describe("The full replacement markdown for the section."),
+      operations: z
+        .array(
+          z.object({
+            op: z
+              .enum(["edit", "delete", "add"])
+              .describe("What this operation does to the target clause."),
+            ref: z
+              .string()
+              .describe(
+                "Canonical ref to the target clause, e.g. `<ns>/<mx>/standards/std-7/clauses/cl-12`. For `add`, this is the ANCHOR the new clause sits next to. NOT a UUID.",
+              ),
+            body: z
+              .string()
+              .optional()
+              .describe("The clause's new text. Required for `edit` and `add`; omit for `delete`."),
+            placement: z
+              .enum(["before", "after"])
+              .optional()
+              .describe("`add` only: which side of the anchor the new clause goes. Defaults to `after`."),
+          }),
+        )
+        .min(1)
+        .describe("The ordered set of clause operations this proposal makes."),
       rationale: z
         .string()
         .optional()
@@ -170,20 +187,50 @@ export const standardsTools: ToolSpec[] = [
       verbose: VERBOSE_FIELD,
     },
     async handler(input, ctx) {
-      const ref = input.ref as string;
-      const proposedContent = input.proposedContent as string;
+      const rawOps = input.operations as Array<{
+        op: "edit" | "delete" | "add";
+        ref: string;
+        body?: string;
+        placement?: "before" | "after";
+      }>;
       const rationale = input.rationale as string | undefined;
 
-      // spec-143 ac-14: address the section by canonical ref, not a raw UUID
-      // (see resolveStandardSectionRef).
-      const { memexId, sectionId } = await resolveStandardSectionRef(ctx, ref);
+      // spec-530 t-2: every target is addressed by its canonical `cl-N` ref [per
+      // std-10]; resolveRefArg rejects a raw UUID, exactly as the section-grained
+      // contract did (spec-143 ac-14).
+      let memexId: string | null = null;
+      const operations = [] as ProposalOperationInput[];
+      for (const raw of rawOps) {
+        const resolved = await resolveRefArg(ctx, raw.ref);
+        if (resolved.entity.kind !== "clause") {
+          throw new ValidationError(
+            `propose_standard_change targets clauses (cl-N); got ${resolved.entity.kind} for "${raw.ref}".`,
+          );
+        }
+        memexId = resolved.memexId;
+        const clauseId = resolved.entity.row.id;
+        if (raw.op === "edit") {
+          operations.push({ op: "edit", clauseId, after: raw.body ?? "" });
+        } else if (raw.op === "delete") {
+          operations.push({ op: "delete", clauseId });
+        } else {
+          operations.push({
+            op: "add",
+            anchorClauseId: clauseId,
+            placement: raw.placement ?? "after",
+            body: raw.body ?? "",
+          });
+        }
+      }
+      if (memexId === null) {
+        throw new ValidationError("A proposal must carry at least one clause operation.");
+      }
       // spec-156 W2 (FINDING 3): thread the invoking surface so the
       // standard_drift event carries channel/user attribution (mcp vs
       // in_app_agent), not the channel 'server' / actorKind 'system' default.
       const result = await proposeStandardChange(
         memexId,
-        sectionId,
-        proposedContent,
+        operations,
         rationale,
         {},
         { channel: ctx.channel ?? "mcp" },

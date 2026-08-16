@@ -35,6 +35,30 @@ export interface AcEventPayload {
    */
   actor?: string;
   /**
+   * The CI run this emission came from, and the commit it ran against
+   * (spec-528 t-4). Top-level siblings of `metadata` because the wire format
+   * declares them there and the server stores them in dedicated columns — they
+   * are attribution, not free-form provenance, and [per std-32] cl-8 a field a
+   * consumer reads to attribute MUST be a column.
+   *
+   * Derived from the same CI detection that populates `metadata.run_id` /
+   * `metadata.commit` (see metadata.ts), so every provider already supported is
+   * covered and a per-call override is honoured. **Note the name difference
+   * across the boundary: the wire field is `commit_sha`, the metadata key is
+   * `commit`.** Reversing the two is a silent no-op.
+   *
+   * Omitted entirely when no CI environment supplies them, so the server stores
+   * NULL rather than an empty string — an empty top-level value would WIN over a
+   * good metadata one under the server's precedence rule (spec-528 dec-1).
+   *
+   * The metadata copies are kept alongside on purpose (spec-528 ac-3): external
+   * readers learned `metadata->>'run_id'` during the months the columns were
+   * empty, and `branch` / `run_url` have no column at all.
+   */
+  run_id?: string;
+  /** The commit SHA the test ran against — see {@link AcEventPayload.run_id}. */
+  commit_sha?: string;
+  /**
    * Extensible metadata bag (v0.1.0). Surfaced in the Memex UI tooltip on
    * each test event. Well-known keys (actor, branch, commit, host, run_id,
    * run_url) render specially; unknown keys render as plain key-value pairs.

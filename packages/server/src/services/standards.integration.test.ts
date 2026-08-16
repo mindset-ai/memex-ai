@@ -21,8 +21,10 @@ import {
   scanForAmbiguousBareDecisionReferences,
   proposeStandardChange,
   buildProposedChangeBody,
+  buildLegacyProposedChangeBody,
   parseProposedChangeBody,
 } from "./standards.js";
+import { addClausesToSection } from "./clauses.js";
 import { listComments } from "./comments.js";
 import { createDocDraft } from "./documents.js";
 import { createDecision } from "./decisions.js";
@@ -473,10 +475,19 @@ describe("proposeStandardChange (t-8)", () => {
     createdDocIds.push(bp.id);
     const sectionId = bp.sections[0].id;
 
+    // spec-530 t-2: a proposal names the CLAUSES that change; the section is derived.
+    const [clause] = await addClausesToSection(memexId, sectionId, [
+      { body: "Always cache writes.", facets: [] },
+    ]);
     const result = await proposeStandardChange(
       memexId,
-      sectionId,
-      "Cache writes through, except for mutating endpoints.",
+      [
+        {
+          op: "edit",
+          clauseId: clause.id,
+          after: "Cache writes through, except for mutating endpoints.",
+        },
+      ],
       "observed pattern in repo",
     );
 
@@ -487,10 +498,18 @@ describe("proposeStandardChange (t-8)", () => {
 
     // Body must round-trip through the parser so the React UI (t-12) can extract
     // the proposed text without ambiguity.
+    // spec-530 t-2: the body now carries the clause OPERATIONS, with the target
+    // addressed by handle and the "before" read by the server from the live clause.
     const parsed = parseProposedChangeBody(result.comment.content);
-    expect(parsed?.proposed).toBe(
-      "Cache writes through, except for mutating endpoints.",
-    );
+    expect(parsed?.kind).toBe("clause-ops");
+    expect(parsed?.kind === "clause-ops" ? parsed.operations : null).toEqual([
+      {
+        op: "edit",
+        clause: `cl-${clause.seq}`,
+        before: "Always cache writes.",
+        after: "Cache writes through, except for mutating endpoints.",
+      },
+    ]);
   });
 
   it("rejects empty proposedContent", async () => {
@@ -499,31 +518,43 @@ describe("proposeStandardChange (t-8)", () => {
       sections: [{ sectionType: "do", content: "x" }],
     });
     createdDocIds.push(bp.id);
+    // spec-530 t-2: empty replacement text is still refused — now per-operation.
+    const [clause] = await addClausesToSection(memexId, bp.sections[0].id, [
+      { body: "x", facets: [] },
+    ]);
     await expect(
-      proposeStandardChange(memexId, bp.sections[0].id, "  "),
+      proposeStandardChange(memexId, [{ op: "edit", clauseId: clause.id, after: "  " }]),
     ).rejects.toBeInstanceOf(ValidationError);
   });
 
-  it("rejects sections that don't belong to a standard", async () => {
+  // spec-530 t-2: this used to pass a non-standard SECTION id. At the clause grain the
+  // guard moves earlier and gets stronger — only standards have clauses, so a
+  // non-standard target cannot be named at all: it resolves to nothing.
+  it("rejects a target that is not a live standard clause", async () => {
     const draft = await createDocDraft(memexId, "Spec doc", "Purpose", "spec");
     createdDocIds.push(draft.id);
     await expect(
-      proposeStandardChange(
-        memexId,
-        draft.sections[0].id,
-        "Some replacement",
-      ),
-    ).rejects.toBeInstanceOf(ValidationError);
+      proposeStandardChange(memexId, [
+        { op: "edit", clauseId: draft.sections[0].id, after: "Some replacement" },
+      ]),
+    ).rejects.toBeInstanceOf(NotFoundError);
   });
 
-  it("buildProposedChangeBody and parseProposedChangeBody round-trip arbitrary content", () => {
-    const body = buildProposedChangeBody(
+  // spec-530 t-1: the LEGACY writer keeps its round-trip test — rows in this shape
+  // exist in the database until t-11 converts them, so reading them must stay
+  // proven. The clause-grained contract that replaces it has its own suite in
+  // `proposal-body.spec-530.test.ts`.
+  it("buildLegacyProposedChangeBody and parseProposedChangeBody round-trip arbitrary content", () => {
+    const body = buildLegacyProposedChangeBody(
       "rule-1",
       "Line 1\nLine 2\n```code``` inside",
       "rationale here",
     );
     const parsed = parseProposedChangeBody(body);
-    expect(parsed?.proposed).toBe("Line 1\nLine 2\n```code``` inside");
+    expect(parsed?.kind).toBe("legacy");
+    expect(parsed?.kind === "legacy" ? parsed.proposed : null).toBe(
+      "Line 1\nLine 2\n```code``` inside",
+    );
     expect(body).toContain("rationale here");
   });
 });
