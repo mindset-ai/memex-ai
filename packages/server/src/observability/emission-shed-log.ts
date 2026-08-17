@@ -133,8 +133,15 @@ export function startEmissionGateHeartbeat(opts: {
     try {
       const g = opts.gate();
       const now = g.wouldShed;
-      const before = previous ?? { total: 0, byCause: { key_slice_full: 0, instance_ceiling_full: 0 } };
-      previous = { total: now.total, byCause: { ...now.byCause } };
+      const zero = { key_slice_full: 0, instance_ceiling_full: 0 };
+      const before =
+        previous ?? { events: 0, requests: 0, eventsByCause: zero, requestsByCause: zero };
+      previous = {
+        events: now.events,
+        requests: now.requests,
+        eventsByCause: { ...now.eventsByCause },
+        requestsByCause: { ...now.requestsByCause },
+      };
 
       console.log(
         JSON.stringify({
@@ -148,13 +155,25 @@ export function startEmissionGateHeartbeat(opts: {
           perKeySlice: g.perKeySlice,
           inFlight: g.inFlight,
           trackedKeys: g.trackedKeys,
-          wouldShed: now.total - before.total,
-          wouldShedByCause: {
-            key_slice_full: now.byCause.key_slice_full - before.byCause.key_slice_full,
+          // BOTH axes, each named for its unit (t-12). A single `wouldShed` field is what
+          // let a request count be read as an emission count for twelve hours of window:
+          // measured at ~8.1 emissions per refused request, batches up to 261.
+          wouldShedEvents: now.events - before.events,
+          wouldShedRequests: now.requests - before.requests,
+          wouldShedEventsByCause: {
+            key_slice_full: now.eventsByCause.key_slice_full - before.eventsByCause.key_slice_full,
             instance_ceiling_full:
-              now.byCause.instance_ceiling_full - before.byCause.instance_ceiling_full,
+              now.eventsByCause.instance_ceiling_full - before.eventsByCause.instance_ceiling_full,
           },
-          wouldShedTotal: now.total,
+          wouldShedRequestsByCause: {
+            key_slice_full:
+              now.requestsByCause.key_slice_full - before.requestsByCause.key_slice_full,
+            instance_ceiling_full:
+              now.requestsByCause.instance_ceiling_full -
+              before.requestsByCause.instance_ceiling_full,
+          },
+          wouldShedEventsTotal: now.events,
+          wouldShedRequestsTotal: now.requests,
         }),
       );
     } catch (err) {
