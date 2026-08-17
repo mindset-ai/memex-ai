@@ -100,10 +100,30 @@ export function resolveGateMode(env: Record<string, string | undefined> = proces
   return env.MEMEX_EMISSION_GATE_MODE === "enforcing" ? "enforcing" : DEFAULT_GATE_MODE;
 }
 
-/** What shadow mode observed: how many emissions enforcing would have refused, and why. */
+/**
+ * What shadow mode observed: what enforcing WOULD have refused, on both axes, and why.
+ *
+ * **Every field names its unit, and that is not cosmetic.** This interface previously
+ * carried `total` under a comment promising "how many emissions" while the code counted
+ * REQUESTS — so t-11's heartbeat published a request count that every reader would take
+ * for emissions. Measured on the live window (prod `memex-api-00132-64q`, 2.7 h): 3 000
+ * refused requests carrying 24 323 emissions, ~8.1 per request, batches up to 261. An
+ * ~8x under-report, unbounded above, growing with batch size — which is what spec-489's
+ * batching work exists to increase.
+ *
+ * ac-13 states the rule: "The counter's unit is EMISSIONS LOST, not requests refused …
+ * one 429 can destroy 500 emissions while a per-request counter reads 1." ac-14 requires
+ * BOTH ("refusals must ALSO be countable as requests"), because one shed batch of 500 and
+ * 500 shed single POSTs are identical on the event axis and completely different
+ * situations. Neither axis can be inferred from the other; keep both.
+ */
 export interface WouldShedCount {
-  readonly total: number;
-  readonly byCause: Record<ShedCause, number>;
+  /** EMISSIONS that would have been lost — the batch's weight. ac-13's unit. */
+  readonly events: number;
+  /** REQUESTS that would have been refused — one per shed, whatever it weighed. */
+  readonly requests: number;
+  readonly eventsByCause: Record<ShedCause, number>;
+  readonly requestsByCause: Record<ShedCause, number>;
 }
 
 /** Default interval a caller may be held while waiting for a slot. */
@@ -337,7 +357,12 @@ export class EmissionGate {
    * stays comparable the moment enforcement goes on.
    */
   get wouldShed(): WouldShedCount {
-    return { total: this.#wouldShedTotal, byCause: { ...this.#wouldShedByCause } };
+    return {
+      events: this.#wouldShedEvents,
+      requests: this.#wouldShedRequests,
+      eventsByCause: { ...this.#wouldShedEventsByCause },
+      requestsByCause: { ...this.#wouldShedRequestsByCause },
+    };
   }
 
   readonly #onShed?: (weight: number, cause: ShedCause, waited: boolean) => void;
@@ -353,8 +378,13 @@ export class EmissionGate {
     }
   }
 
-  #wouldShedTotal = 0;
-  #wouldShedByCause: Record<ShedCause, number> = {
+  #wouldShedEvents = 0;
+  #wouldShedRequests = 0;
+  #wouldShedEventsByCause: Record<ShedCause, number> = {
+    key_slice_full: 0,
+    instance_ceiling_full: 0,
+  };
+  #wouldShedRequestsByCause: Record<ShedCause, number> = {
     key_slice_full: 0,
     instance_ceiling_full: 0,
   };
@@ -453,8 +483,12 @@ export class EmissionGate {
         if (callerReleased) simulated.release();
         else simRelease = simulated.release;
       } else {
-        this.#wouldShedTotal += 1;
-        this.#wouldShedByCause[simulated.cause] += 1;
+        // `weight` on the event axis, 1 on the request axis. Incrementing both by 1 is
+        // the defect t-12 fixed: it read as emissions and counted requests.
+        this.#wouldShedEvents += weight;
+        this.#wouldShedRequests += 1;
+        this.#wouldShedEventsByCause[simulated.cause] += weight;
+        this.#wouldShedRequestsByCause[simulated.cause] += 1;
         // Through the SAME hook the enforcing path uses, so a week of shadow data is
         // directly comparable to enforcing data on the same instrument (ac-17, ac-14).
         this.#reportShed(weight, simulated.cause, simulated.waited);
