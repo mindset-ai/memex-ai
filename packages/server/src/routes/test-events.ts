@@ -79,6 +79,7 @@ import {
   recordFirstVerified,
 } from "../services/test-event-retention.js";
 import { maybeAutoResolveIssuesForAcUid } from "../services/issues.js";
+import { runWithMemexId } from "../db/connection.js";
 import { fireVerifiedMilestoneForUser } from "../services/email/verified-milestone-send.js";
 import {
   verifyEmissionKey,
@@ -531,7 +532,28 @@ async function processOneEvent(
   // event for an AC that verifies a converted Issue's Task closes the
   // bug→failing-AC→green-AC→resolved loop. Best-effort: never fail the write.
   if (body.status === "pass") {
-    await maybeAutoResolveIssuesForAcUid(subjectRefValue).catch(() => {});
+    // spec-520 t-7 (ac-32): run it INSIDE the tenant context. Without this the chain's
+    // first statement — a `documents ⋈ memexes ⋈ namespaces` join — is filtered to zero
+    // rows by `documents_memex_isolation` under the non-owner runtime role, so it concluded
+    // "nothing to resolve" for 99.96% of passing events and spec-112 ac-22's second
+    // auto-resolve trigger was dead in prod (issue-6).
+    //
+    // Three things kept it silent, which is why it needs a comment rather than just a fix:
+    // the call is `.catch(() => {})` by design so a CI result write can never fail; the
+    // owner role bypasses RLS so dev and the default suite cannot reproduce it; and the
+    // tenant-context guard built for this class (spec-440) watches WRITES, not READS.
+    // Proven under the restricted role in test-events-tenant-context.rls-restricted.test.ts.
+    // try/catch, not just `.catch()`: a SYNCHRONOUS throw here escapes a trailing
+    // `.catch` and 500s the event write. Observed while building this — a missing import
+    // turned every passing emission into a 500. The old single-expression form had the
+    // same hole; best-effort has to mean best-effort against both failure shapes.
+    try {
+      await runWithMemexId(targetMemexId, () =>
+        maybeAutoResolveIssuesForAcUid(subjectRefValue),
+      );
+    } catch {
+      // advisory by contract — an auto-resolve failure must never fail a CI result write
+    }
     // spec-453 t-2 (dec-1/dec-4/dec-9): fire the "See it verified" milestone email.
     // FIRE-AND-FORGET — never awaited on this CI hot path, so it cannot add latency to
     // or break the write. Attributed to the emission key's OWNER (not test_events.actor),
