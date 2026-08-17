@@ -124,6 +124,25 @@ export interface WouldShedCount {
   readonly requests: number;
   readonly eventsByCause: Record<ShedCause, number>;
   readonly requestsByCause: Record<ShedCause, number>;
+  /**
+   * t-13 — what the INSTANCE CEILING ALONE would have refused, with the per-key slice
+   * removed. The question dec-6 cannot be resolved without.
+   *
+   * `#take` tests the slice BEFORE the ceiling, so a key already holding its slice can
+   * never reach the ceiling check: at prod's numbers (slice 1, ceiling 2) that branch is
+   * unreachable for the credential carrying ~90% of load. The window's 100%/0% split is
+   * therefore structural, and says nothing about what the ceiling would do on its own.
+   *
+   * **It is an UPPER BOUND — say so when quoting it.** A refusal is counted when
+   * ceiling-only occupancy is full AT ARRIVAL. A real ceiling-only gate would also wait
+   * up to `waitMs` and serve some of those from slots freed meanwhile — and 96% of
+   * observed refusals had `waited: true`, so that population is large. Modelling the wait
+   * would mean a second queue with its own timers on the hot path; the bias is accepted
+   * instead because it points the safe way. Small here means option C is safe by a
+   * margin; large is a reason to look harder, not a verdict.
+   */
+  readonly ceilingOnlyEvents: number;
+  readonly ceilingOnlyRequests: number;
 }
 
 /** Default interval a caller may be held while waiting for a slot. */
@@ -362,6 +381,8 @@ export class EmissionGate {
       requests: this.#wouldShedRequests,
       eventsByCause: { ...this.#wouldShedEventsByCause },
       requestsByCause: { ...this.#wouldShedRequestsByCause },
+      ceilingOnlyEvents: this.#ceilingOnlyEvents,
+      ceilingOnlyRequests: this.#ceilingOnlyRequests,
     };
   }
 
@@ -380,6 +401,10 @@ export class EmissionGate {
 
   #wouldShedEvents = 0;
   #wouldShedRequests = 0;
+  // t-13's counterfactual: an occupancy counter that knows only the ceiling.
+  #ceilingOnlyInFlight = 0;
+  #ceilingOnlyEvents = 0;
+  #ceilingOnlyRequests = 0;
   #wouldShedEventsByCause: Record<ShedCause, number> = {
     key_slice_full: 0,
     instance_ceiling_full: 0,
@@ -470,6 +495,19 @@ export class EmissionGate {
     this.#realInFlight += 1;
     this.#realHeld.set(key, (this.#realHeld.get(key) ?? 0) + 1);
 
+    // t-13 — the ceiling-alone counterfactual, evaluated on arrival against its OWN
+    // occupancy. It cannot be derived from the counters above: a request the slice
+    // refuses never occupies a simulated slot, so the primary simulation's occupancy is
+    // systematically lower than a ceiling-only gate's would be.
+    let ceilingOnlyHeld = false;
+    if (this.#ceilingOnlyInFlight >= this.ceiling) {
+      this.#ceilingOnlyEvents += weight;
+      this.#ceilingOnlyRequests += 1;
+    } else {
+      this.#ceilingOnlyInFlight += 1;
+      ceilingOnlyHeld = true;
+    }
+
     // The simulated slot, if the simulation ends up granting one. It may resolve after the
     // caller has already released, so the two are reconciled rather than assumed ordered.
     let simRelease: (() => void) | null = null;
@@ -501,6 +539,11 @@ export class EmissionGate {
       released = true;
       callerReleased = true;
       this.#realInFlight -= 1;
+      // Give the counterfactual's slot back on the caller's own lifetime — in shadow the
+      // caller is admitted regardless, so that IS the true occupancy duration. Leaking it
+      // would drift the counter toward "refuses everything" over hours and silently argue
+      // for dec-6 option A.
+      if (ceilingOnlyHeld) this.#ceilingOnlyInFlight -= 1;
       const remaining = (this.#realHeld.get(key) ?? 1) - 1;
       if (remaining <= 0) this.#realHeld.delete(key);
       else this.#realHeld.set(key, remaining);

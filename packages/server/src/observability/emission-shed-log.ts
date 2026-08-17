@@ -127,7 +127,15 @@ export function startEmissionGateHeartbeat(opts: {
 }): ReturnType<typeof setInterval> | null {
   if (heartbeat) return heartbeat;
   const intervalMs = opts.intervalMs ?? GATE_WINDOW_INTERVAL_MS;
-  let previous: WouldShedCount | null = null;
+  // Only the DELTA'd axes. The ceiling-alone counterfactual (t-13) is reported cumulative
+  // on purpose — it is read once, at dec-6, not tracked window by window — so it has no
+  // place in the previous-window state and typing it as the full WouldShedCount would be
+  // a lie the compiler happens to accept.
+  type DeltaState = Pick<
+    WouldShedCount,
+    "events" | "requests" | "eventsByCause" | "requestsByCause"
+  >;
+  let previous: DeltaState | null = null;
 
   heartbeat = setInterval(() => {
     try {
@@ -174,6 +182,11 @@ export function startEmissionGateHeartbeat(opts: {
           },
           wouldShedEventsTotal: now.events,
           wouldShedRequestsTotal: now.requests,
+          // t-13 — the ceiling-alone counterfactual, an UPPER BOUND (see WouldShedCount).
+          // Cumulative rather than a delta: this one is read once, at dec-6, not tracked
+          // window by window, and a running total is what a single query wants.
+          ceilingOnlyWouldShedEvents: now.ceilingOnlyEvents,
+          ceilingOnlyWouldShedRequests: now.ceilingOnlyRequests,
         }),
       );
     } catch (err) {
