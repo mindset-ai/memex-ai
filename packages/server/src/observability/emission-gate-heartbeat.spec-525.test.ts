@@ -63,6 +63,8 @@ function fakeGate(over: Partial<GateSnapshotSource> = {}): GateSnapshotSource {
       requests: 0,
       eventsByCause: { key_slice_full: 0, instance_ceiling_full: 0 },
       requestsByCause: { key_slice_full: 0, instance_ceiling_full: 0 },
+      ceilingOnlyEvents: 0,
+      ceilingOnlyRequests: 0,
     },
     ...over,
   };
@@ -138,6 +140,8 @@ describe("spec-525 ac-21: the heartbeat reports per-window deltas that survive i
             requests,
             eventsByCause: { key_slice_full: events, instance_ceiling_full: 0 },
             requestsByCause: { key_slice_full: requests, instance_ceiling_full: 0 },
+            ceilingOnlyEvents: 0,
+            ceilingOnlyRequests: 0,
           },
         }),
       intervalMs: 25,
