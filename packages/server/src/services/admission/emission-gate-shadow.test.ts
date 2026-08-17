@@ -45,7 +45,7 @@ describe("spec-525 ac-17: shadow refuses nothing", () => {
     expect(gate.inFlight).toBeGreaterThan(gate.ceiling);
 
     await new Promise((r) => setTimeout(r, 60)); // let the simulated waits resolve
-    expect(gate.wouldShed.total).toBeGreaterThan(0);
+    expect(gate.wouldShed.requests).toBeGreaterThan(0);
     results.forEach((r) => r.ok && r.release());
   });
 
@@ -64,7 +64,7 @@ describe("spec-525 ac-17: shadow refuses nothing", () => {
     const a = await gate.acquire("quiet");
     expect(a.ok).toBe(true);
     await settle();
-    expect(gate.wouldShed.total).toBe(0);
+    expect(gate.wouldShed.requests).toBe(0);
   });
 
   it("the WAIT runs in shadow too — a would-be waiter that gets a slot is not a shed", async () => {
@@ -81,7 +81,7 @@ describe("spec-525 ac-17: shadow refuses nothing", () => {
     held[0]!.ok && held[0]!.release(); // frees a simulated slot well inside the interval
     await new Promise((r) => setTimeout(r, 60));
 
-    expect(gate.wouldShed.total).toBe(0); // it would have been SERVED, not shed
+    expect(gate.wouldShed.requests).toBe(0); // it would have been SERVED, not shed
     held.forEach((r) => r.ok && r.release());
     late.ok && late.release();
   });
@@ -92,7 +92,7 @@ describe("spec-525 ac-17: shadow refuses nothing", () => {
     const held = await Promise.all([gate.acquire("a"), gate.acquire("b")]);
     await gate.acquire("c"); // nothing frees; the simulated waiter expires
     await new Promise((r) => setTimeout(r, 80));
-    expect(gate.wouldShed.total).toBe(1);
+    expect(gate.wouldShed.requests).toBe(1);
     held.forEach((r) => r.ok && r.release());
   });
 
@@ -126,10 +126,10 @@ describe("spec-525 ac-14: the shadow count says WHY, in the enforcing vocabulary
     await gate.acquire("a"); // "a" already holds its whole slice → slice
     await new Promise((r) => setTimeout(r, 40));
 
-    expect(gate.wouldShed.byCause.instance_ceiling_full).toBeGreaterThan(0);
-    expect(gate.wouldShed.byCause.key_slice_full).toBeGreaterThan(0);
-    expect(gate.wouldShed.total).toBe(
-      gate.wouldShed.byCause.instance_ceiling_full + gate.wouldShed.byCause.key_slice_full,
+    expect(gate.wouldShed.requestsByCause.instance_ceiling_full).toBeGreaterThan(0);
+    expect(gate.wouldShed.requestsByCause.key_slice_full).toBeGreaterThan(0);
+    expect(gate.wouldShed.requests).toBe(
+      gate.wouldShed.requestsByCause.instance_ceiling_full + gate.wouldShed.requestsByCause.key_slice_full,
     );
     held.forEach((r) => r.ok && r.release());
   });

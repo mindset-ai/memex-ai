@@ -155,7 +155,11 @@ describe("spec-525 ac-13/ac-17: the gate reports sheds, in shadow as well as enf
     expect(admitted.ok).toBe(true);
     // …and the simulation is not awaited, so let its microtasks drain.
     await new Promise((r) => setTimeout(r, 20));
-    expect(gate.wouldShed.total).toBeGreaterThan(0);
+    // Both axes, since this AC's unit is EMISSIONS: a batch of 500 must read 500 on the
+    // event axis and 1 on the request axis. Asserting only "greater than zero" on a single
+    // field is what let a request count pass for an emission count until t-12.
+    expect(gate.wouldShed.events).toBe(500);
+    expect(gate.wouldShed.requests).toBe(1);
     expect(seen).toContain(500);
   });
 });

@@ -58,7 +58,12 @@ function fakeGate(over: Partial<GateSnapshotSource> = {}): GateSnapshotSource {
     perKeySlice: 1,
     inFlight: 0,
     trackedKeys: 0,
-    wouldShed: { total: 0, byCause: { key_slice_full: 0, instance_ceiling_full: 0 } },
+    wouldShed: {
+      events: 0,
+      requests: 0,
+      eventsByCause: { key_slice_full: 0, instance_ceiling_full: 0 },
+      requestsByCause: { key_slice_full: 0, instance_ceiling_full: 0 },
+    },
     ...over,
   };
 }
@@ -88,7 +93,8 @@ describe("spec-525 ac-21: the heartbeat makes a QUIET window observable", () => 
     // after four days is unreadable: no way to separate a healthy quiet window from a
     // broken instrument. `[BUS METRICS]`'s skip-zero rule would fail this test.
     expect(windows().length).toBeGreaterThanOrEqual(1);
-    expect(windows()[0].wouldShed).toBe(0);
+    expect(windows()[0].wouldShedEvents).toBe(0);
+    expect(windows()[0].wouldShedRequests).toBe(0);
   });
 
   it("carries the gate's configuration, so the window's numbers can be interpreted later", async () => {
@@ -122,33 +128,40 @@ describe("spec-525 ac-21: the heartbeat makes a QUIET window observable", () => 
 describe("spec-525 ac-21: the heartbeat reports per-window deltas that survive instance recycling", () => {
   it("reports what changed in the window, then reports zero once it stops changing", async () => {
     tagAc(AC_READABLE);
-    let total = 0;
-    let bySlice = 0;
+    let events = 0;
+    let requests = 0;
     startEmissionGateHeartbeat({
       gate: () =>
         fakeGate({
           wouldShed: {
-            total,
-            byCause: { key_slice_full: bySlice, instance_ceiling_full: 0 },
+            events,
+            requests,
+            eventsByCause: { key_slice_full: events, instance_ceiling_full: 0 },
+            requestsByCause: { key_slice_full: requests, instance_ceiling_full: 0 },
           },
         }),
       intervalMs: 25,
     });
 
-    total = 7;
-    bySlice = 7;
+    // 7 EMISSIONS lost across 1 refused REQUEST — the ratio the old single field hid.
+    events = 7;
+    requests = 1;
     await new Promise((r) => setTimeout(r, 40)); // first window sees the 7
     await new Promise((r) => setTimeout(r, 40)); // second sees no further change
 
     const w = windows();
     expect(w.length).toBeGreaterThanOrEqual(2);
-    expect(w[0].wouldShed).toBe(7);
-    expect((w[0].wouldShedByCause as Record<string, number>).key_slice_full).toBe(7);
+    expect(w[0].wouldShedEvents).toBe(7);
+    expect(w[0].wouldShedRequests).toBe(1);
+    expect((w[0].wouldShedEventsByCause as Record<string, number>).key_slice_full).toBe(7);
+    expect((w[0].wouldShedRequestsByCause as Record<string, number>).key_slice_full).toBe(1);
     // Summing deltas across every heartbeat and every instance is what survives a Cloud
     // Run recycle; reading the cumulative alone loses whatever a dead instance held.
-    expect(w[1].wouldShed).toBe(0);
+    expect(w[1].wouldShedEvents).toBe(0);
+    expect(w[1].wouldShedRequests).toBe(0);
     // …while the cumulative stays available for a single-instance sanity check.
-    expect(w[1].wouldShedTotal).toBe(7);
+    expect(w[1].wouldShedEventsTotal).toBe(7);
+    expect(w[1].wouldShedRequestsTotal).toBe(1);
   });
 });
 
