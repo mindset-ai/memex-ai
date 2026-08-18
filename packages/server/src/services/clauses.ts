@@ -15,7 +15,7 @@
 // never reused). `position` orders clauses within their section for composition; it
 // may move freely and is not the identity.
 
-import { and, asc, eq, ne, sql } from "drizzle-orm";
+import { and, asc, eq, gte, ne, sql } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { documents, docSections, standardClauses } from "../db/schema.js";
 import type { DocSection, StandardClause } from "../db/schema.js";
@@ -59,12 +59,46 @@ async function loadOwnedClause(memexId: string, clauseId: string): Promise<Stand
   return clause;
 }
 
+// spec-530 dec-5 (ac-23): `position` THEN `seq`. Ordering by position alone left tied
+// rows to scan order, so a section's composed content was not a function of its rows —
+// two regenerations with no write in between could differ. dec-5's shift prevents NEW
+// ties; this tiebreaker is what makes the rows already tied in a production database
+// compose deterministically, which no insert-side fix can reach. `seq` is allocate-once,
+// unique per doc and never resequenced (spec-150 dec-2), so the order is total.
 async function liveClausesForSection(tx: Tx, sectionId: string): Promise<StandardClause[]> {
   return tx
     .select()
     .from(standardClauses)
     .where(and(eq(standardClauses.sectionId, sectionId), ne(standardClauses.status, "deleted")))
-    .orderBy(asc(standardClauses.position));
+    .orderBy(asc(standardClauses.position), asc(standardClauses.seq));
+}
+
+/**
+ * Make room at `fromPosition` by pushing every LIVE sibling at or after it down one.
+ *
+ * spec-530 dec-5 (issue-1, ac-23). Inserting at an occupied ordinal used to simply write
+ * the duplicate, and `add_clause`'s optional `position` makes that reachable by any
+ * caller. t-4's anchor→ordinal translation hits it on every `add` by construction, since
+ * "insert before cl-N" resolves to an ordinal that is by definition already taken.
+ *
+ * Soft-deleted rows are excluded, matching liveClausesForSection's filter: a deleted
+ * clause has no place in the order and must not consume an ordinal.
+ */
+async function shiftPositionsFromTx(
+  tx: Tx,
+  sectionId: string,
+  fromPosition: number,
+): Promise<void> {
+  await tx
+    .update(standardClauses)
+    .set({ position: sql`${standardClauses.position} + 1` })
+    .where(
+      and(
+        eq(standardClauses.sectionId, sectionId),
+        ne(standardClauses.status, "deleted"),
+        gte(standardClauses.position, fromPosition),
+      ),
+    );
 }
 
 async function maxClauseSeqTx(tx: Tx, docId: string): Promise<number> {
@@ -185,6 +219,79 @@ export async function decomposeSection(
   );
 }
 
+// ── Transaction-level primitives ──────────────────────
+//
+// spec-530 t-4: `accept_standard_change` applies a SET of clause operations and resolves
+// the proposal in ONE transaction (dec-4's atomicity property). The public verbs below
+// each open their own `db.transaction`, so calling them in a loop would give N
+// transactions and a Standard that can be left half-rewritten — the exact state ac-10
+// forbids. These primitives are the composable core: they take the caller's `tx`, do no
+// regeneration and no emitting, and leave both to whoever owns the transaction.
+//
+// The public verbs are thin wrappers over them, so there is one implementation of each
+// write rather than a second copy living in the accept path.
+
+/** Insert one clause inside the caller's transaction. Allocates the doc-wide `seq`
+ *  (MAX+1, allocate-once), and for a supplied `position` shifts live siblings out of the
+ *  way first [per dec-5] so ordinals stay unique and dense. No position → append. */
+export async function insertClauseTx(
+  tx: Tx,
+  memexId: string,
+  section: Pick<DocSection, "id" | "docId">,
+  body: string,
+  position?: number,
+): Promise<StandardClause> {
+  const seq = (await maxClauseSeqTx(tx, section.docId)) + 1;
+  let pos: number;
+  if (position === undefined) {
+    pos = (await maxPositionTx(tx, section.id)) + 1;
+  } else {
+    pos = position;
+    await shiftPositionsFromTx(tx, section.id, pos);
+  }
+  const [row] = await tx
+    .insert(standardClauses)
+    .values({ memexId, docId: section.docId, sectionId: section.id, seq, position: pos, body })
+    .returning();
+  await syncClauseRefsTx(tx, row); // spec-179: materialize handle mentions
+  return row;
+}
+
+/** Replace one clause's body inside the caller's transaction. */
+export async function updateClauseBodyTx(
+  tx: Tx,
+  clauseId: string,
+  body: string,
+): Promise<StandardClause> {
+  const [row] = await tx
+    .update(standardClauses)
+    .set({ body, updatedAt: new Date() })
+    .where(eq(standardClauses.id, clauseId))
+    .returning();
+  await syncClauseRefsTx(tx, row); // spec-179: re-derive handle mentions
+  return row;
+}
+
+/** Soft-delete one clause inside the caller's transaction. No resequencing (spec-150
+ *  dec-2): the freed `seq` is frozen and every other `cl-N` handle is untouched. */
+export async function softDeleteClauseTx(
+  tx: Tx,
+  clause: StandardClause,
+): Promise<StandardClause> {
+  const [row] = await tx
+    .update(standardClauses)
+    .set({ status: "deleted", previousStatus: clause.status, updatedAt: new Date() })
+    .where(eq(standardClauses.id, clause.id))
+    .returning();
+  await syncClauseRefsTx(tx, row); // spec-179: soft-deleted clause keeps zero refs
+  return row;
+}
+
+export { regenerateSectionContentTx, liveClausesForSection };
+export type { Tx };
+
+// ── Public verbs ──────────────────────────────────────
+
 /** Append (or insert at `position`) a clause to a decomposed section; regenerate content. */
 export async function createClause(
   memexId: string,
@@ -207,13 +314,7 @@ export async function createClause(
 
   return mutate(ctx, keys, async () =>
     db.transaction(async (tx) => {
-      const seq = (await maxClauseSeqTx(tx, section.docId)) + 1;
-      const pos = position ?? (await maxPositionTx(tx, sectionId)) + 1;
-      const [row] = await tx
-        .insert(standardClauses)
-        .values({ memexId, docId: section.docId, sectionId, seq, position: pos, body })
-        .returning();
-      await syncClauseRefsTx(tx, row); // spec-179: materialize handle mentions
+      const row = await insertClauseTx(tx, memexId, section, body, position);
       await regenerateSectionContentTx(tx, section, actor);
       return row;
     }),
@@ -328,12 +429,7 @@ export async function updateClause(
 
   return mutate(ctx, keys, async () =>
     db.transaction(async (tx) => {
-      const [row] = await tx
-        .update(standardClauses)
-        .set({ body, updatedAt: new Date() })
-        .where(eq(standardClauses.id, clauseId))
-        .returning();
-      await syncClauseRefsTx(tx, row); // spec-179: re-derive handle mentions
+      const row = await updateClauseBodyTx(tx, clauseId, body);
       await regenerateSectionContentTx(tx, section, actor);
       return row;
     }),
@@ -368,12 +464,7 @@ export async function deleteClause(
 
   return mutate(ctx, keys, async () =>
     db.transaction(async (tx) => {
-      const [row] = await tx
-        .update(standardClauses)
-        .set({ status: "deleted", previousStatus: clause.status, updatedAt: new Date() })
-        .where(eq(standardClauses.id, clauseId))
-        .returning();
-      await syncClauseRefsTx(tx, row); // spec-179: soft-deleted clause keeps zero refs
+      const row = await softDeleteClauseTx(tx, clause);
       await regenerateSectionContentTx(tx, section, actor);
       return row;
     }),
