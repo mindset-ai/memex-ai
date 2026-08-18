@@ -1,34 +1,31 @@
 // GET /api/drift — Standards Drift Inbox endpoint (t-10 of doc-8; scoped to
 // Standards in b-63). Optional `?doc=std-N` narrows to a single standard.
-// POST /api/drift/proposals/:commentId/accept — apply a plan_revision (t-12).
 //
 // The inbox returns every open `drift` and `plan_revision` typed comment on a
 // Standard, with parent doc + section context attached so the React UI can
-// render the inbox in one round-trip.
+// render the inbox in one round-trip. It is READ-ONLY: the Inbox carries no
+// action controls (spec-143 dec-3 removed them deliberately — accepting a
+// proposal is a judgement, not a one-click yes/no).
 //
-// Accepting a proposal: the standard owner clicks Accept on a `plan_revision`
-// comment in the inbox; the server parses the proposed-content fence out of
-// the comment body, updates the section, and resolves the comment in one
-// transaction. Rejecting is just `POST /api/comments/:id/resolve` (existing
-// surface), so we don't add a separate endpoint for that.
+// There is NO accept endpoint here. `POST /proposals/:commentId/accept` existed
+// from spec-63 t-12 until spec-530 dec-6 deleted it: it applied a proposal with
+// `updateSection`, which has thrown on every Standard since spec-161 made them
+// clause-backed, so it could not succeed on any real proposal — and no client
+// ever called it. Accepting goes through `accept_standard_change`
+// (services/standard-accept.ts), which the drift agent calls behind its
+// confirmation gate. If a future Spec revisits spec-143 dec-3 and adds a UI
+// control, it adds an HTTP route THEN, against that verb.
 //
 // Memex scoping is handled by sessionMiddleware (resolves the user's
 // current memex from the session JWT + path-resolved memex);
 // service-layer guards re-assert the memex_id filter in SQL.
 
 import { Hono } from "hono";
-import { eq } from "drizzle-orm";
-import { db } from "../db/connection.js";
-import { docComments } from "../db/schema.js";
 import { sessionMiddleware, type SessionEnv } from "../middleware/session.js";
 import type { MemexResolverEnv } from "../middleware/memex-resolver.js";
 import { requireMemexId } from "./shared.js";
-import { restCtx } from "./_actor-ctx.js";
 import { listDriftInbox } from "../services/drift-inbox.js";
-import { parseProposedChangeBody } from "../services/standards.js";
-import { updateSection } from "../services/sections.js";
-import { resolveComment } from "../services/comments.js";
-import { NotFoundError, ValidationError } from "../types/errors.js";
+import { ValidationError } from "../types/errors.js";
 
 type Env = MemexResolverEnv & SessionEnv;
 const drift = new Hono<Env>();
@@ -47,57 +44,6 @@ drift.get("/", async (c) => {
   }
   const page = await listDriftInbox(memexId, { limit, cursor, docHandle });
   return c.json({ items: page.items, nextCursor: page.nextCursor });
-});
-
-// std-5 exemption: comment-UUID lookup. The memex is derived from the comment
-// entity's FK; the route works at the flat path even when the caller has
-// multiple memberships (the comment row itself ties it to a single memex).
-drift.post("/proposals/:commentId/accept", async (c) => {
-  const memexId = requireMemexId(c);
-  const commentId = c.req.param("commentId");
-
-  const comment = await db.query.docComments.findFirst({
-    where: eq(docComments.id, commentId),
-  });
-  if (!comment || comment.memexId !== memexId) {
-    throw new NotFoundError(`Proposal ${commentId} not found`);
-  }
-  if (comment.commentType !== "plan_revision") {
-    throw new ValidationError(
-      `Comment ${commentId} is a ${comment.commentType} comment, not a plan_revision proposal.`,
-    );
-  }
-  if (comment.resolvedAt) {
-    throw new ValidationError("Proposal is already resolved");
-  }
-  if (!comment.sectionId) {
-    throw new ValidationError(
-      "Proposal isn't anchored to a section — cannot apply.",
-    );
-  }
-
-  const parsed = parseProposedChangeBody(comment.content);
-  if (!parsed) {
-    throw new ValidationError(
-      "Proposal body is missing the proposed-content block; cannot extract replacement text.",
-    );
-  }
-  // spec-530 t-1: this route is dead code and has been since spec-161 made Standards
-  // clause-backed — `updateSection` hard-rejects on a Standard, so the line below
-  // throws for every real proposal, and nothing in the UI calls this endpoint. t-4
-  // settles its fate (delete, or re-point at `accept_standard_change`). Until then,
-  // refuse a clause-grained proposal with a reason instead of feeding it to a call
-  // that cannot work.
-  if (parsed.kind === "clause-ops") {
-    throw new ValidationError(
-      "This proposal is clause-grained. Applying it goes through the accept verb, not this route (spec-530 t-4).",
-    );
-  }
-
-  await updateSection(memexId, comment.sectionId, parsed.proposed);
-  const resolved = await resolveComment(memexId, comment.id, "accepted", restCtx(c));
-
-  return c.json({ ok: true, comment: resolved });
 });
 
 export default drift;
