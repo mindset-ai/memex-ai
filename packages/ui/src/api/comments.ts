@@ -55,9 +55,14 @@ export async function createComment(
 }
 
 // spec-143 dec-4: thread the optional resolution string through so the agent
-// can stamp a distinct audit trail — Reject → 'rejected', Resolve → 'resolved'
-// (Accept stays 'accepted' via the /drift/proposals/:id/accept path). Omitting
-// it POSTs an empty body, preserving the prior no-resolution behaviour.
+// can stamp a distinct audit trail — Reject → 'rejected', Resolve → 'resolved'.
+// Accepting is NOT one of these: it changes rule text, so it goes through the
+// server's `accept_standard_change` verb, which applies the proposal's clause
+// operations and stamps 'accepted' in the same transaction (spec-530 dec-4).
+// The `/drift/proposals/:id/accept` route this comment used to name was deleted
+// by spec-530 dec-6 — it had been unable to succeed since spec-161, and nothing
+// here ever called it. Omitting the resolution POSTs an empty body, preserving
+// the prior no-resolution behaviour.
 export async function resolveComment(
   commentId: string,
   resolution?: string,
