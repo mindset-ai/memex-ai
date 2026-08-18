@@ -23,6 +23,10 @@ const AC_DRIFT_MECHANISM =
 const EXPECTED_DRIFT_SERVER_TOOLS = [
   "flag_drift",
   "propose_standard_change",
+  // spec-530 t-4 (dec-4): applying an accepted proposal is ONE server verb, not a
+  // sequence the agent performs. The Drift Inbox has no action controls (spec-143
+  // dec-3), so this conversation is the only path a user can accept from.
+  "accept_standard_change",
   "search_memex",
   "get_doc",
   // spec-143: the drift agent can now HANDLE drift, not just report it —

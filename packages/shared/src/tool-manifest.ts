@@ -454,6 +454,15 @@ export const toolManifest: ToolManifestEntry[] = [
     homePhase: null,
   },
   {
+    name: 'accept_standard_change',
+    summary:
+      "Accept an open proposal (a `plan_revision` comment) and apply it to the Standard: every clause operation the proposal carries lands, or none does, and the proposal is resolved 'accepted' in the same transaction. Takes the comment ref and nothing else, so what is applied is exactly what was reviewed. Refuses \u2014 naming the clause and its current text \u2014 if the rule changed after the proposal was written, rather than overwriting that change.",
+    args: 'accept_standard_change(ref)',
+    group: 'build',
+    readOnlyHint: false,
+    homePhase: null,
+  },
+  {
     name: 'facets',
     summary:
       "Check which parts of your Standards apply to a piece of work: lists the topics they are tagged by (the Memex's facets). Cast these as the facetBallot on create_task / create_decision and Memex surfaces the governing standard sections.",

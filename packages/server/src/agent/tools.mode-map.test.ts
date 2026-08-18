@@ -57,6 +57,8 @@ const READ_BASE = ["search_memex", "get_doc"];
 // along on top and are asserted separately).
 const EXPECTED: Record<Exclude<AgentMode, "spec">, string[]> = {
   drift: [
+    // spec-530 t-4 (ac-13): the apply verb lives in BOTH Standards-handling modes.
+    "accept_standard_change",
     "flag_drift",
     "propose_standard_change",
     "search_memex",
@@ -84,6 +86,8 @@ const EXPECTED: Record<Exclude<AgentMode, "spec">, string[]> = {
     "edit_clause",
     "delete_clause",
     "propose_standard_change",
+    // spec-530 t-4 (ac-13): both agents that handle Standards own the apply verb.
+    "accept_standard_change",
     "flag_drift",
   ],
   issues: [

@@ -135,11 +135,12 @@ export const DRIFT_AGENT_GUIDANCE: PromptBlockNode = {
     '- If the rule itself is outdated, either record a proposed rewording with `propose_standard_change`, or — with the user\'s explicit consent — edit the rule text directly with the clause verbs (`edit_clause`, `add_clause`, `delete_clause`).\n\n' +
     '**A Standard is edited at the CLAUSE grain, never as a whole section.** `update_section` refuses on a Standard: its rule text is a set of addressable clauses (`cl-N`), and the clause verbs are the only way to change it. A proposal names the clauses it changes, so applying one means editing those clauses — not rewriting everything around them.\n\n' +
     'Handling a PROPOSAL (a `plan_revision`):\n' +
-    '- If the user ACCEPTS: apply each of the proposal\'s clause operations with the matching verb (`edit_clause` / `add_clause` / `delete_clause`), then resolve the comment with `update_comment` (status `resolved`, resolution `\'accepted\'`).\n' +
+    '- If the user ACCEPTS: call `accept_standard_change` with the proposal\'s comment ref. That single call applies every clause operation the proposal carries AND resolves the comment as accepted, together — so do not apply the clauses yourself and do not resolve the comment separately. You pass nothing but the ref: what gets applied is exactly what was proposed and reviewed, which is what makes the user\'s approval mean something.\n' +
+    '- If it REFUSES because a clause changed after the proposal was written, that is the guard working, not an error to retry. It names the clause and what it now says: show the user, and offer to re-propose against the current rule.\n' +
     '- If the user REJECTS: resolve the comment with `update_comment` (status `resolved`, resolution `\'rejected\'`) — leave the rule unchanged.\n' +
     '- A plain dismissal: resolve the comment with `update_comment` (status `resolved`, resolution `\'resolved\'`).\n\n' +
     '**The Drift Inbox has no action buttons — none.** There is no Accept, no Reject, no Resolve control on a row; the only button opens this conversation. So never tell someone to "click Accept" or point them at a control to finish the job: acceptance happens HERE, in conversation, and you are the one who applies it once they confirm. Describing an affordance the screen does not have sends them looking for something that was deliberately removed, and costs more trust than saying plainly "I\'ll apply it — confirm?".\n\n' +
-    'Mutation protocol (non-negotiable): propose EVERY mutation — the clause verbs, `update_comment`, `propose_standard_change`, `flag_drift` — through `render_confirmation` first, showing exactly what will change, and never mutate until the user confirms. Ask any clarifying questions in plain text first, then confirm, then act. Confirm an action only after the tool returns success.',
+    'Mutation protocol (non-negotiable): propose EVERY mutation — `accept_standard_change`, the clause verbs, `update_comment`, `propose_standard_change`, `flag_drift` — through `render_confirmation` first, showing exactly what will change, and never mutate until the user confirms. Ask any clarifying questions in plain text first, then confirm, then act. Confirm an action only after the tool returns success.',
   rationale:
     'spec-143 t-4 (dec-6): the drift-agent mode prompt block, appended by buildSystemBlocks only when the per-request driftMode flag is set (the React UI sets mode "drift" on the Drift Inbox). Intentionally NOT in any phase promptBlockIds (conditionally injected, like BASE_READ_ONLY / BASE_REVIEW). The mode-machinery is built here in spec-143; spec-142 will reuse the pattern. Portable per std-22 — no language/framework/repo/path/tooling assumptions; the real mutation enforcement is the render_confirmation gate + the /tools/execute server gate, not this prose.',
 };
@@ -624,7 +625,7 @@ const BASE_STANDARDS_PROTOCOL: PromptBlockNode = {
   surface: 'shared_nudge',
   text:
     '**Standards protocol** — when working with a standard:\n' +
-    '- If the rule is wrong or out of date, call `propose_standard_change(ref, proposed)` with the corrected text — `ref` is the section\'s canonical ref (e.g. `…/standards/std-N/sections/s-M`), not a UUID. The proposal lands as a `plan_revision` typed comment for the standard owner to accept or reject.\n' +
+    '- If the rule is wrong or out of date, call `propose_standard_change(operations)` naming the clauses that should change and what they should say — each target is a clause\'s canonical ref (e.g. `…/standards/std-N/clauses/cl-M`), not a UUID, and every clause in one proposal must belong to the same section. The proposal lands as a `plan_revision` typed comment for the standard owner to accept or reject.\n' +
     '- If the rule is correct but the codebase has drifted from it, call `flag_drift(ref, observation)` with the section\'s canonical ref. Drift comments surface in the Standards Drift Inbox (sourced \'agent\').\n' +
     '- When citing a standard in code or in another doc, use the `[per std-N]` form so the back-reference resolves automatically.\n' +
     '- Use `search_memex({ query, kind: \'standard\' })` (handle / FTS / vector) before authoring new rules — duplicate standards confuse the agent loop.',
@@ -1144,7 +1145,9 @@ const TOOL_RATIONALES: Record<string, string> = {
   flag_drift:
     "Flag drift on a standard section: post a typed `drift` comment (sourced 'agent') when the rule is right but the codebase has diverged from it. Surfaces in the Drift Inbox; use propose_standard_change instead when the rule itself is wrong.",
   propose_standard_change:
-    "Propose a corrected version of a standard section: lands a typed `plan_revision` comment (sourced 'agent') with the full replacement markdown and a rationale, for the standard owner to accept or reject in the Drift Inbox.",
+    "Propose a correction to a standard's rule text at the clause grain: name the clauses that should change and what they should say, and it lands as a typed `plan_revision` comment (sourced 'agent') for the standard owner to accept or reject. You never supply a clause's current text — the server reads it, so an accept can tell whether the clause moved underneath the proposal.",
+  accept_standard_change:
+    "Accept an open proposal and apply it to the Standard: every clause operation lands, or none does, and the proposal is resolved 'accepted' in the same transaction. Takes the proposal's comment ref and nothing else, so what gets applied is exactly what was reviewed. Refuses, naming the clause and its current text, if the rule changed after the proposal was written.",
   facets:
     "Read (and later manage) your Memex's facet vocabulary — the closed, per-owner set of cross-cutting practice areas a standard's clauses are tagged with. Verb-dispatched so the surface stays one tool; v0 supports verb:'list'.",
   create_ac:
