@@ -76,6 +76,7 @@ import { addMentions, assignComment } from "../services/comment-mentions.js";
 import { createShareToken, listShareTokensForDoc } from "../services/share-tokens.js";
 import { addSection } from "../services/sections.js";
 import { addClausesToSection } from "../services/clauses.js";
+import { proposeStandardChange } from "../services/standards.js";
 import { applyTagStrings } from "../services/tags.js";
 import { resolveRole } from "../services/doc-members.js";
 import { listAssignees, assign } from "../services/doc-assignees.js";
@@ -1488,6 +1489,54 @@ const seedClausesSchema = z.object({
   sectionId: z.string().uuid(),
   clauses: z.array(z.string().min(1)).min(1),
 });
+// spec-530 t-7: seed an OPEN clause-grained proposal (a `plan_revision` comment) so a
+// journey can drive the Drift Inbox's before/after without raw SQL [per std-28]. Goes
+// through the real `proposeStandardChange`, so the stored body is the genuine operation
+// set and the row under test is the row users get — a hand-written comment would test a
+// shape the product never produces.
+const seedProposalSchema = z.object({
+  memexId: z.string().uuid(),
+  operations: z
+    .array(
+      z.object({
+        op: z.enum(["edit", "delete", "add"]),
+        clauseId: z.string().uuid(),
+        body: z.string().optional(),
+        placement: z.enum(["before", "after"]).optional(),
+      }),
+    )
+    .min(1),
+  rationale: z.string().optional(),
+});
+testOnlyRouter.post("/seed-proposal", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = seedProposalSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { memexId, operations, rationale } = parsed.data;
+  const result = await proposeStandardChange(
+    memexId,
+    operations.map((op) =>
+      op.op === "edit"
+        ? { op: "edit" as const, clauseId: op.clauseId, after: op.body ?? "" }
+        : op.op === "delete"
+          ? { op: "delete" as const, clauseId: op.clauseId }
+          : {
+              op: "add" as const,
+              anchorClauseId: op.clauseId,
+              placement: op.placement ?? "after",
+              body: op.body ?? "",
+            },
+    ),
+    rationale,
+    {},
+    // std-32: a seeded write is still an attributed write.
+    { channel: "server", actorName: "e2e-seed" },
+  );
+  return c.json({ commentId: result.comment.id, commentSeq: result.comment.seq });
+});
+
 testOnlyRouter.post("/seed-clauses", async (c) => {
   const body = await c.req.json().catch(() => null);
   const parsed = seedClausesSchema.safeParse(body);
