@@ -196,6 +196,21 @@ const MUTATING_MCP_TOOLS: Record<string, ToolMutation[]> = {
     { entity: "comment", action: "created" },
     { entity: "standard_drift", action: "created" },
   ],
+  // spec-530 t-4 (dec-4): the accept applies a SET of clause operations and resolves
+  // the proposal in ONE transaction, so it emits a composite — one event per clause
+  // touched (the action depends on the operation kind, so all three appear here), the
+  // `section` updated for the regenerated rule text, and the `comment` +
+  // `standard_drift` pair that clears the Inbox row and the drift-count chip. A silent
+  // accept is the same defect as the one this Spec fixes: the work happened and the
+  // surface still says it did not (ac-12).
+  accept_standard_change: [
+    { entity: "clause", action: "created" },
+    { entity: "clause", action: "updated" },
+    { entity: "clause", action: "deleted" },
+    { entity: "section", action: "updated" },
+    { entity: "comment", action: "updated" },
+    { entity: "standard_drift", action: "updated" },
+  ],
 };
 
 describe("doc-16 t-11 / spec-156 ac-25: endpoint coverage — every mutation entry point is registered", () => {
