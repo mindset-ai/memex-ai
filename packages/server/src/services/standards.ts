@@ -96,7 +96,9 @@ export interface StandardListEntry {
 
 // ── Helpers ────────────────────────────────────────────
 
-async function loadOwnedStandard(
+// Exported for the accept path (spec-530 t-4, `standard-accept.ts`), which must apply a
+// proposal through the SAME memex-scope + standard-type guard the propose path uses.
+export async function loadOwnedStandard(
   memexId: string,
   standardId: string,
 ): Promise<Doc> {
@@ -593,7 +595,11 @@ function isClauseOperation(value: unknown): value is ClauseOperation {
 /**
  * Parser companion for buildProposedChangeBody — pull the proposed-content payload
  * out of a comment body. Returns null if the comment isn't shaped like a proposal.
- * Exported for the React UI / future server-side accept flow.
+ *
+ * Exported for its two real consumers: the Drift Inbox read model (which renders the
+ * diff) and `acceptStandardChange` (which applies it). The "future server-side accept
+ * flow" this comment used to point at is no longer future and no longer a route —
+ * spec-530 dec-6 deleted the dead REST endpoint; the verb is the accept path.
  */
 export function parseProposedChangeBody(body: string): ParsedProposal | null {
   // The clause-grained shape first — it is what everything written from spec-530
