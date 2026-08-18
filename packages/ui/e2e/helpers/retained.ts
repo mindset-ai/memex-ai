@@ -267,6 +267,21 @@ export async function seedExecutionPlan(opts: {
   return call("POST", "/seed-execution-plan", opts);
 }
 
+/** spec-530 t-7: seed an OPEN clause-grained proposal on a standard, through the real
+ *  `proposeStandardChange` — so the Drift Inbox row under test is the row users get. */
+export async function seedProposal(opts: {
+  memexId: string;
+  operations: {
+    op: "edit" | "delete" | "add";
+    clauseId: string;
+    body?: string;
+    placement?: "before" | "after";
+  }[];
+  rationale?: string;
+}): Promise<{ commentId: string; commentSeq: number }> {
+  return call("POST", "/seed-proposal", opts);
+}
+
 /** spec-496: seed clauses onto a standard's section through the real clause
  *  service — `std-N` mentions in bodies materialize as clause_refs mention
  *  edges (the standards map's backbone). */

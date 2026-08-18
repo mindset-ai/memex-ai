@@ -40,6 +40,9 @@ function row(overrides: Partial<DriftInboxRow> = {}): DriftInboxRow {
     authorName: "Agent",
     content: "Repo no longer does X.",
     proposedContent: null,
+    // spec-530 t-7: the structured operations the Inbox row renders. The AGENT's context
+    // reads `proposedContent`, not this — so a drift row's null is the honest default here.
+    proposal: null,
     createdAt: new Date("2026-01-01T00:00:00Z"),
     decision: null,
     section: { id: "s-1", sectionType: "do", title: null, content: "Always X." },

@@ -29,9 +29,51 @@
 // AND comment_type IN ('drift', 'plan_revision')` so the query stays O(limit)
 // regardless of total comment count.
 
-import { sql } from "drizzle-orm";
+import { and, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { db } from "../db/connection.js";
+import { standardClauses } from "../db/schema.js";
 import { parseProposedChangeBody } from "./standards.js";
+
+/**
+ * One clause operation of a proposal, as the Drift Inbox row renders it (spec-530 t-7).
+ *
+ * `before` is the target clause's body AS THE PROPOSAL WAS AUTHORED — the staleness
+ * evidence dec-3's guard compares against. `current` is what the clause says RIGHT NOW.
+ * Both travel because they answer different questions: `after` vs `current` is the diff a
+ * reviewer judges, while `before` vs `current` is whether the proposal still applies.
+ *
+ * Deliberately NO derived "is stale" verdict here. dec-3 put that judgement inside the
+ * accept transaction, and dec-4 gave it exactly one home; a second copy on a read model
+ * that can go out of date before the user acts would be the duplication dec-4's rationale
+ * exists to prevent. The row shows both bodies and lets the difference speak.
+ */
+export interface DriftProposalOperation {
+  op: "edit" | "delete" | "add";
+  /** The target's `cl-N` handle. For `add`, the ANCHOR it sits relative to. */
+  clause: string;
+  /** `add` only — which side of the anchor the new clause goes. */
+  placement?: "before" | "after";
+  /** The target's body at authoring time. Absent for `add` (nothing was there). */
+  before?: string;
+  /** The proposed text. Absent for `delete` (nothing replaces it). */
+  after?: string;
+  /** The clause's live body now, or null when it no longer exists (deleted since). */
+  current: string | null;
+}
+
+/**
+ * What a `plan_revision` row's body turned out to be.
+ *
+ * `legacy` is a pre-spec-530 whole-section replacement: readable, but not applyable by
+ * the clause-grained accept path. `unreadable` is a body that parses as neither — a
+ * proposal authored outside `proposeStandardChange`, or a corrupted payload. Both
+ * degrade to an explanatory row rather than throwing: one unusable row is the acceptable
+ * cost, a broken Inbox for every other item on the page is not (spec-530 ac-18).
+ */
+export type DriftProposal =
+  | { kind: "clause-ops"; operations: DriftProposalOperation[] }
+  | { kind: "legacy"; proposed: string }
+  | { kind: "unreadable" };
 
 export interface DriftInboxRow {
   commentId: string;
@@ -47,15 +89,29 @@ export interface DriftInboxRow {
   authorName: string;
   content: string;
   /**
-   * Normalized proposed replacement text for a `plan_revision` row (spec-143
-   * dec-2 / ac-9). ALWAYS non-null for a `plan_revision` so the React UI can
-   * render a before/after diff without re-parsing the fence — and so a proposal
-   * authored without the `~~~proposed-content` fence (older rows, or proposals
-   * written outside `proposeStandardChange`) still carries applyable text
-   * instead of falling through to an undifferentiated markdown blob. `null` for
-   * a `drift` observation, which is a finding with no proposed edit.
+   * Proposed replacement text for a `plan_revision` row. Non-null for every
+   * `plan_revision`, null for a `drift` observation.
+   *
+   * spec-530 t-7 CORRECTION: this field's original contract — "normalized proposed
+   * replacement text, so the UI renders a before/after diff" (spec-143 dec-2 / ac-9) —
+   * only ever made sense when a proposal WAS one replacement body. At the clause grain
+   * a proposal is a SET of operations and has no single "proposed body", so for a
+   * clause-ops row this carries the raw comment content (which holds the operations
+   * payload) rather than a synthesised rendering. **The UI renders `proposal`, not this
+   * field.** It stays non-null because the drift agent's context reads it, and after
+   * dec-4 the agent no longer needs to reproduce proposal text verbatim — it explains
+   * the proposal and calls the accept verb by ref, for which the payload suffices.
+   *
+   * Kept rather than removed, and its docstring corrected rather than left describing a
+   * contract it stopped honouring — which is the exact defect class this Spec is named
+   * after.
    */
   proposedContent: string | null;
+  /**
+   * The proposal's operations, resolved against the live clauses (spec-530 t-7). This
+   * is what the Inbox row renders. `null` for a `drift` observation.
+   */
+  proposal: DriftProposal | null;
   createdAt: Date;
   /**
    * The source DECISION a `drift` finding contradicts (spec-498 dec-4): a drift
@@ -136,18 +192,108 @@ function normalizeProposedContent(
 ): string | null {
   if (commentType !== "plan_revision") return null;
   const parsed = parseProposedChangeBody(content);
-  // spec-530 t-1: only the LEGACY shape yields a single replacement text. A
-  // clause-grained proposal is a set of operations and has no one "proposed body" —
-  // it falls through to the raw content below, exactly as an unfenced proposal does,
-  // until t-7 carries the structured operations to the client and renders per-clause
-  // diffs. Deliberately no synthesised rendering here: inventing one would put text
-  // on screen that no one proposed.
+  // Only the LEGACY shape yields a single replacement text. A clause-grained proposal is
+  // a set of operations and has no one "proposed body", so it falls through to the raw
+  // content — which is what the agent reads, and which carries the operations payload.
+  // Deliberately no synthesised rendering: inventing one would put text on a screen that
+  // nobody proposed. The structured `proposal` field below is what the UI renders
+  // (spec-530 t-7); see the field docstring for why this one survives.
   if (parsed?.kind === "legacy" && parsed.proposed.trim().length > 0) {
     return parsed.proposed;
   }
-  // Unfenced proposal: surface the raw body so the row still renders a diff
-  // rather than falling through to a blob.
   return content;
+}
+
+/**
+ * Resolve every proposal on the page against the live clauses, in ONE query.
+ *
+ * `cl-N` is per-STANDARD (seq is allocated MAX+1 per doc), so a handle only identifies a
+ * clause together with its docId — matching on seq alone would collide across two
+ * Standards in the same Memex and show the wrong rule text. The lookup is therefore an
+ * OR of per-doc `seq IN (…)` groups.
+ *
+ * Batched deliberately [per std-39]: the natural shape is a lookup inside the operation
+ * loop, which would be one query per clause per row — 50 proposals of 3 operations each
+ * would be 150 round-trips on a page render.
+ */
+async function resolveProposals(
+  memexId: string,
+  rows: { docId: string; commentType: "drift" | "plan_revision"; content: string }[],
+): Promise<Map<string, DriftProposal | null>> {
+  const out = new Map<string, DriftProposal | null>();
+  const parsedByKey = new Map<string, ReturnType<typeof parseProposedChangeBody>>();
+  const seqsByDoc = new Map<string, Set<number>>();
+
+  rows.forEach((r, i) => {
+    if (r.commentType !== "plan_revision") return;
+    const parsed = parseProposedChangeBody(r.content);
+    parsedByKey.set(String(i), parsed);
+    if (parsed?.kind !== "clause-ops") return;
+    for (const op of parsed.operations) {
+      const handle = op.op === "add" ? op.anchor : op.clause;
+      const seq = Number.parseInt(handle.replace(/^cl-/, ""), 10);
+      if (!Number.isInteger(seq)) continue;
+      const set = seqsByDoc.get(r.docId) ?? new Set<number>();
+      set.add(seq);
+      seqsByDoc.set(r.docId, set);
+    }
+  });
+
+  // doc → seq → live body, for every clause any proposal on this page targets.
+  const bodies = new Map<string, string>();
+  if (seqsByDoc.size > 0) {
+    const groups = [...seqsByDoc.entries()].map(([docId, seqs]) =>
+      and(eq(standardClauses.docId, docId), inArray(standardClauses.seq, [...seqs])),
+    );
+    const clauseRows = await db
+      .select({
+        docId: standardClauses.docId,
+        seq: standardClauses.seq,
+        body: standardClauses.body,
+      })
+      .from(standardClauses)
+      .where(
+        and(
+          eq(standardClauses.memexId, memexId),
+          ne(standardClauses.status, "deleted"),
+          groups.length === 1 ? groups[0] : or(...groups),
+        ),
+      );
+    for (const c of clauseRows) bodies.set(`${c.docId}|${c.seq}`, c.body);
+  }
+
+  rows.forEach((r, i) => {
+    if (r.commentType !== "plan_revision") {
+      out.set(String(i), null);
+      return;
+    }
+    const parsed = parsedByKey.get(String(i));
+    if (!parsed) {
+      out.set(String(i), { kind: "unreadable" });
+      return;
+    }
+    if (parsed.kind === "legacy") {
+      out.set(String(i), { kind: "legacy", proposed: parsed.proposed });
+      return;
+    }
+    const operations: DriftProposalOperation[] = parsed.operations.map((op) => {
+      const handle = op.op === "add" ? op.anchor : op.clause;
+      const seq = Number.parseInt(handle.replace(/^cl-/, ""), 10);
+      const current = Number.isInteger(seq)
+        ? (bodies.get(`${r.docId}|${seq}`) ?? null)
+        : null;
+      if (op.op === "add") {
+        return { op: "add", clause: op.anchor, placement: op.placement, after: op.body, current };
+      }
+      if (op.op === "edit") {
+        return { op: "edit", clause: op.clause, before: op.before, after: op.after, current };
+      }
+      return { op: "delete", clause: op.clause, before: op.before, current };
+    });
+    out.set(String(i), { kind: "clause-ops", operations });
+  });
+
+  return out;
 }
 
 interface RawRow {
@@ -277,7 +423,17 @@ export async function listDriftInbox(
   const last = pageRows[pageRows.length - 1];
   const nextCursor = hasMore && last ? encodeCursor(last.created_at, last.comment_id) : null;
 
-  const items: DriftInboxRow[] = pageRows.map((r) => ({
+  // One extra query for the whole page, not one per operation [per std-39].
+  const proposals = await resolveProposals(
+    memexId,
+    pageRows.map((r) => ({
+      docId: r.doc_id,
+      commentType: r.comment_type,
+      content: r.content,
+    })),
+  );
+
+  const items: DriftInboxRow[] = pageRows.map((r, i) => ({
     commentId: r.comment_id,
     // The `(doc_id, seq)` allocator mints per-doc `c-N` handles (schema.ts);
     // derive the canonical form here so every consumer gets the same string.
@@ -287,6 +443,7 @@ export async function listDriftInbox(
     authorName: r.author_name,
     content: r.content,
     proposedContent: normalizeProposedContent(r.comment_type, r.content),
+    proposal: proposals.get(String(i)) ?? null,
     // Raw SQL via db.execute returns timestamptz as ISO string; DriftInboxRow.createdAt
     // is typed as Date for callers, so coerce here.
     createdAt: r.created_at instanceof Date ? r.created_at : new Date(r.created_at),

@@ -368,6 +368,23 @@ describe('DriftInbox — two explicit row types, drift-card style (spec-143 dec-
         commentType: 'plan_revision',
         content: 'Reword.\n~~~proposed-content\nAlways cache with Redis.\n~~~',
         proposedContent: 'Always cache with Redis.',
+        // spec-530 t-7: this fixture now carries real operations. Without them the
+        // assertions below passed for the wrong reason — the row had no proposal to
+        // render at all, so "the diff is not in the list" was true vacuously. With them,
+        // this test genuinely re-asserts spec-498's invariant against the new rendering
+        // path: the diff exists, and it is COLLAPSED, so nothing of it reaches the list.
+        proposal: {
+          kind: 'clause-ops',
+          operations: [
+            {
+              op: 'edit',
+              clause: 'cl-1',
+              before: 'Always cache.',
+              after: 'Always cache with Redis.',
+              current: 'Always cache.',
+            },
+          ],
+        },
         section: { id: 's-9', sectionType: 'do', title: null, content: 'Always cache.' },
       }),
     ]);

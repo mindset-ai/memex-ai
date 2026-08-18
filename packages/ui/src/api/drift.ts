@@ -6,6 +6,38 @@ import { fetchWithRetry } from './http';
 import { tBase } from './internal';
 
 /**
+ * One clause operation of a proposal (spec-530 t-7).
+ *
+ * `after` vs `current` is the diff a reviewer judges. `before` vs `current` says whether
+ * the proposal still applies — the row shows both bodies and derives no verdict, because
+ * that judgement lives inside the accept transaction (spec-530 dec-3/dec-4), not here.
+ */
+export interface DriftProposalOperation {
+  op: 'edit' | 'delete' | 'add';
+  /** The target's `cl-N` handle. For `add`, the ANCHOR it sits relative to. */
+  clause: string;
+  /** `add` only — which side of the anchor the new clause goes. */
+  placement?: 'before' | 'after';
+  /** The target's body at authoring time. Absent for `add`. */
+  before?: string;
+  /** The proposed text. Absent for `delete`. */
+  after?: string;
+  /** The clause's live body now, or null when it no longer exists. */
+  current: string | null;
+}
+
+/**
+ * A `plan_revision`'s body, as the server read it. `legacy` is a pre-spec-530
+ * whole-section replacement (readable, not applyable clause by clause); `unreadable` is
+ * a body that parses as neither. Both render an explanatory row rather than breaking the
+ * page for every other item on it.
+ */
+export type DriftProposal =
+  | { kind: 'clause-ops'; operations: DriftProposalOperation[] }
+  | { kind: 'legacy'; proposed: string }
+  | { kind: 'unreadable' };
+
+/**
  * Drift Inbox row — open `drift` or `plan_revision` typed comment with parent
  * doc + section context attached. See packages/server/src/services/drift-inbox.ts
  * for the canonical shape.
@@ -21,13 +53,19 @@ export interface DriftInboxItem {
   authorName: string;
   content: string;
   /**
-   * Normalized proposed replacement text (spec-143 dec-2 / ac-9). The server
-   * guarantees this is non-null for every `plan_revision` — including proposals
-   * authored without the `~~~proposed-content` fence — so the inbox always
-   * renders a proposal as a before/after diff and never falls through to an
-   * undifferentiated blob. `null` for a `drift` observation.
+   * Proposed replacement text; non-null for every `plan_revision`, null for a `drift`.
+   *
+   * spec-530 t-7: **the row does NOT render this.** At the clause grain a proposal is a
+   * set of operations with no single "proposed body", so for a clause-ops row this is
+   * the raw comment content. It survives because the drift agent's context reads it.
+   * Render `proposal` instead.
    */
   proposedContent: string | null;
+  /**
+   * The proposal's operations, resolved against the live clauses (spec-530 t-7) — what
+   * the row renders. `null` for a `drift` observation.
+   */
+  proposal: DriftProposal | null;
   createdAt: string; // ISO timestamp from the JSON wire
   /**
    * The source DECISION a `drift` finding contradicts (spec-498 dec-4) — its
