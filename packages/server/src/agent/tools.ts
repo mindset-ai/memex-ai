@@ -454,6 +454,11 @@ export function isReadOnlyTool(name: string): boolean {
 const DRIFT_SERVER_TOOLS = new Set<string>([
   "flag_drift",
   "propose_standard_change",
+  // spec-530 t-4 (dec-4/ac-13): the apply verb. The drift agent is the surface a
+  // user accepts a proposal FROM — the Drift Inbox has no action controls
+  // (spec-143 dec-3), so this conversation is the only path. Presence here is the
+  // definition filter; /tools/execute is the authoritative gate [per std-38].
+  "accept_standard_change",
   "search_memex",
   "get_doc",
   "list_comments",
@@ -502,6 +507,9 @@ const STANDARDS_SERVER_TOOLS = new Set<string>([
   "edit_clause",
   "delete_clause",
   "propose_standard_change",
+  // spec-530 t-4 (dec-4/ac-13): both agents that handle Standards own the apply
+  // verb — the standards agent authors rules, so it accepts corrections to them too.
+  "accept_standard_change",
   "flag_drift",
 ]);
 

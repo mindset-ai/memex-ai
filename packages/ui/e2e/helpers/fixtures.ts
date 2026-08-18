@@ -166,7 +166,12 @@ export async function gotoSpecsBoard(
  * input state committed), and click it. Use for any journey driving the chat.
  */
 export async function sendChat(page: Page, text: string): Promise<void> {
-  const input = page.getByPlaceholder(/Ask me anything/i);
+  // Target the input by testid, not by placeholder. ChatPanel varies its placeholder by
+  // scoped mode ("Ask about the drift…", "Ask about the Standards…", …), so a
+  // placeholder match only ever worked on Spec pages — every scoped-mode surface was
+  // undrivable from a journey until spec-530 t-10 needed the drift agent. Same element,
+  // strictly wider reach.
+  const input = page.getByTestId("chat-input");
   await input.waitFor({ state: "visible", timeout: 15_000 });
   await input.fill(text);
   // Wait for Send to enable (its disabled gate is `!input.trim()`), proving the

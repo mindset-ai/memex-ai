@@ -7,6 +7,7 @@ import { tenantPath } from '../utils/tenantUrl';
 import { timeAgo } from '../utils/timeAgo';
 import { Spinner } from '../components/Spinner';
 import { OpeningDriftController } from '../components/chat/OpeningDriftController';
+import { ProposalDisclosure } from '../components/drift/ProposalDisclosure';
 
 /**
  * Standards Drift Inbox (t-10 of doc-8; scoped to Standards in b-63). Surfaces
@@ -23,8 +24,17 @@ import { OpeningDriftController } from '../components/chat/OpeningDriftControlle
  *     standard (`std-N` + title) it violates. The full comment body is NOT dumped
  *     into the list (too much to read); the agent explains detail on Discuss.
  *   - Proposal (`plan_revision`) — a proposed change to a standard. Rendered as a
- *     one-line "Proposes a change to std-N …". The heavy before/after diff is out
- *     of the list — reachable via Discuss with Agent or the standard page.
+ *     one-line "Proposes a change to std-N …" plus a COLLAPSED disclosure carrying the
+ *     per-clause before/after (spec-530 t-7). Collapsed means not rendered, not hidden:
+ *     the list stays scannable at a glance, which is what spec-498 was protecting, and
+ *     a 12-operation proposal is still one line until the reader opens it.
+ *
+ * This header used to claim the diff was "reachable via Discuss with Agent or the
+ * standard page". Verified 2026-08-13: it was reachable via NEITHER — `proposedContent`
+ * came down the wire and was rendered by no component, so a user judging a proposal had
+ * no way to see what it said. That claim is corrected rather than deleted, because the
+ * gap between what a comment promises and what the code does is the defect spec-530 is
+ * named after.
  *
  * No inline action buttons (spec-143 dec-3). The per-row Accept / Reject /
  * Resolve buttons are gone — deciding whether a standard should change in
@@ -320,20 +330,26 @@ function DriftInboxBody({
                     one-liner. Neither dumps the full comment body / diff (spec-498
                     — too much to read in a list; the agent explains on Discuss). */}
                 {isProposal ? (
-                  <div
-                    className="flex items-baseline gap-1.5 text-sm min-w-0"
-                    data-testid="drift-proposal-summary"
-                  >
-                    <span className="flex-none text-muted">Proposes a change to</span>
-                    <Link
-                      to={docHref}
-                      onClick={(e) => e.stopPropagation()}
-                      className="flex-none font-mono text-secondary hover:underline"
+                  <>
+                    <div
+                      className="flex items-baseline gap-1.5 text-sm min-w-0"
+                      data-testid="drift-proposal-summary"
                     >
-                      {item.doc.handle}
-                    </Link>
-                    <span className="truncate text-secondary">{item.doc.title}</span>
-                  </div>
+                      <span className="flex-none text-muted">Proposes a change to</span>
+                      <Link
+                        to={docHref}
+                        onClick={(e) => e.stopPropagation()}
+                        className="flex-none font-mono text-secondary hover:underline"
+                      >
+                        {item.doc.handle}
+                      </Link>
+                      <span className="truncate text-secondary">{item.doc.title}</span>
+                    </div>
+                    {/* spec-530 t-7: the before/after this row has promised since
+                        spec-143 and never delivered. Read-only — spec-143 dec-3's
+                        no-action-buttons rule stands. */}
+                    <ProposalDisclosure proposal={item.proposal ?? null} />
+                  </>
                 ) : (
                   <div className="space-y-1 text-sm" data-testid="drift-observation-body">
                     {item.decision ? (

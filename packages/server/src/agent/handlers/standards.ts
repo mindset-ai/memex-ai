@@ -16,6 +16,7 @@ import {
   proposeStandardChange,
   type ProposalOperationInput,
 } from "../../services/standards.js";
+import { acceptStandardChange } from "../../services/standard-accept.js";
 import {
   createDocDraft,
 } from "../../services/documents.js";
@@ -251,6 +252,68 @@ export const standardsTools: ToolSpec[] = [
       return commentRef
         ? `Proposed change recorded on ${result.standard.handle} section "${sectionLabel}" (ref: ${commentRef}).`
         : `Proposed change recorded on ${result.standard.handle} section "${sectionLabel}".`;
+    },
+  },
+  {
+    // spec-530 t-4 (dec-4): the transactional apply verb. It takes the proposal's
+    // comment ref and NOTHING else — no bodies, no targets, no override (ac-11).
+    // The proposal already carries what will be applied, so the agent cannot apply
+    // something other than what the human reviewed. That is deliberate: the agent's
+    // role here is judgement plus one gated call, not authorship.
+    name: "accept_standard_change",
+    annotations: { title: "Accept Standard change", readOnlyHint: false, destructiveHint: false },
+    description:
+      "Accept an open proposal (a `plan_revision` comment) and apply it to the Standard. Pass ONLY the proposal's comment ref — the proposal already carries which clauses change and what they should say, so there is nothing else to supply and no way to apply something different from what was proposed. Every clause operation lands, or none does, and the proposal is resolved 'accepted' in the same transaction. " +
+      "If the rule text changed after the proposal was written, this REFUSES rather than overwriting that change, and names the clause and what it now says — relay that to the user and offer to re-propose against the current rule. " +
+      "Propose this through `render_confirmation` FIRST, showing what will change; never apply until the user confirms. To REJECT instead, leave the rule alone and resolve the comment with `update_comment` (status `resolved`, resolution `'rejected'`).",
+    schema: {
+      ref: z
+        .string()
+        .describe(
+          "Canonical ref to the proposal comment, e.g. `<ns>/<mx>/standards/std-7/comments/c-3` — the ref `list_comments` emits for a plan_revision. NOT a UUID.",
+        ),
+      verbose: VERBOSE_FIELD,
+    },
+    async handler(input, ctx) {
+      const ref = input.ref as string;
+
+      // std-10: the comment is addressed by its canonical c-N ref; resolveRefArg
+      // rejects a raw UUID at the boundary.
+      const resolved = await resolveRefArg(ctx, ref);
+      if (resolved.entity.kind !== "comment") {
+        throw new ValidationError(
+          `accept_standard_change takes a proposal comment ref (c-N); got ${resolved.entity.kind} for "${ref}".`,
+        );
+      }
+      // spec-156 W2 (FINDING 3): thread the invoking surface so the rule change is
+      // attributed to the actor (mcp vs in_app_agent) rather than defaulting to
+      // channel 'server' [per std-32] — "who accepted this rule change" is exactly
+      // the question the activity contract exists to answer (ac-20).
+      const result = await acceptStandardChange(
+        resolved.memexId,
+        resolved.entity.row.id,
+        reqCtx(ctx),
+      );
+
+      // b-36 D-8: lead with the canonical `ref:` of the resolved proposal, never a
+      // raw UUID.
+      const slugs = await memexSlugsById(resolved.memexId);
+      const commentRef = slugs
+        ? buildChildRef(slugs, result.standard, { type: "comments", seq: result.comment.seq })
+        : null;
+      const sectionLabel = result.section.title ?? result.section.sectionType;
+      const opCount = `${result.applied} clause operation${result.applied === 1 ? "" : "s"}`;
+      if (ctx.verbose) {
+        const state = await fullDocState(resolved.memexId, result.standard.id);
+        const url = await ctx.workspaceUrl(resolved.memexId);
+        const head = commentRef
+          ? `Proposal accepted — applied ${opCount} to ${result.standard.handle} section "${sectionLabel}" (ref: ${commentRef}).`
+          : `Proposal accepted — applied ${opCount} to ${result.standard.handle} section "${sectionLabel}".`;
+        return `${head}\n\n${await formatState(url, state, ctx)}`;
+      }
+      return commentRef
+        ? `Proposal accepted — applied ${opCount} to ${result.standard.handle} section "${sectionLabel}" (ref: ${commentRef}).`
+        : `Proposal accepted — applied ${opCount} to ${result.standard.handle} section "${sectionLabel}".`;
     },
   },
   // (search_standards spec deleted by b-34 T-5 — replaced by the live

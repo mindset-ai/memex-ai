@@ -35,7 +35,7 @@ import {
 } from "../db/schema.js";
 import { makeTestMemex } from "../services/test-helpers.js";
 import { createDocDraft } from "../services/documents.js";
-import { createStandard } from "../services/standards.js";
+import { createStandard, proposeStandardChange } from "../services/standards.js";
 import { createClause } from "../services/clauses.js";
 import { createIssue } from "../services/issues.js";
 import { addSection } from "../services/sections.js";
@@ -857,6 +857,10 @@ describe("audit: b-36 D-8 — every terse mutation/list response emits `ref:` an
   let driftSectionRef: string;
   let proposeSectionRef: string;
   let proposeClauseRef: string;
+  // spec-530 t-4: accept_standard_change needs an OPEN proposal to apply. Authored in
+  // beforeAll (not by the propose probe) so its comment seq is stable regardless of
+  // which probes run or in what order.
+  let acceptCommentRef: string;
 
   beforeAll(async () => {
     memexId = await makeTestMemex("probe-ref");
@@ -999,6 +1003,7 @@ describe("audit: b-36 D-8 — every terse mutation/list response emits `ref:` an
       sections: [
         { sectionType: "rule-drift", content: "Original rule body for drift probe." },
         { sectionType: "rule-propose", content: "Original rule body for propose probe." },
+        { sectionType: "rule-accept", content: "Original rule body for accept probe." },
       ],
     });
     cleanup.docs.push(std.id);
@@ -1014,6 +1019,18 @@ describe("audit: b-36 D-8 — every terse mutation/list response emits `ref:` an
       "Original rule body for propose probe.",
     );
     proposeClauseRef = `${stdBase}/clauses/cl-${probeClause.seq}`;
+    // spec-530 t-4: an open proposal on its own section, for the accept probe.
+    const acceptClause = await createClause(
+      memexId,
+      std.sections.find((s) => s.sectionType === "rule-accept")!.id,
+      "Probe: rule body to be accepted.",
+    );
+    const acceptProposal = await proposeStandardChange(
+      memexId,
+      [{ op: "edit", clauseId: acceptClause.id, after: "Probe: accepted rule body." }],
+      "probe accept rationale",
+    );
+    acceptCommentRef = `${stdBase}/comments/c-${acceptProposal.comment.seq}`;
   });
 
   type ProbeCase = {
@@ -1357,6 +1374,12 @@ describe("audit: b-36 D-8 — every terse mutation/list response emits `ref:` an
             ],
             rationale: "probe rationale",
           }),
+        },
+      ],
+      [
+        "accept_standard_change",
+        {
+          input: () => ({ ref: acceptCommentRef }),
         },
       ],
     ]);
