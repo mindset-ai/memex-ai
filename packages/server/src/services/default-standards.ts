@@ -5,7 +5,7 @@
 // work with Memex, models what a good Standard looks like, and gets applied while they
 // work their first Spec. The canonical content lives ONCE in
 // db/default-standards.fixture.ts; this module maps it through the existing clause-first
-// standard primitives (createDocDraft → addSection → addClausesToSection — each already
+// standard primitives (createDocDraft → addSectionWithClauses — each already
 // wraps mutate() + emits on the unified bus, std-8).
 //
 // dec-3: defaults are ORDINARY editable/deletable standard rows — NO is_demo/is_default
@@ -22,8 +22,7 @@ import { and, eq } from "drizzle-orm";
 import { db, runWithMemexId } from "../db/connection.js";
 import { documents, namespaces, memexes } from "../db/schema.js";
 import { createDocDraft } from "./documents.js";
-import { addSection } from "./sections.js";
-import { addClausesToSection } from "./clauses.js";
+import { addSectionWithClauses } from "./clauses.js";
 import { DEFAULT_STANDARDS } from "../db/default-standards.fixture.js";
 
 const STANDARD_DOC_TYPE = "standard";
@@ -66,38 +65,42 @@ async function countStandards(memexId: string): Promise<number> {
  * (memex_id, lower(title)) WHERE doc_type='standard' — a DB constraint, NOT a held lock.
  *
  * Partial-seed note: not self-healing (no marker, dec-3). A crash mid-loop leaves a partial
- * set the guard then treats as seeded; each section's content is seeded up-front to the
- * clause join so a half-built Standard still renders. Accepted simplicity cost of dec-3.
+ * set the guard then treats as seeded — whole Standards missing, which is dec-3's accepted
+ * simplicity cost. It no longer leaves a section rendering from pre-seeded content: since
+ * spec-514 dec-1 a section and its clauses are created by one service call that validates
+ * first, so the crash window this used to paper over is gone.
  */
 export async function seedDefaultStandards(memexId: string): Promise<void> {
   if ((await countStandards(memexId)) > 0) return;
 
   for (const std of DEFAULT_STANDARDS) {
     // spec-161: a standard is born sectionless — the `purpose` arg is ignored for the
-    // 'standard' docType, so content arrives entirely as clauses below. Each primitive
-    // opens its OWN short mutate()-wrapped transaction on the pool (std-8 bus emission
-    // intact) and releases the connection between calls — so concurrent detached seeds
-    // never accumulate HELD connections (the pool-starvation failure mode above).
+    // 'standard' docType, so content arrives entirely as clauses below. addSectionWithClauses
+    // preserves the posture this seeder depends on: each underlying primitive still opens
+    // its OWN short mutate()-wrapped transaction on the pool (std-8 bus emission intact)
+    // and releases the connection between calls — so concurrent detached seeds never
+    // accumulate HELD connections (the pool-starvation failure mode above). That is
+    // exactly why spec-514 dec-1 ordered the two calls rather than merging them into one
+    // transaction.
     const created = await createDocDraft(memexId, std.title, "", STANDARD_DOC_TYPE);
     for (const section of std.sections) {
-      // Seed the section's content up-front to the clause join (so a crash between
-      // addSection and addClausesToSection still leaves a rendered section);
-      // addClausesToSection then creates the clause rows and regenerates the same content.
-      const sec = await addSection(
-        memexId,
-        created.id,
-        section.sectionType,
-        section.clauses.join("\n\n"),
-        section.title,
-      );
       // spec-437 dec-1: each default clause carries a deliberate facet verdict — the
       // section's parallel `facets` array, or [] ("governs nothing") where it sets none
       // (methodology / description / rationale / scope clauses). Persisted against the
       // facet vocabulary seeded first (see seedNewPersonalMemex).
-      await addClausesToSection(
+      //
+      // spec-514 dec-1: one call, which validates the whole batch before the section row
+      // exists. This used to pre-seed the section's content to the clause join as a guard
+      // against crashing between the two primitives — a workaround written at THIS call
+      // site, which is precisely why the agent-facing add_section handler never inherited
+      // the protection and shipped the orphaned-section bug. The guarantee lives in the
+      // service now, so the workaround is not just redundant but misleading.
+      await addSectionWithClauses(
         memexId,
-        sec.id,
+        created.id,
+        section.sectionType,
         section.clauses.map((body, i) => ({ body, facets: section.facets?.[i] ?? [] })),
+        section.title,
       );
     }
   }
