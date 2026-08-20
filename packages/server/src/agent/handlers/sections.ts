@@ -21,7 +21,7 @@ import {
 } from "../../services/qa-reports.js";
 import { applyLiteralEdit } from "../../services/section-edit.js";
 import {
-  addClausesToSection,
+  addSectionWithClauses,
   createClause,
   updateClause,
   deleteClause,
@@ -113,13 +113,18 @@ export const sectionsTools: ToolSpec[] = [
       });
 
       if (mode === "clauses") {
-        // Born clause-first: create the (empty) section, then author its clauses; the
-        // service regenerates content = clauses joined.
-        const sectionMut = await addSection(memexId, doc.id, sectionType, "", title, description, reqCtx(ctx));
-        const clauseMut = await addClausesToSection(
+        // Born clause-first. spec-514 dec-1: ONE service call owns the ordering
+        // (validate the whole batch → create the section → author its clauses). This
+        // handler used to sequence the two primitives itself, which validated the facet
+        // ballot AFTER the section row was committed — a rejected ballot then left an
+        // orphaned empty section and the natural retry collided on the section type.
+        const { section: sectionMut, clauses: clauseMut } = await addSectionWithClauses(
           memexId,
-          sectionMut.id,
+          doc.id,
+          sectionType,
           clauses!.map((body, i) => ({ body, facets: clauseFacets?.[i] })),
+          title,
+          description,
           reqCtx(ctx),
         );
         if (ctx.verbose) {

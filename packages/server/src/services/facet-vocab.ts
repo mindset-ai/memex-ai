@@ -56,7 +56,7 @@ export async function listFacetsForMemex(memexId: string): Promise<OwnerFacet[]>
 // validation lives HERE (no-LLM) and is imported into agent/handlers/sections.ts
 // from here — NEVER from facet-classifier.ts (the no-request-path guard).
 
-function reHandClause(vocab: OwnerFacet[], lead: string): string {
+export function reHandClause(vocab: OwnerFacet[], lead: string): string {
   const keys = vocab.map((f) => f.key).join(", ");
   return (
     `${lead} Provide a facet verdict: an array of facet keys from [${keys}], or [] for ` +
@@ -109,29 +109,103 @@ export async function validateClauseFacets(
  * Same semantics as validateClauseFacets: an undefined verdict throws (required where a
  * vocabulary exists); unknown keys throw; [] resolves to [] (the governs-nothing marker).
  */
-export async function validateClauseFacetsBatch(
+export interface ClauseFacetProblems {
+  /** 1-based positions of clauses with no verdict at all. */
+  missingVerdict: number[];
+  /** 1-based position + the offending keys, per clause that named an unknown facet. */
+  unknownKeys: { position: number; keys: string[] }[];
+  /** The owner's vocabulary — empty when there is none (nothing to require). */
+  vocab: OwnerFacet[];
+  /** Resolved facet ids per clause. Meaningful only when there are no problems. */
+  resolved: (string[] | null)[];
+}
+
+/**
+ * spec-514 dec-2 — COLLECT every clause-level facet problem instead of throwing at the
+ * first one, and tag each with the clause's **1-based position in the caller's array**.
+ *
+ * Two callers need different things from the same analysis, which is why this returns
+ * rather than throws:
+ *   • `validateClauseFacetsBatch` (below) throws on it — the standalone contract.
+ *   • `validateClauseBatch` in clauses.ts merges these problems with its own empty-body
+ *     findings into ONE message. That merge is not cosmetic: if the body check threw
+ *     first, a batch with both kinds of fault would never report the verdict position, so
+ *     the off-by-one it guards (ac-12) could not be observed at all.
+ *
+ * Positions are the caller's own indices because nothing is filtered before this runs.
+ */
+export async function collectClauseFacetProblems(
   memexId: string,
   verdicts: (string[] | undefined)[],
-): Promise<(string[] | null)[]> {
+): Promise<ClauseFacetProblems> {
+  const none: ClauseFacetProblems = {
+    missingVerdict: [],
+    unknownKeys: [],
+    vocab: [],
+    resolved: verdicts.map(() => null),
+  };
   const owner = await ownerForMemex(memexId);
-  if (!owner) return verdicts.map(() => null);
+  if (!owner) return none;
   const vocab = await db
     .select({ key: facets.key, name: facets.name, description: facets.description, ord: facets.ord, id: facets.id })
     .from(facets)
     .where(and(eq(facets.ownerType, owner.ownerType), eq(facets.ownerId, owner.ownerId)))
     .orderBy(asc(facets.ord));
-  if (vocab.length === 0) return verdicts.map(() => null);
+  if (vocab.length === 0) return none;
+
   const idByKey = new Map(vocab.map((f) => [f.key, f.id]));
-  return verdicts.map((verdict) => {
+  const missingVerdict: number[] = [];
+  const unknownKeys: { position: number; keys: string[] }[] = [];
+  const resolved: (string[] | null)[] = [];
+
+  verdicts.forEach((verdict, i) => {
+    const position = i + 1;
     if (verdict === undefined) {
-      throw new ValidationError(reHandClause(vocab, "A facet verdict is required for each clause."));
+      missingVerdict.push(position);
+      resolved.push(null);
+      return;
     }
     const unknown = verdict.filter((k) => !idByKey.has(k));
     if (unknown.length > 0) {
-      throw new ValidationError(reHandClause(vocab, `Unknown facet key(s): ${unknown.join(", ")}.`));
+      unknownKeys.push({ position, keys: unknown });
+      resolved.push(null);
+      return;
     }
-    return [...new Set(verdict)].map((k) => idByKey.get(k)!);
+    resolved.push([...new Set(verdict)].map((k) => idByKey.get(k)!));
   });
+
+  return { missingVerdict, unknownKeys, vocab, resolved };
+}
+
+/**
+ * Render collected facet problems as sentences that each NAME the offending clause.
+ * Every offender is reported, so one round trip tells the agent everything it got wrong
+ * rather than forcing a retry per fault.
+ */
+export function facetProblemLines(problems: ClauseFacetProblems): string[] {
+  const lines: string[] = [];
+  const { missingVerdict, unknownKeys } = problems;
+  if (missingVerdict.length === 1) {
+    lines.push(`Clause ${missingVerdict[0]} has no facet verdict.`);
+  } else if (missingVerdict.length > 1) {
+    lines.push(`Clauses ${missingVerdict.join(", ")} have no facet verdict.`);
+  }
+  for (const { position, keys } of unknownKeys) {
+    lines.push(`Clause ${position} names unknown facet key(s): ${keys.join(", ")}.`);
+  }
+  return lines;
+}
+
+export async function validateClauseFacetsBatch(
+  memexId: string,
+  verdicts: (string[] | undefined)[],
+): Promise<(string[] | null)[]> {
+  const problems = await collectClauseFacetProblems(memexId, verdicts);
+  const lines = facetProblemLines(problems);
+  if (lines.length > 0) {
+    throw new ValidationError(reHandClause(problems.vocab, lines.join(" ")));
+  }
+  return problems.resolved;
 }
 
 /**
