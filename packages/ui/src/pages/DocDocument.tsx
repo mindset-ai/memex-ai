@@ -63,6 +63,7 @@ import { PromptButton } from '../components/PromptButton';
 import { useMemexAccess } from '../hooks/useMemexAccess';
 import { BylineAssignees } from '../components/BylineAssignees';
 import { BylineSensitive } from '../components/BylineSensitive';
+import { SensitiveBanner } from '../components/SensitiveBanner';
 import { useDocRole } from '../hooks/useDocRole';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useOrgScaffoldBlocks } from '../hooks/useOrgScaffoldBlocks';
@@ -1277,6 +1278,14 @@ export function DocDocument() {
           act on it. There is no control here to set or clear this state; it is
           recorded exclusively over MCP (dec-4), and no copy suggests otherwise, so no
           std-34 Prompt Button obligation attaches. */}
+      {/* spec-535 dec-4 — the SIGNAL half. Sits with the other near-title banners
+          rather than on the byline: that row is neutral grey metadata, and a
+          danger signal there is camouflaged by it. Rendered for EVERY reader,
+          including read-only visitors — only the setter (BylineSensitive) is
+          gated on write access, never the warning. No std-34 Prompt Button
+          obligation: the flag is settable from this page, so no copy points at an
+          MCP-only step. */}
+      {doc.sensitive && <SensitiveBanner contactName={doc.sensitiveByName ?? null} />}
       {doc.supersededByHandle && (
         <SupersededByBanner
           successorHandle={doc.supersededByHandle}
