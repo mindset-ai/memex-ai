@@ -2510,7 +2510,7 @@ export const SENSITIVE_WARNING_PROSE = {
   contact: (name: string): string => `⚠  Contact ${name} before you change anything here.`,
   /** The action when provenance is absent (an unattributed write). Still warns —
    *  degrading to silence would drop the signal exactly when attribution failed. */
-  contactUnknown: '⚠  Whoever flagged it was not recorded — ask the team before changing anything here.',
+  contactUnknown: '⚠  Whoever flagged it was not recorded — ask the org before changing anything here.',
   /** The non-blocking promise, stated where it is read (ac-3). */
   advisory: '⚠  Advisory only: this blocks nothing. Every read and write still works.',
 };

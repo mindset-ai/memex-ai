@@ -42,7 +42,7 @@ export function SensitiveBanner({ contactName }: { contactName: string | null })
         ) : (
           // Provenance can be absent (an unattributed write). Still warn: going
           // silent here would drop the signal exactly when attribution failed.
-          <>delicate or complex. Ask the team before you change anything here.</>
+          <>delicate or complex. Ask the org before you change anything here.</>
         )}{' '}
         {/* ac-3 is a promise the reader has to be able to act on. Without this
             line the honest reading of a warning banner is "do not proceed",
