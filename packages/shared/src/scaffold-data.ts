@@ -2483,6 +2483,38 @@ Walk me through this Spec's CANDIDATE decisions — choices an agent extracted t
 // both keep the Spec on the nag, each with its own remediation verb. The nag
 // covers BOTH scope and implementation ACs (dec-4) — the kind split is the
 // caller's concern, not this prose's.
+// spec-535 dec-3 — the sensitivity warning the MCP header carries.
+//
+// Prose lives HERE, not in the formatter (std-15): the formatter consumes these
+// strings and pushes them line by line. That is also what keeps the scaffold
+// drift-guard green — a multi-line markdown-shaped literal anywhere in server/src
+// fails the build, and the formatter is not on its allowlist.
+//
+// Shape rules this copy has to honour, each earned:
+//   * NOT a `Key: value` line. `Sensitive: true` sitting among `Type:` and
+//     `Status:` reads as metadata and gets skimmed — spec-240 dec-1 watched a weak
+//     model do precisely that with a non-blocking warning.
+//   * Says it blocks nothing, right in the warning. ac-3's promise is worthless if
+//     a cautious reader stops anyway; the copy has to tell them not to.
+//   * Portable (std-22). No file path, tool name, framework or Standard handle —
+//     this renders against arbitrary codebases, and the reader may have none of
+//     ours.
+//   * No noun for the document. "Spec" is our vocabulary, and the flag lives on
+//     the shared documents table, so the copy stays neutral about what it is on.
+export const SENSITIVE_WARNING_PROSE = {
+  /** Top and bottom rule — what makes it a block rather than another header line. */
+  rule: '⚠ ─────────────────────────────────────────────────────────────',
+  /** What the flag means, in the words the person setting it would use. */
+  heading: '⚠  SENSITIVE — delicate or complex, so talk to someone first.',
+  /** The action, when the flag carries provenance. */
+  contact: (name: string): string => `⚠  Contact ${name} before you change anything here.`,
+  /** The action when provenance is absent (an unattributed write). Still warns —
+   *  degrading to silence would drop the signal exactly when attribution failed. */
+  contactUnknown: '⚠  Whoever flagged it was not recorded — ask the team before changing anything here.',
+  /** The non-blocking promise, stated where it is read (ac-3). */
+  advisory: '⚠  Advisory only: this blocks nothing. Every read and write still works.',
+};
+
 export const BUILD_AC_NAG_PROSE = {
   /** Heading line. `count` is untested + failing combined. */
   heading: (specHandle: string, count: number): string =>
