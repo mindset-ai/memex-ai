@@ -62,6 +62,7 @@ import { tenantPath, getCurrentTenant } from '../utils/tenantUrl';
 import { PromptButton } from '../components/PromptButton';
 import { useMemexAccess } from '../hooks/useMemexAccess';
 import { BylineAssignees } from '../components/BylineAssignees';
+import { BylineSensitive } from '../components/BylineSensitive';
 import { useDocRole } from '../hooks/useDocRole';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useOrgScaffoldBlocks } from '../hooks/useOrgScaffoldBlocks';
@@ -1197,6 +1198,22 @@ export function DocDocument() {
               <BylineAssignees docId={doc.id} />
               <span className="opacity-40">&middot;</span>
               <TagPicker docId={doc.id} tags={doc.tags ?? []} onTagsChange={handleTagsChange} />
+              {/* spec-535 dec-4: the SETTER lives here, where the requirement asked
+                  for it. The warning is a banner near the title, not a chip on this
+                  row — everything here is neutral grey metadata, and a danger signal
+                  in that costume is camouflaged by it. The component renders null
+                  without write access, so the separator is gated on canWrite to
+                  avoid an orphan dot (the CodeGroundedBadge convention above). */}
+              {canWrite && (
+                <>
+                  <span className="opacity-40">&middot;</span>
+                  <BylineSensitive
+                    docId={doc.id}
+                    sensitive={doc.sensitive ?? false}
+                    onChange={reloadDoc}
+                  />
+                </>
+              )}
               {/* spec-409 (ac-1): the code-grounded verification badge sits inline
                   with the tags on the byline. Renders only for a grounded Spec
                   (component returns null otherwise), so the separator is gated on

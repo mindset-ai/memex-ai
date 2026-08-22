@@ -660,3 +660,27 @@ export async function getVersionDiffData(
     `${tBase()}/versions/doc/${docId}/diff?${params.toString()}`,
   );
 }
+
+// spec-535 dec-4 — the byline control's two verbs. Neither takes a body: flagging
+// is a self-action (the caller becomes the contact, dec-2) and there is no reason
+// field (ac-7, dec-1 — this Memex is public read-only, so a "why is this
+// dangerous" box is a leak surface).
+export async function setDocSensitive(docId: string): Promise<void> {
+  const res = await fetchWithRetry(`${tBase()}/docs/${docId}/sensitive`, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(text || `Failed to flag spec as sensitive: ${res.status}`);
+  }
+}
+
+export async function clearDocSensitive(docId: string): Promise<void> {
+  const res = await fetchWithRetry(`${tBase()}/docs/${docId}/sensitive/clear`, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(text || `Failed to clear the sensitive flag: ${res.status}`);
+  }
+}
