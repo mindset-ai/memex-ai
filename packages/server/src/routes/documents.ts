@@ -1,5 +1,14 @@
 import { Hono } from "hono";
-import { listDocs, getDoc, updateDocStatus, updateDocTitle, archiveDoc, restoreDoc } from "../services/documents.js";
+import {
+  listDocs,
+  getDoc,
+  updateDocStatus,
+  updateDocTitle,
+  archiveDoc,
+  restoreDoc,
+  setSensitive,
+  clearSensitive,
+} from "../services/documents.js";
 import { restCtx } from "./_actor-ctx.js";
 import { moveDoc } from "../services/doc-move.js";
 import { splitSection, updateSection } from "../services/sections.js";
@@ -459,6 +468,37 @@ docs.post("/:id/restore", async (c) => {
   const memexId = requireMemexId(c);
   const id = c.req.param("id");
   const updated = await restoreDoc(memexId, id, restCtx(c));
+  return c.json(updated);
+});
+
+// spec-535 (dec-4) — the byline control's two verbs. Mounted on the existing doc
+// router rather than a new flat `/api/<root>` so RESERVED_API_ROOTS cannot bite:
+// a root missing from that list 404s in production while mocked-DB route tests
+// stay green, which is how spec-489's batching endpoint and the unsubscribe route
+// both shipped broken.
+//
+// Gated with requireMemexId (a confirmed org member), the same write gate archive
+// and restore use above — NOT the permissive resolveReadableMemexId the GETs use.
+// Reading the flag stays open to anyone who can read the Spec: a reader with no
+// write access is exactly who most needs to know to ask first, so only the
+// CONTROL is gated, never the warning.
+//
+// No body. Flagging is a self-action — the caller becomes the contact (dec-2), so
+// there is nobody to pick — and there is no reason field (ac-7, dec-1): this Memex
+// is published publicly read-only, so a free-text "why is this dangerous" box is a
+// leak surface (std-31). Note the contrast with `/:id/archive` above, which DOES
+// take a reason; that shape was considered and deliberately not copied.
+docs.post("/:id/sensitive", async (c) => {
+  const memexId = requireMemexId(c);
+  const id = c.req.param("id");
+  const updated = await setSensitive(memexId, id, restCtx(c));
+  return c.json(updated);
+});
+
+docs.post("/:id/sensitive/clear", async (c) => {
+  const memexId = requireMemexId(c);
+  const id = c.req.param("id");
+  const updated = await clearSensitive(memexId, id, restCtx(c));
   return c.json(updated);
 });
 
