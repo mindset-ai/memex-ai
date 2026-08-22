@@ -1132,6 +1132,8 @@ const TOOL_RATIONALES: Record<string, string> = {
     'Transition a Spec out of draft. Refuses already-published Specs; the user owns the phase transition in both directions.',
   ground_spec:
     'Mark a Spec code-grounded after verifying its resolved decisions against current source. MCP-only, requires codebase_present; stamps who/when as a verification badge.',
+  set_sensitive:
+    'spec-535: mark a Spec as delicate or complex so someone is contacted before it changes, or clear that mark. Advisory only — it refuses nothing on any surface; a flagged Spec stays fully readable and writable, and the flag exists so a reader (or an agent about to edit) sees the warning before it starts, which is the same job the checkout line already does. Whoever sets it becomes the contact, so there is nobody to nominate, and there is no reason field: this Memex is published publicly, and a free-text "why is this dangerous" box is a leak surface. Deliberately outside the checkout gate — gating it would mean an agent noticing danger while a colleague works must seize their checkout to post the warning about them.',
   supersede_spec:
     'spec-521: record that a later Spec replaced this one. Non-destructive — content is still served, but every read of the superseded Spec and its children leads with a pointer to the successor, and the successor carries the mirror, so nobody reconciles against intent that has been overtaken. Agent-callable because the agent authoring the successor is the one who knows; archiving is the opposite case (it withholds content) and stays human-only.',
   create_task:

@@ -24,6 +24,19 @@ import type { ToolCtx } from "../agent/handlers/shared.js";
 // The spec-mutating tools subject to the gate. The checkout VERBS themselves
 // (claim_spec / unclaim_spec) are deliberately ABSENT — explicit checkout is never
 // gated (ac-22). create_doc is absent — making a new doc isn't editing a spec.
+//
+// `set_sensitive` is ABSENT ON PURPOSE too (spec-535 dec-6) — do not "fix" this by
+// adding it. The gate throws a takeover error when another user has held the Spec
+// for less than the collision window; applied to that tool it would mean an agent
+// that notices a Spec is dangerous WHILE a colleague is working it must seize that
+// colleague's checkout in order to post the warning about them. The mechanism built
+// to stop people stepping on each other would require stepping on someone to use,
+// and it would fail at exactly the moment the warning is worth most.
+//
+// It belongs with claim_spec / unclaim_spec above for the same structural reason:
+// it is a meta-operation about the work (is this dangerous, who to ask), not an
+// edit OF the work. It changes no Spec content, it is idempotent, and anyone with
+// write access can reverse it.
 export const GATED_SPEC_TOOLS = new Set<string>([
   "update_doc", // phase move + title/tags
   "update_section",

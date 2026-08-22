@@ -492,6 +492,22 @@ describe("regression: every entity-acting MCP tool emits `ref:` and no raw UUID 
         },
       ],
       [
+        // spec-535: set_sensitive returns "Spec ref: <canonical> …" on both
+        // branches — entity-acting (document/updated), ref + no raw UUID.
+        //
+        // Probed with `sensitive: false` deliberately. The fixture doc starts
+        // unflagged, so clearing is a genuine no-op on state while still taking
+        // the full write path and emitting the ref line. Flagging it instead
+        // would put a warning block at the top of every later read of the shared
+        // fixture and perturb sibling probes (std-37) — the same hazard that made
+        // supersede_spec a documented skip above, avoided here rather than
+        // inherited.
+        "set_sensitive",
+        {
+          input: () => ({ ref: refForDoc(slugs, docHandle), sensitive: false }),
+        },
+      ],
+      [
         "add_section",
         {
           input: () => ({
