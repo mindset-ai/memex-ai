@@ -44,6 +44,10 @@ describe('SensitiveBanner (spec-535 t-7)', () => {
 
   it('ac-18: it does not depend on colour alone — the word is in the text', () => {
     tagAc(AC(18));
+    // ac-5 spans both surfaces: this is its WEB half — the warning reads as a
+    // warning without any styling. Its MCP half (not another `Key: value` line
+    // in the header) is pinned in spec-535-closeout.regression.test.ts.
+    tagAc(AC(5));
     render(<SensitiveBanner contactName="Robin" />);
 
     // Strip every class and the meaning must survive. This is the check that
