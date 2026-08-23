@@ -236,6 +236,10 @@ export function formatFullDocState(
         ? SENSITIVE_WARNING_PROSE.contact(doc.sensitiveByName)
         : SENSITIVE_WARNING_PROSE.contactUnknown,
     );
+    // dec-7: the discharge condition rides with the ask. A stop-and-ask with no
+    // stated end reads as "ask before every edit", which the operator learns to
+    // wave through — that destroys the signal faster than ignoring it would.
+    lines.push(SENSITIVE_WARNING_PROSE.scope);
     lines.push(SENSITIVE_WARNING_PROSE.advisory);
     lines.push(SENSITIVE_WARNING_PROSE.rule);
   }

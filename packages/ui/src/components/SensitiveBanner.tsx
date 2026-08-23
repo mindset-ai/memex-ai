@@ -33,20 +33,35 @@ export function SensitiveBanner({ contactName }: { contactName: string | null })
             behind "does not depend on colour alone", where a coloured border
             alone conveys nothing to someone who cannot see it. */}
         <span className="font-medium text-heading">Sensitive — </span>
+        {/* dec-7, from issue-4: the old copy said "Contact X before you change
+            anything here", which a reader with no channel to X cannot do — and an
+            unsatisfiable instruction is one that gets rationalised away. The ask
+            now names the action that IS available, and the contact rides along as
+            someone to relay to. The MCP block says the same thing (ac-24): one
+            signal, two surfaces, one contract. */}
         {contactName ? (
           <>
-            delicate or complex. Contact{' '}
-            <span className="font-medium text-heading">{contactName}</span> before you
-            change anything here.
+            before your first change here, stop and ask the person you are working with
+            to confirm — and tell them to contact{' '}
+            <span className="font-medium text-heading">{contactName}</span>.
           </>
         ) : (
           // Provenance can be absent (an unattributed write). Still warn: going
-          // silent here would drop the signal exactly when attribution failed.
-          <>delicate or complex. Ask the org before you change anything here.</>
+          // silent here would drop the signal exactly when attribution failed —
+          // and never name nobody as if it were somebody.
+          <>
+            before your first change here, stop and ask the person you are working with
+            to confirm — nobody is recorded as the contact, so ask the org who owns this.
+          </>
         )}{' '}
-        {/* ac-3 is a promise the reader has to be able to act on. Without this
-            line the honest reading of a warning banner is "do not proceed",
-            which is the opposite of what this flag means. */}
+        {/* The discharge condition. Without it this reads as "ask before every
+            edit", which the operator learns to wave through — and a waved-through
+            warning is worth less than no warning. */}
+        <span className="text-secondary">One confirmation covers this session.</span>{' '}
+        {/* ac-3 is a promise the reader has to be able to act on, and a firmer ask
+            makes it MORE load-bearing: without it the honest reading of a
+            stop-and-ask is "you may not proceed", which is the opposite of what
+            this flag means. */}
         <span className="text-secondary">
           This is advisory: it blocks nothing, and every action still works.
         </span>
