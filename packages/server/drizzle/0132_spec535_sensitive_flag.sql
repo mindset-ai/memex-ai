@@ -1,0 +1,77 @@
+-- spec-535 t-1 (ac-6) — the sensitivity flag on documents.
+--
+-- WHAT THIS RECORDS, AND WHY IT NEEDS A COLUMN AT ALL (dec-1). Three relations
+-- already answer "who is on this Spec": checked_out_by (the durable single-holder
+-- checkout, spec-371), doc_assignees (ticket-style assignment, spec-118), and
+-- doc_members (the editor/reviewer capability layer). NONE of them answers "is
+-- this dangerous to touch", and that fact is not derivable from any of them: a
+-- Spec can be sensitive with nobody holding it, and a held Spec is usually
+-- perfectly ordinary. That gap is what these columns fill.
+--
+-- NOT A TAG, deliberately. document_tags exists, TagPicker exists, and
+-- formatTagStrip already renders tags in the MCP header — so a `sensitivity::high`
+-- tag would have been free. It was rejected on TRUSTWORTHINESS, not cost: tags are
+-- a user-extensible {scope,value} vocabulary (spec-136 dec-1/dec-2) built for
+-- indexed filtering, and nothing prevents `sensitivity::High` / `sensitive` /
+-- `Sensible` coexisting (spec-420 is open on exactly that casing collision). A
+-- value the server cannot trust is a value from which it cannot render a
+-- GUARANTEED warning, and the guaranteed warning is the whole point (ac-2).
+--
+-- NO REASON COLUMN, deliberately (ac-7). The owner ruled out a free-text
+-- explanation. Two arguments, the first decisive: this Memex is published publicly
+-- read-only, so a field inviting "why is this Spec dangerous" is a leak surface by
+-- construction — the natural sentence names a customer, a person, or an internal
+-- system, which is what std-31 exists to keep out. Second, a stale reason
+-- misleads worse than a bare flag under-informs. What carries the load instead is
+-- sensitive_by_user_id: the block says WHO TO CONTACT, which is an action.
+--
+-- NO steward_user_id either (dec-2). Whoever raised the flag IS the contact. A
+-- separate steward field would be the "fourth concept" spec-506 dec-4 explicitly
+-- names the risk of, and spec-506 is an open Spec held by someone else — creating
+-- it here would pre-empt their unresolved question.
+--
+-- sensitive_by_name is the DENORMALISED display snapshot stamped at write per
+-- std-32, so a later rename or user deletion can never rewrite historical
+-- attribution. Like the grounded_by_* pair added to this same table by 0112 and
+-- the archived_by_* pair by 0131, the provenance user id carries NO FK — same
+-- shape, same reasoning, no new pattern.
+--
+-- std-39 — the cost reasoning, recorded at design time rather than discovered in
+-- production:
+--   * LOCKS / REWRITE. `sensitive` is NOT NULL with a CONSTANT default, which since
+--     PG 11 is stored as a catalogue attmissingval rather than written to every
+--     row — so this is a metadata-only change with no table rewrite, exactly like
+--     the nullable columns in 0131, and the ACCESS EXCLUSIVE lock is held only for
+--     the catalogue update. (This is the one nuance worth stating: pre-PG-11 the
+--     same statement WOULD have rewritten the table.) The other two columns are
+--     nullable with no default, unambiguously catalogue-only. There is no backfill
+--     UPDATE: every existing row is correctly "not sensitive" with sensitive=false
+--     and both provenance columns NULL. Nothing to order against the live write
+--     path, so no lock_timeout / lock-ordering hazard (cl-2, cl-3) applies — this
+--     touches ONE table, so the two-table cycle that bit 0111 cannot occur.
+--   * GROWTH (cl-4, cl-23). Per-DOCUMENT columns, not a per-event table. No row
+--     accrual, so no retention or aging policy is owed.
+--   * NO INDEX, and that is a decision rather than an omission (cl-18, cl-19).
+--     Nothing queries "all sensitive Specs": the flag is read on the doc-read path
+--     for a Spec already resolved by id, so it is answered by the row we have
+--     already fetched. Filtering and saved views over the flag are explicitly out
+--     of scope (dec-4). An index here would cost writes and serve no query. If a
+--     "Specs I flagged" surface is ever built, THAT Spec adds the index with a
+--     query to justify it.
+--
+-- std-36 — new columns on an RLS-enabled table. `documents` already carries its
+-- memex_id isolation policy (ENABLE since 0081, FORCE removed in 0093), and a
+-- policy covers every column of its table, so NO new or altered policy is needed
+-- and none is added here.
+--
+-- REVERSIBLE by a plain DROP COLUMN on all three. No view, index, constraint or
+-- RLS policy references them, so nothing downstream needs re-granting.
+--
+-- Idempotent (IF NOT EXISTS): the hand-migration runner wraps each file in a
+-- transaction and tracks it in manual_migrations; the guards let a retry re-apply
+-- cleanly if a prior run committed the DDL but not the tracking row.
+
+ALTER TABLE documents
+  ADD COLUMN IF NOT EXISTS sensitive boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS sensitive_by_user_id uuid,
+  ADD COLUMN IF NOT EXISTS sensitive_by_name text;

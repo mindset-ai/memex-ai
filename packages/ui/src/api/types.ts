@@ -232,6 +232,18 @@ export interface Doc {
   groundedByName?: string | null;
   groundedStale?: boolean;
   /**
+   * spec-535 — the sensitivity flag + who to contact. `sensitive` is the
+   * persisted boolean; `sensitiveByName` is the display snapshot denormalised at
+   * write (std-32), so a rename cannot rewrite it. Whoever raised the flag IS the
+   * contact (dec-2) — there is no separate steward field, and no reason field
+   * (dec-1: this Memex is public read-only). Two surfaces read these: the byline
+   * control that sets them (write access only) and the title banner that warns
+   * (everyone). Optional so pre-spec-535 fixtures building a bare `Doc` keep
+   * type-checking; a missing value means not flagged.
+   */
+  sensitive?: boolean;
+  sensitiveByName?: string | null;
+  /**
    * spec-448 t-1 (document versioning): the doc's current (uncut) working
    * version — starts at 1 and is bumped by the versioning service whenever a
    * version is cut (createVersion) or restored (rollbackVersion). Optional

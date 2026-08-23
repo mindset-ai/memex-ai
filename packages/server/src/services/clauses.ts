@@ -25,7 +25,16 @@ import { resolveActorColumns } from "./actor.js";
 import { composeSectionContent, splitSectionIntoClauses } from "./clause-composition.js";
 import { embedAndStoreSection } from "./memex-embeddings.js";
 import { syncClauseRefsTx } from "./clause-refs.js";
-import { validateClauseFacetsBatch, persistClauseFacets } from "./facet-vocab.js";
+import {
+  collectClauseFacetProblems,
+  facetProblemLines,
+  persistClauseFacets,
+  reHandClause,
+} from "./facet-vocab.js";
+// spec-514 dec-1: addSectionWithClauses owns the validate-before-create ordering, so the
+// bulk clause path needs the section primitive. No cycle — sections.ts does not import
+// this module (clauses.ts carries its own loadOwnedSection).
+import { addSection } from "./sections.js";
 
 const CLAUSE_SEQ_CONSTRAINT = "standard_clauses_doc_seq_unique";
 
@@ -334,6 +343,127 @@ export interface BulkClauseInput {
 }
 
 /**
+ * spec-514 — the ONE validation entry point for a bulk clause batch. Every way a batch can
+ * be rejected is decided here, before any caller writes anything, so atomicity is a
+ * property of the operation rather than of each call site remembering to check first.
+ *
+ * Two rejections, both naming the offending clause by its **1-based position in the
+ * caller's own array** (dec-2):
+ *   • a whitespace-only body — this replaces a silent `filter`, which used to drop the
+ *     clause and hand the caller four clauses when it asked for five (the loss only
+ *     surfaced on the caller's next `get_doc`);
+ *   • an absent or unknown facet verdict — collected by collectClauseFacetProblems, which
+ *     tags each fault with the same positions for the same reason.
+ *
+ * Positions are the caller's ORIGINAL indices because nothing is filtered out: the array
+ * index IS the position. That is deliberate rather than incidental — the moment a filter
+ * sits between the caller's array and the validated one, every position after a dropped
+ * clause is off by one and the message points at the wrong clause (the exact failure ac-12
+ * guards against).
+ *
+ * Returns the resolved facet ids per clause, or null-per-clause on a Memex with no facet
+ * vocabulary (no verdict required, nothing to persist).
+ */
+async function validateClauseBatch(
+  memexId: string,
+  clauses: BulkClauseInput[],
+): Promise<(string[] | null)[]> {
+  if (clauses.length === 0) {
+    throw new ValidationError("At least one non-empty clause is required.");
+  }
+
+  // Both classes of fault are collected before anything is thrown, and reported together.
+  // Throwing on the empty bodies first would be simpler and wrong: a batch with a blank
+  // clause AND an under-counted ballot would only ever report the blank one, so the
+  // caller fixes it, resends, and discovers the second fault on the next round trip. It
+  // would also make the off-by-one guard unobservable — the whole point of reporting a
+  // verdict's ORIGINAL position is that you can see it in the presence of a dropped
+  // clause earlier in the array.
+  const empty = clauses
+    .map((c, i) => ((c.body ?? "").trim().length === 0 ? i + 1 : 0))
+    .filter((pos) => pos > 0);
+
+  const problems = await collectClauseFacetProblems(
+    memexId,
+    clauses.map((c) => c.facets),
+  );
+
+  const lines: string[] = [];
+  if (empty.length > 0) {
+    lines.push(
+      `${empty.length === 1 ? "Clause" : "Clauses"} ${empty.join(", ")} ${
+        empty.length === 1 ? "has" : "have"
+      } an empty body. Every clause states one aspect of the rule as text; fill the blank ` +
+        `entries in or drop them, then resend the whole section.`,
+    );
+  }
+  lines.push(...facetProblemLines(problems));
+
+  if (lines.length > 0) {
+    // Re-hand the vocabulary only where there IS one — a vocab-less Memex has no verdict
+    // to offer advice about, and the facet boilerplate would be noise on a blank-body
+    // rejection.
+    const message = lines.join(" ");
+    throw new ValidationError(
+      problems.vocab.length > 0 ? reHandClause(problems.vocab, message) : message,
+    );
+  }
+
+  return problems.resolved;
+}
+
+/**
+ * Create a standard section AND author its clauses, in that order, with the whole batch
+ * validated first (spec-514 dec-1).
+ *
+ * This exists because `add_section` in clauses mode is two mutations, and the handler used
+ * to sequence them itself: section first, ballot validated second. A rejected ballot
+ * therefore threw with the section already committed, leaving an orphaned empty section —
+ * and the retry an agent would naturally make (same sectionType, ballot corrected) then
+ * collided on the (docId, sectionType) uniqueness, whose error advises renaming the
+ * section type. On a standard, where `scope` / `rule` / `rationale` are meaningful keys,
+ * taking that advice produces a mis-keyed section. Validating up front removes the whole
+ * chain: no row is written, so there is nothing to collide with and nothing to emit.
+ *
+ * The ordering lives HERE, in the service, not in the handler. The hazard was already
+ * known and already guarded once — at the seeder's call site (`default-standards.ts`) —
+ * which is precisely why the agent-facing handler never inherited it. Fixing the second
+ * call site the same way would have left the third for the next caller to discover.
+ *
+ * Deliberately NOT one transaction. Each primitive keeps its own `mutate()` so the
+ * per-mutation bus emission stays structural [per std-8 cl-53/cl-54] — merging them would
+ * collapse two events into one and quietly change what real-time subscribers observe — and
+ * each keeps opening a short transaction and releasing the connection between calls, which
+ * is what stops concurrent detached seeds accumulating held pool connections (the reason
+ * recorded in `default-standards.ts`). Correct ordering buys everything atomicity would
+ * have bought for these failure modes, at none of that cost.
+ *
+ * What it does NOT cover: a failure partway through the post-commit facet-tag loop inside
+ * `addClausesToSection` still leaves clauses partially tagged. That is a durability
+ * question about writes which are each individually correct, not an ordering mistake, and
+ * it is deliberately out of scope (dec-3, carried as spec-514 issue-1).
+ */
+export async function addSectionWithClauses(
+  memexId: string,
+  docId: string,
+  sectionType: string,
+  clauses: BulkClauseInput[],
+  title?: string,
+  description?: string,
+  ctx: RequestCtx = {},
+): Promise<{ section: Mutated<DocSection>; clauses: Mutated<StandardClause[]> }> {
+  // Before anything is written. addClausesToSection validates again when it runs — it has
+  // standalone callers and must stay self-guarding — so the vocabulary is loaded twice on
+  // the success path. That is one extra indexed SELECT, traded for a primitive that cannot
+  // be called unsafely.
+  await validateClauseBatch(memexId, clauses);
+
+  const section = await addSection(memexId, docId, sectionType, "", title, description, ctx);
+  const created = await addClausesToSection(memexId, section.id, clauses, ctx);
+  return { section, clauses: created };
+}
+
+/**
  * Append a batch of clauses to a section in one transaction, then regenerate content.
  * Used when a standard section is authored clause-first (add_section with clauses[]):
  * one section-created event has already fired; this emits one clause-created per body
@@ -343,6 +473,11 @@ export interface BulkClauseInput {
  * spec-437 dec-1: every clause carries a facet verdict, validated BEFORE any row is
  * created (so a rejected verdict leaves no orphan clauses) and persisted after — closing
  * the bulk-path hole that let add_section / the seeder mint ballotless clauses.
+ *
+ * spec-514 dec-1: this primitive keeps validating its own input, so it stays safe to call
+ * standalone — but a caller that also needs the SECTION created should use
+ * `addSectionWithClauses`, which validates before the section row exists. Validating here
+ * only is what left an orphaned empty section behind.
  */
 export async function addClausesToSection(
   memexId: string,
@@ -351,22 +486,13 @@ export async function addClausesToSection(
   ctx: RequestCtx = {},
 ): Promise<Mutated<StandardClause[]>> {
   const section = await loadOwnedSection(memexId, sectionId);
-  const clean = clauses.filter((c) => (c.body ?? "").trim().length > 0);
-  if (clean.length === 0) {
-    throw new ValidationError("At least one non-empty clause is required.");
-  }
-
-  // spec-437 dec-1: validate every verdict up front, with ONE vocab load (not one query
-  // per clause). Throws on an absent-where-required or unknown-key verdict; returns
-  // null-per-clause when the Memex has no vocabulary (no verdict required, nothing to
-  // persist).
-  const facetIdsPerClause = await validateClauseFacetsBatch(
-    memexId,
-    clean.map((c) => c.facets),
-  );
+  // spec-514 dec-1/dec-2: ONE validation entry point, ahead of every write. It replaces
+  // the `clean` filter that used to drop a whitespace-only body silently — the caller
+  // asked for five clauses and got four with no signal.
+  const facetIdsPerClause = await validateClauseBatch(memexId, clauses);
 
   const keys = [
-    ...clean.map(() => ({
+    ...clauses.map(() => ({
       memexId,
       docId: section.docId,
       entity: "clause" as const,
@@ -382,7 +508,7 @@ export async function addClausesToSection(
       let seq = await maxClauseSeqTx(tx, section.docId);
       let pos = await maxPositionTx(tx, sectionId);
       const rows: StandardClause[] = [];
-      for (const c of clean) {
+      for (const c of clauses) {
         seq++;
         pos++;
         const [row] = await tx

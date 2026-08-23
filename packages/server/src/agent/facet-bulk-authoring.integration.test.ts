@@ -98,7 +98,9 @@ describe("add_section bulk path enforces the facet ballot (spec-437 dec-1)", () 
         { ref: docRef, sectionType: "rule2", clauses: ["a rule"], clauseFacets: [["made-up"]] },
         userId,
       ),
-    ).rejects.toThrow(/Unknown facet key/);
+      // spec-514 dec-2 widened this message: the bulk path now names the offending
+      // clause by its 1-based position, so the agent knows WHICH verdict to fix.
+    ).rejects.toThrow(/Clause 1 names unknown facet key/);
   });
 
   it("accepts per-clause verdicts and persists them; [] is the governs-nothing marker (ac-5, ac-6)", async () => {

@@ -1275,6 +1275,112 @@ export async function groundSpec(
   );
 }
 
+// spec-535 (dec-1/dec-2) — mark a Spec as sensitive: delicate or complex, so
+// talk to someone before changing it. Advisory ONLY — it refuses nothing, from
+// any channel (ac-3); what it buys is that a reader (or an agent about to edit)
+// sees the warning before it starts, the same purpose the `Checked out by:`
+// line already serves on the MCP read surface.
+//
+// Deliberately NOT channel-guarded, and that is the one thing NOT to copy from
+// `groundSpec` above. Grounding is meaningful only over MCP with the repo in
+// hand, so it rejects every other channel. This flag is the opposite: its
+// primary setter is the web byline (dec-4), so `rest_ui` and `mcp` are both
+// first-class and no guard belongs here.
+//
+// WHO rides the activity contract via resolveActorColumns (std-32): the id is
+// the live join key AND the contact (dec-2 — whoever raised the flag is who to
+// ask, so there is no separate steward field), and the name is denormalised at
+// write so a later rename cannot rewrite history. The write goes through
+// mutate() with the threaded RequestCtx, so it emits document/updated on the bus
+// → activity_log (std-8).
+//
+// There is no `reason` parameter, and that is a decision rather than an
+// oversight (ac-7): this Memex is published publicly read-only, so a free-text
+// "why is this dangerous" field is a leak surface (std-31), and a stale reason
+// misleads worse than a bare flag under-informs.
+//
+// A ctx with no channel is NOT rejected here. `services/actor.ts` is explicit
+// that attribution must never break a write; the loud half is spec-122 ac-21's
+// `flagAttributionDefect`, which counts and logs the offending call site at the
+// sink. Throwing would contradict that contract, not strengthen it.
+export async function setSensitive(
+  memexId: string,
+  id: string,
+  ctx: RequestCtx,
+): Promise<Mutated<Doc>> {
+  const doc = await db.query.documents.findFirst({
+    where: and(eq(documents.id, id), eq(documents.memexId, memexId)),
+  });
+  if (!doc) {
+    throw new NotFoundError(`Document ${id} not found`);
+  }
+  const actor = await resolveActorColumns(ctx);
+
+  return mutate(
+    ctx,
+    {
+      memexId,
+      docId: id,
+      entity: "document",
+      action: "updated",
+      narrative: `flagged ${doc.handle} as sensitive`,
+      payload: { sensitive: true },
+    },
+    async () => {
+      const [updated] = await db
+        .update(documents)
+        .set({
+          sensitive: true,
+          // Re-flagging moves the contact to the most recent flagger — the
+          // provenance answers "who to ask now", not "who first noticed".
+          sensitiveByUserId: actor.actorUserId,
+          sensitiveByName: actor.actorName,
+        })
+        .where(and(eq(documents.id, id), eq(documents.memexId, memexId)))
+        .returning();
+      return updated;
+    },
+  );
+}
+
+// spec-535 (ac-9) — clear the flag. Nulls the provenance alongside it, so a Spec
+// that was once flagged carries no stale attribution: a lingering name on an
+// unflagged Spec would point a reader at someone who is no longer the contact
+// for anything, which is the same class of misleading-residue defect spec-506
+// documents for accreting editor rows.
+export async function clearSensitive(
+  memexId: string,
+  id: string,
+  ctx: RequestCtx,
+): Promise<Mutated<Doc>> {
+  const doc = await db.query.documents.findFirst({
+    where: and(eq(documents.id, id), eq(documents.memexId, memexId)),
+  });
+  if (!doc) {
+    throw new NotFoundError(`Document ${id} not found`);
+  }
+
+  return mutate(
+    ctx,
+    {
+      memexId,
+      docId: id,
+      entity: "document",
+      action: "updated",
+      narrative: `cleared the sensitive flag on ${doc.handle}`,
+      payload: { sensitive: false },
+    },
+    async () => {
+      const [updated] = await db
+        .update(documents)
+        .set({ sensitive: false, sensitiveByUserId: null, sensitiveByName: null })
+        .where(and(eq(documents.id, id), eq(documents.memexId, memexId)))
+        .returning();
+      return updated;
+    },
+  );
+}
+
 // spec-409 (dec-4) — read-time staleness. A grounded Spec is "stale" when a
 // decision or AC has changed since it was grounded, so the badge stops claiming a
 // state that drift has invalidated (std-20). Computed, never persisted — the flag

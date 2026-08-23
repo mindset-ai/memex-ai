@@ -13,6 +13,8 @@ import {
   getDoc,
   updateDocStatus,
   groundSpec,
+  setSensitive,
+  clearSensitive,
 } from "../../services/documents.js";
 import {
   supersedeSpec,
@@ -298,6 +300,77 @@ export const lifecycleTools: ToolSpec[] = [
       const freshRef = buildDocRef(slugs, fresh);
       const by = fresh.groundedByName ? ` by ${fresh.groundedByName}` : "";
       return `Spec ref: ${freshRef} marked code-grounded${by} at ${fresh.groundedAt?.toISOString() ?? "now"}.`;
+    },
+  },
+
+  {
+    // spec-535 (dec-1/dec-2/dec-6) — mark a Spec sensitive: delicate or complex,
+    // so talk to someone before changing it.
+    //
+    // ONE tool with a boolean rather than a flag/unflag pair — the surface is
+    // already large and the direction of travel is fewer verbs, not more.
+    //
+    // Unlike `ground_spec` above, this is NOT channel-restricted: grounding is
+    // meaningful only with the repo in hand, whereas this flag's primary setter
+    // is the web byline (dec-4), so every channel may set it.
+    //
+    // No `reason` argument, deliberately (ac-7, dec-1). This Memex is published
+    // publicly read-only, and a free-text "why is this dangerous" field is a leak
+    // surface by construction (std-31); a stale reason also misleads worse than a
+    // bare flag under-informs. Whoever sets the flag IS the contact (dec-2), so
+    // there is no person to pick either.
+    //
+    // Deliberately absent from GATED_SPEC_TOOLS — see the note at the exclusion
+    // site in services/checkout-gate.ts for why (dec-6).
+    name: "set_sensitive",
+    annotations: { title: "Flag Spec as sensitive", readOnlyHint: false, destructiveHint: false },
+    description:
+      "Mark a Spec as **sensitive** — delicate or complex enough that someone should be contacted before it is changed — or clear that mark. " +
+      "Advisory only: it blocks nothing, on any surface. A flagged Spec stays fully readable and writable; the flag exists so a reader (or an agent about to edit) sees the warning first. " +
+      "Whoever sets it becomes the person to contact, so there is nobody to nominate, and there is no field for a reason. " +
+      "Pass `sensitive: false` to clear it, which also clears who flagged it.",
+    schema: {
+      ref: z
+        .string()
+        .describe("Canonical ref to the Spec, e.g. `mindset/main/specs/spec-3`."),
+      sensitive: z
+        .boolean()
+        .describe(
+          "true to flag the Spec as sensitive (you become the contact), false to clear the flag and its attribution.",
+        ),
+      verbose: VERBOSE_FIELD,
+    },
+    async handler(input, ctx) {
+      const ref = input.ref as string;
+      const wanted = input.sensitive as boolean;
+
+      const resolved = await resolveRefArg(ctx, ref);
+      if (!isDocLikeKind(resolved.entity.kind)) {
+        throw new ValidationError(
+          `set_sensitive expects a doc-level ref; got ${resolved.entity.kind}.`,
+        );
+      }
+      const { memexId, slugs } = resolved;
+      const doc = await loadSpec(memexId, resolved.doc.id);
+
+      if (wanted) {
+        await setSensitive(memexId, doc.id, reqCtx(ctx));
+      } else {
+        await clearSensitive(memexId, doc.id, reqCtx(ctx));
+      }
+
+      if (ctx.verbose) {
+        const state = await fullDocState(memexId, doc.id);
+        const url = await ctx.workspaceUrl(memexId);
+        return await formatState(url, state, ctx);
+      }
+      const fresh = await getDoc(memexId, doc.id);
+      const freshRef = buildDocRef(slugs, fresh);
+      if (!fresh.sensitive) {
+        return `Spec ref: ${freshRef} is no longer flagged as sensitive.`;
+      }
+      const by = fresh.sensitiveByName ? ` Contact ${fresh.sensitiveByName} before changing it.` : "";
+      return `Spec ref: ${freshRef} flagged as sensitive.${by} This blocks nothing — it is a warning, not a lock.`;
     },
   },
 

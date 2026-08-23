@@ -377,6 +377,18 @@ export const toolManifest: ToolManifestEntry[] = [
     homePhase: null,
   },
   {
+    // spec-535 dec-6. homePhase: null — a Spec can become delicate at any point in
+    // its life, so the flag is not phase-bound. Also deliberately absent from
+    // GATED_SPEC_TOOLS (see the note at the exclusion site in checkout-gate.ts).
+    name: 'set_sensitive',
+    summary:
+      'Flag a Spec as sensitive (contact someone before changing it) or clear the flag. Advisory only — blocks nothing; whoever sets it becomes the contact, and there is no reason field.',
+    args: 'set_sensitive(ref, sensitive)',
+    group: 'planning',
+    readOnlyHint: false,
+    homePhase: null,
+  },
+  {
     // spec-521 dec-5. homePhase: null — supersession is not phase-bound; a Spec can
     // be superseded at any point in its life, including after it is done.
     name: 'supersede_spec',
