@@ -86,3 +86,57 @@ describe('SensitiveBanner (spec-535 t-7)', () => {
     expect(screen.getByTestId('sensitive-banner')).toBeInTheDocument();
   });
 });
+
+// ── spec-535 dec-7 — the web half of the reworded ask ──────────────────────
+//
+// dec-4's argument was that one signal cannot say two different things on two
+// surfaces. The MCP block now asks the reader to stop and ask their operator,
+// names the trigger, and bounds the discharge; the banner has to carry the same
+// contract or the split dec-4 rejected comes back through the copy.
+describe('SensitiveBanner — dec-7 contract (spec-535)', () => {
+  const AC7 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-535/acs/ac-${n}`;
+
+  it('ac-22: asks the reader to stop and ask, with the contact as a relay', () => {
+    tagAc(AC7(22));
+    render(<SensitiveBanner contactName="Robin" />);
+    const text = (screen.getByTestId('sensitive-banner').textContent ?? '').toLowerCase();
+
+    expect(text).toMatch(/stop and ask/);
+    expect(text).toMatch(/person you are working with/);
+    expect(text).toMatch(/tell them to contact robin/);
+  });
+
+  it('ac-23: names the trigger and the discharge', () => {
+    tagAc(AC7(23));
+    render(<SensitiveBanner contactName="Robin" />);
+    const text = (screen.getByTestId('sensitive-banner').textContent ?? '').toLowerCase();
+
+    expect(text).toMatch(/first change/);
+    expect(text).toMatch(/one confirmation|covers this session/);
+  });
+
+  it('ac-24: says the same thing as the MCP block, and still says it blocks nothing', () => {
+    tagAc(AC7(24));
+    render(<SensitiveBanner contactName="Robin" />);
+    const text = (screen.getByTestId('sensitive-banner').textContent ?? '').toLowerCase();
+
+    // The shared contract, asserted on this surface too — that is what stops the
+    // two surfaces drifting into saying different things about one flag.
+    expect(text).toMatch(/stop and ask/);
+    expect(text).toMatch(/one confirmation|covers this session/);
+    expect(text).toMatch(/blocks nothing/);
+    // std-1: banned in user-visible copy, and it already cost this Spec one fix.
+    expect(text).not.toMatch(/\bteam\b/);
+  });
+
+  it('ac-23: with no contact recorded the ask and the scope survive', () => {
+    tagAc(AC7(23));
+    render(<SensitiveBanner contactName={null} />);
+    const text = (screen.getByTestId('sensitive-banner').textContent ?? '').toLowerCase();
+
+    expect(text).toMatch(/stop and ask/);
+    expect(text).toMatch(/one confirmation|covers this session/);
+    expect(text).not.toContain('null');
+    expect(text).not.toContain('undefined');
+  });
+});

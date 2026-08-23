@@ -2505,13 +2505,40 @@ export const SENSITIVE_WARNING_PROSE = {
   /** Top and bottom rule — what makes it a block rather than another header line. */
   rule: '⚠ ─────────────────────────────────────────────────────────────',
   /** What the flag means, in the words the person setting it would use. */
-  heading: '⚠  SENSITIVE — delicate or complex, so talk to someone first.',
-  /** The action, when the flag carries provenance. */
-  contact: (name: string): string => `⚠  Contact ${name} before you change anything here.`,
-  /** The action when provenance is absent (an unattributed write). Still warns —
-   *  degrading to silence would drop the signal exactly when attribution failed. */
-  contactUnknown: '⚠  Whoever flagged it was not recorded — ask the org before changing anything here.',
-  /** The non-blocking promise, stated where it is read (ac-3). */
+  heading: '⚠  SENSITIVE — someone should be spoken to before this changes.',
+  /**
+   * The action, when the flag carries provenance.
+   *
+   * dec-7, from issue-4: the first field report found an agent that SAW this
+   * block, relayed it, and then proceeded anyway — discharging the obligation
+   * with an argument it itself called circular. The old copy said "Contact
+   * {name} before you change anything here", which a reader with no channel to
+   * {name} CANNOT DO. An unsatisfiable instruction makes rationalising it away
+   * the path of least resistance.
+   *
+   * So the ask now names the action that is actually available — stop and ask
+   * the operator — and the contact rides along as someone to RELAY to. This does
+   * not make the flag obeyed (it is advisory by design, ac-3); it removes the
+   * honest path to non-compliance.
+   */
+  contact: (name: string): string =>
+    `⚠  Before your first change here, stop and ask the person you are working with to confirm — and tell them to contact ${name}.`,
+  /** Same ask when provenance is absent (an unattributed write). Still warns —
+   *  degrading to silence would drop the signal exactly when attribution failed —
+   *  and must not name nobody as if it were somebody. "org", never "team" (std-1). */
+  contactUnknown:
+    '⚠  Before your first change here, stop and ask the person you are working with to confirm — nobody is recorded as the contact, so ask the org who owns this.',
+  /**
+   * The discharge condition (dec-7). Without it the copy either reads as
+   * "ask before every edit" — which trains the operator to wave it through, and
+   * destroys the signal faster than ignoring it would — or leaves the scope
+   * undefined, which is precisely what the reporting agent resolved in its own
+   * favour.
+   */
+  scope: '⚠  One confirmation covers this session.',
+  /** The non-blocking promise, stated where it is read (ac-3). A firmer ask makes
+   *  this MORE load-bearing, not less: without it the honest reading of a
+   *  stop-and-ask instruction is "you may not proceed", which is not what this means. */
   advisory: '⚠  Advisory only: this blocks nothing. Every read and write still works.',
 };
 

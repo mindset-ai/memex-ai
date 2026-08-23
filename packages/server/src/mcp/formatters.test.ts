@@ -883,3 +883,87 @@ describe("spec-535: the sensitivity warning block", () => {
     ).toEqual([]);
   });
 });
+
+// ── spec-535 dec-7: the warning asks for something its reader can do ───────
+//
+// issue-4, the first field report after ship: an agent SAW the block, understood
+// it, relayed it upward — then coded anyway, discharging the obligation with an
+// argument it later called circular. dec-3 had designed against the spec-240
+// failure (a warning skimmed past); that is not what happened, so louder copy
+// was never the fix.
+//
+// The defect was that "Contact X before you change anything here" is
+// unsatisfiable by a reader with no channel to X. These tests pin the three
+// properties dec-7 requires, deliberately as PROPERTIES rather than exact
+// strings — the wording may still improve, the contract may not silently rot.
+describe("spec-535 dec-7: the warning is actionable and bounded", () => {
+  const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-535/acs/ac-${n}`;
+
+  const block = (name: string | null = "Robin") =>
+    formatters
+      .formatFullDocState(
+        { ...makeDoc({ sensitive: true, sensitiveByName: name, sensitiveByUserId: "u-1" }), sections: [] },
+        [],
+        [],
+      )
+      .split("\n")
+      .filter((l) => l.includes("⚠"))
+      .join("\n");
+
+  it("ac-22: it asks the reader to stop and ask their operator — an action they can perform", () => {
+    tagAc(AC(22));
+    const out = block().toLowerCase();
+
+    // The reachable action. An agent has no channel to a named human; its only
+    // available compliance is to stop and ask whoever is driving it.
+    expect(out).toMatch(/stop and ask/);
+    expect(out).toMatch(/person you are working with/);
+  });
+
+  it("ac-22: the named contact is someone to RELAY to, not an instruction to reach them", () => {
+    tagAc(AC(22));
+    const out = block("Robin");
+
+    expect(out).toContain("Robin");
+    // The name must arrive attached to the relay, not standing alone as the
+    // whole instruction — "tell them to contact Robin", never just "contact Robin".
+    expect(out.toLowerCase()).toMatch(/tell them to contact robin/);
+  });
+
+  it("ac-23: it names the trigger and the discharge, leaving no scope undefined", () => {
+    tagAc(AC(23));
+    const out = block().toLowerCase();
+
+    // WHEN it fires — the first change, not every edit.
+    expect(out).toMatch(/first change/);
+    // WHAT ends it. An undefined discharge is what let the reporting agent
+    // resolve the question in its own favour.
+    expect(out).toMatch(/one confirmation|covers this session/);
+  });
+
+  it("ac-24: it still says it blocks nothing, and stays portable", () => {
+    tagAc(AC(24));
+    const out = block();
+
+    // ac-3's promise has to survive the rewording — a stricter-sounding ask
+    // makes it MORE important to say the flag refuses nothing.
+    expect(out.toLowerCase()).toMatch(/blocks nothing/);
+    // std-22 — renders against arbitrary codebases.
+    expect(out).not.toMatch(/packages\/|src\//);
+    expect(out).not.toMatch(/\bstd-\d+\b/);
+  });
+
+  it("ac-23: with no recorded contact it still names the trigger and the discharge", () => {
+    tagAc(AC(23));
+    const out = block(null).toLowerCase();
+
+    expect(out).toMatch(/stop and ask/);
+    expect(out).toMatch(/first change/);
+    expect(out).toMatch(/one confirmation|covers this session/);
+    // Must not name nobody as if it were somebody.
+    expect(out).not.toContain("null");
+    expect(out).not.toContain("undefined");
+    // std-1: "team" is banned in user-visible copy; the house noun is "org".
+    expect(out).not.toMatch(/\bteam\b/);
+  });
+});
