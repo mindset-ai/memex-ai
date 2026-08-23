@@ -177,6 +177,27 @@ export const documents = pgTable("documents", {
   groundedAt: timestamp("grounded_at", { withTimezone: true }),
   groundedByUserId: uuid("grounded_by_user_id"),
   groundedByName: text("grounded_by_name"),
+  // spec-535 dec-1 — the "sensitive" flag: this Spec is delicate or complex, so
+  // talk to someone before changing it. Advisory ONLY: it refuses nothing, from
+  // any channel (ac-3). It answers a question none of the three "who" relations
+  // can — checked_out_by / doc_assignees / doc_members all say who is ON a Spec,
+  // never whether it is DANGEROUS to touch, and that is not derivable from them.
+  //
+  // A column rather than a tag (dec-1): tags are a user-extensible {scope,value}
+  // vocabulary, and a value the server cannot trust cannot back a guaranteed
+  // warning. Deliberately NO reason column (ac-7) — this Memex is public
+  // read-only and a "why is this dangerous" field is a leak surface (std-31);
+  // a stale reason also misleads worse than a bare flag under-informs.
+  //
+  // sensitive_by_user_id IS the contact (dec-2): whoever raised the flag is who
+  // to ask, so there is no separate steward field — that would be the fourth
+  // "who" concept spec-506 dec-4 has an open question about. Provenance is
+  // stamped at write; sensitive_by_name is the denormalised snapshot per std-32
+  // so a rename can't rewrite history, and like grounded_by_user_id above the
+  // provenance id carries no FK. Clearing the flag nulls all three (ac-9).
+  sensitive: boolean("sensitive").notNull().default(false),
+  sensitiveByUserId: uuid("sensitive_by_user_id"),
+  sensitiveByName: text("sensitive_by_name"),
   // spec-371 rework (dec-5/dec-11/dec-12): the durable, single-holder CHECKOUT
   // record — NOT presence (which is ephemeral and untouched here). One current
   // holder per spec; the gate (dec-11) keys on checked_out_by + checked_out_at.

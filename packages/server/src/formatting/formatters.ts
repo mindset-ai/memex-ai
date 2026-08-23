@@ -19,6 +19,7 @@ import { formatRef } from "../services/refs.js";
 import {
   BASE_SCAFFOLD,
   BUILD_AC_NAG_PROSE,
+  SENSITIVE_WARNING_PROSE,
   GET_PROMPT_PROSE,
   toNudge,
   toHandoffEssence,
@@ -212,6 +213,32 @@ export function formatFullDocState(
   }
   const tagStrip = formatTagStrip(tags);
   if (tagStrip) lines.push(tagStrip);
+  // spec-535 dec-3 — the sensitivity warning, LAST in the header and immediately
+  // before the content, so it is the final thing read before editing starts. The
+  // same intent the `Checked out by:` line above already serves ("so a reader, or
+  // an agent about to edit, sees it before stepping on a colleague"), given a
+  // treatment that cannot be mistaken for metadata.
+  //
+  // Not the guidance footer, deliberately: that renders at the BOTTOM of a long
+  // read, and spec-510 is moving it to "emit once per session, pointer thereafter"
+  // — a cadence under which one Spec's warning could suppress another's.
+  //
+  // Pushed line by line from Scaffold constants (std-15). Do NOT collapse this
+  // into one multi-line template literal: the scaffold drift-guard fails any
+  // markdown-shaped literal of two or more newlines in server/src, and this file
+  // is not on its allowlist.
+  if (doc.sensitive) {
+    lines.push("");
+    lines.push(SENSITIVE_WARNING_PROSE.rule);
+    lines.push(SENSITIVE_WARNING_PROSE.heading);
+    lines.push(
+      doc.sensitiveByName
+        ? SENSITIVE_WARNING_PROSE.contact(doc.sensitiveByName)
+        : SENSITIVE_WARNING_PROSE.contactUnknown,
+    );
+    lines.push(SENSITIVE_WARNING_PROSE.advisory);
+    lines.push(SENSITIVE_WARNING_PROSE.rule);
+  }
   lines.push("");
 
   // Sections

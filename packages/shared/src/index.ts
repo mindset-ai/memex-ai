@@ -77,6 +77,11 @@ export {
   BASE_SCAFFOLD,
   SPEC_SHAPE_MISSING_LENS_WARNING,
   BUILD_AC_NAG_PROSE,
+  // spec-535 dec-3 — the sensitivity warning block's copy, consumed by the MCP
+  // header formatter. Named here because this barrel re-exports explicitly:
+  // adding the const to scaffold-data.ts alone leaves it `undefined` at the
+  // import site, with no build error to say so.
+  SENSITIVE_WARNING_PROSE,
   GET_PROMPT_PROSE,
   // spec-464 dec-24: the phase-gating teaching catalog (prose home, std-15).
   PHASE_GATING_CATALOG,

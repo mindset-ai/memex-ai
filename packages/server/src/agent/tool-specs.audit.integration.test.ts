@@ -1092,6 +1092,17 @@ describe("audit: b-36 D-8 — every terse mutation/list response emits `ref:` an
         },
       ],
       [
+        // spec-535: set_sensitive returns "Spec ref: <canonical> …" on both
+        // branches — entity-acting (document/updated), ref + no raw UUID.
+        // Probed with `sensitive: false`: the fixture doc starts unflagged, so
+        // clearing takes the full write path without leaving a warning block on
+        // top of every later read of the shared fixture (std-37).
+        "set_sensitive",
+        {
+          input: () => ({ ref: docRef(slugs, docHandle), sensitive: false }),
+        },
+      ],
+      [
         "add_section",
         {
           input: () => ({

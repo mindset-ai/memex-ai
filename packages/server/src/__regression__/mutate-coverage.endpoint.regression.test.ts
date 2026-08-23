@@ -86,6 +86,11 @@ const MUTATING_MCP_TOOLS: Record<string, ToolMutation[]> = {
   assess_spec: [{ entity: "document", action: "updated" }],
   // spec-409: ground_spec sets grounded_in_code + provenance → document/updated.
   ground_spec: [{ entity: "document", action: "updated" }],
+  // spec-535 dec-1/dec-2: set_sensitive writes `sensitive` + the provenance pair
+  // on `documents` (or nulls all three when clearing) → document/updated. Through
+  // mutate() per std-8, so the byline control and the title banner both pick the
+  // change up live off the bus rather than on a refresh.
+  set_sensitive: [{ entity: "document", action: "updated" }],
   // spec-521 dec-5: supersede_spec writes the three supersession columns on
   // `documents` (or nulls them when clearing) → document/updated. std-8: it goes
   // through mutate() so the Spec page picks the banner up live off the bus.

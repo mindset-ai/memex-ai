@@ -1132,6 +1132,8 @@ const TOOL_RATIONALES: Record<string, string> = {
     'Transition a Spec out of draft. Refuses already-published Specs; the user owns the phase transition in both directions.',
   ground_spec:
     'Mark a Spec code-grounded after verifying its resolved decisions against current source. MCP-only, requires codebase_present; stamps who/when as a verification badge.',
+  set_sensitive:
+    'spec-535: mark a Spec as delicate or complex so someone is contacted before it changes, or clear that mark. Advisory only — it refuses nothing on any surface; a flagged Spec stays fully readable and writable, and the flag exists so a reader (or an agent about to edit) sees the warning before it starts, which is the same job the checkout line already does. Whoever sets it becomes the contact, so there is nobody to nominate, and there is no reason field: this Memex is published publicly, and a free-text "why is this dangerous" box is a leak surface. Deliberately outside the checkout gate — gating it would mean an agent noticing danger while a colleague works must seize their checkout to post the warning about them.',
   supersede_spec:
     'spec-521: record that a later Spec replaced this one. Non-destructive — content is still served, but every read of the superseded Spec and its children leads with a pointer to the successor, and the successor carries the mirror, so nobody reconciles against intent that has been overtaken. Agent-callable because the agent authoring the successor is the one who knows; archiving is the opposite case (it withholds content) and stays human-only.',
   create_task:
@@ -2481,6 +2483,38 @@ Walk me through this Spec's CANDIDATE decisions — choices an agent extracted t
 // both keep the Spec on the nag, each with its own remediation verb. The nag
 // covers BOTH scope and implementation ACs (dec-4) — the kind split is the
 // caller's concern, not this prose's.
+// spec-535 dec-3 — the sensitivity warning the MCP header carries.
+//
+// Prose lives HERE, not in the formatter (std-15): the formatter consumes these
+// strings and pushes them line by line. That is also what keeps the scaffold
+// drift-guard green — a multi-line markdown-shaped literal anywhere in server/src
+// fails the build, and the formatter is not on its allowlist.
+//
+// Shape rules this copy has to honour, each earned:
+//   * NOT a `Key: value` line. `Sensitive: true` sitting among `Type:` and
+//     `Status:` reads as metadata and gets skimmed — spec-240 dec-1 watched a weak
+//     model do precisely that with a non-blocking warning.
+//   * Says it blocks nothing, right in the warning. ac-3's promise is worthless if
+//     a cautious reader stops anyway; the copy has to tell them not to.
+//   * Portable (std-22). No file path, tool name, framework or Standard handle —
+//     this renders against arbitrary codebases, and the reader may have none of
+//     ours.
+//   * No noun for the document. "Spec" is our vocabulary, and the flag lives on
+//     the shared documents table, so the copy stays neutral about what it is on.
+export const SENSITIVE_WARNING_PROSE = {
+  /** Top and bottom rule — what makes it a block rather than another header line. */
+  rule: '⚠ ─────────────────────────────────────────────────────────────',
+  /** What the flag means, in the words the person setting it would use. */
+  heading: '⚠  SENSITIVE — delicate or complex, so talk to someone first.',
+  /** The action, when the flag carries provenance. */
+  contact: (name: string): string => `⚠  Contact ${name} before you change anything here.`,
+  /** The action when provenance is absent (an unattributed write). Still warns —
+   *  degrading to silence would drop the signal exactly when attribution failed. */
+  contactUnknown: '⚠  Whoever flagged it was not recorded — ask the org before changing anything here.',
+  /** The non-blocking promise, stated where it is read (ac-3). */
+  advisory: '⚠  Advisory only: this blocks nothing. Every read and write still works.',
+};
+
 export const BUILD_AC_NAG_PROSE = {
   /** Heading line. `count` is untested + failing combined. */
   heading: (specHandle: string, count: number): string =>

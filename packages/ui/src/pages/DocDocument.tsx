@@ -62,6 +62,8 @@ import { tenantPath, getCurrentTenant } from '../utils/tenantUrl';
 import { PromptButton } from '../components/PromptButton';
 import { useMemexAccess } from '../hooks/useMemexAccess';
 import { BylineAssignees } from '../components/BylineAssignees';
+import { BylineSensitive } from '../components/BylineSensitive';
+import { SensitiveBanner } from '../components/SensitiveBanner';
 import { useDocRole } from '../hooks/useDocRole';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useOrgScaffoldBlocks } from '../hooks/useOrgScaffoldBlocks';
@@ -1197,6 +1199,22 @@ export function DocDocument() {
               <BylineAssignees docId={doc.id} />
               <span className="opacity-40">&middot;</span>
               <TagPicker docId={doc.id} tags={doc.tags ?? []} onTagsChange={handleTagsChange} />
+              {/* spec-535 dec-4: the SETTER lives here, where the requirement asked
+                  for it. The warning is a banner near the title, not a chip on this
+                  row — everything here is neutral grey metadata, and a danger signal
+                  in that costume is camouflaged by it. The component renders null
+                  without write access, so the separator is gated on canWrite to
+                  avoid an orphan dot (the CodeGroundedBadge convention above). */}
+              {canWrite && (
+                <>
+                  <span className="opacity-40">&middot;</span>
+                  <BylineSensitive
+                    docId={doc.id}
+                    sensitive={doc.sensitive ?? false}
+                    onChange={reloadDoc}
+                  />
+                </>
+              )}
               {/* spec-409 (ac-1): the code-grounded verification badge sits inline
                   with the tags on the byline. Renders only for a grounded Spec
                   (component returns null otherwise), so the separator is gated on
@@ -1260,6 +1278,14 @@ export function DocDocument() {
           act on it. There is no control here to set or clear this state; it is
           recorded exclusively over MCP (dec-4), and no copy suggests otherwise, so no
           std-34 Prompt Button obligation attaches. */}
+      {/* spec-535 dec-4 — the SIGNAL half. Sits with the other near-title banners
+          rather than on the byline: that row is neutral grey metadata, and a
+          danger signal there is camouflaged by it. Rendered for EVERY reader,
+          including read-only visitors — only the setter (BylineSensitive) is
+          gated on write access, never the warning. No std-34 Prompt Button
+          obligation: the flag is settable from this page, so no copy points at an
+          MCP-only step. */}
+      {doc.sensitive && <SensitiveBanner contactName={doc.sensitiveByName ?? null} />}
       {doc.supersededByHandle && (
         <SupersededByBanner
           successorHandle={doc.supersededByHandle}

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
@@ -53,6 +53,9 @@ function makeDoc(overrides: Partial<Doc> = {}): Doc {
     groundedAt: null,
     groundedByUserId: null,
     groundedByName: null,
+    sensitive: false,
+    sensitiveByUserId: null,
+    sensitiveByName: null,
     checkedOutBy: null,
     checkedOutAt: null,
     checkedOutThread: null,
@@ -749,5 +752,134 @@ describe("formatDecision (b-97)", () => {
         [],
       ),
     ).not.toThrow();
+  });
+});
+
+// ── spec-535 t-5: the sensitivity warning block ────────────────────────────
+//
+// dec-3 put this in the MCP HEADER, not the guidance footer, for two reasons the
+// tests below encode: the footer renders at the bottom of a long read (the
+// weakest position for something that must land before editing starts), and
+// spec-510 is rewriting its cadence to "once per session, pointer thereafter" —
+// under which Spec A's warning could be suppressed because Spec B already spent
+// the session's emission. A per-Spec safety warning cannot live on a seat whose
+// rule is "do not repeat yourself".
+describe("spec-535: the sensitivity warning block", () => {
+  const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-535/acs/ac-${n}`;
+
+  const flagged = () =>
+    makeDoc({ sensitive: true, sensitiveByName: "Robin", sensitiveByUserId: "u-1" });
+
+  it("ac-10: renders after the header's key/value lines and before the first section", () => {
+    tagAc(AC(10));
+    const doc = { ...flagged(), sections: [makeSection()] };
+    const out = formatters.formatFullDocState(doc, [], []);
+
+    expect(out).toContain("Robin");
+
+    // Position is the whole point: it must be the last thing read before the
+    // content, not buried after it.
+    const handleAt = out.indexOf("Handle: doc-1");
+    const blockAt = out.indexOf("Robin");
+    const firstSectionAt = out.indexOf("## 1.");
+    expect(blockAt).toBeGreaterThan(handleAt);
+    expect(blockAt).toBeLessThan(firstSectionAt);
+  });
+
+  it("ac-10: it is a distinct block, never another `Key: value` line", () => {
+    tagAc(AC(10));
+    const out = formatters.formatFullDocState({ ...flagged(), sections: [] }, [], []);
+
+    // The failure this guards against is cosmetic-looking and fatal: `Sensitive:
+    // true` sitting among `Type:` and `Status:` reads as metadata and gets
+    // skimmed — spec-240 dec-1 recorded a weak model doing exactly that.
+    expect(out).not.toMatch(/^Sensitive: /m);
+    // A warning spans more than one line and is visually separated.
+    const marked = out.split("\n").filter((l) => l.includes("⚠"));
+    expect(marked.length).toBeGreaterThan(1);
+  });
+
+  it("ac-12: carries the flag, who flagged it, and the action — and stays portable", () => {
+    tagAc(AC(12));
+    const out = formatters.formatFullDocState({ ...flagged(), sections: [] }, [], []);
+
+    expect(out).toContain("Robin");
+    expect(out.toLowerCase()).toContain("contact");
+    // std-22: this renders against arbitrary codebases. No repo paths, no tool
+    // names, no Standard handles in the copy.
+    const block = out.split("\n").filter((l) => l.includes("⚠")).join("\n");
+    expect(block).not.toMatch(/packages\/|src\//);
+    expect(block).not.toMatch(/\bstd-\d+\b/);
+    expect(block).not.toMatch(/vitest|pnpm|set_sensitive/);
+  });
+
+  it("ac-12: says the warning blocks nothing, so a reader does not treat it as a lock", () => {
+    tagAc(AC(12));
+    const out = formatters.formatFullDocState({ ...flagged(), sections: [] }, [], []);
+    // ac-3's promise has to be legible AT the warning, or a cautious agent will
+    // stop when the Spec explicitly does not want it to.
+    expect(out.toLowerCase()).toMatch(/blocks nothing|not a lock|advisory/);
+  });
+
+  it("ac-11: an unflagged doc renders nothing — no block, no orphan delimiter", () => {
+    tagAc(AC(11));
+    const out = formatters.formatFullDocState({ ...makeDoc(), sections: [makeSection()] }, [], []);
+    expect(out).not.toContain("⚠");
+    expect(out).not.toMatch(/sensitive/i);
+  });
+
+  it("ac-11: a flagged doc with no recorded name still warns, naming no one", () => {
+    tagAc(AC(11));
+    const doc = makeDoc({ sensitive: true, sensitiveByName: null, sensitiveByUserId: null });
+    const out = formatters.formatFullDocState({ ...doc, sections: [] }, [], []);
+    // Provenance can be absent (an unattributed write). The warning must still
+    // fire — degrading to silence here would lose the signal exactly when
+    // attribution already failed.
+    expect(out).toContain("⚠");
+    expect(out).not.toContain("null");
+    expect(out).not.toContain("undefined");
+  });
+
+  it("ac-13: the copy lives in the Scaffold and the formatter only consumes it", () => {
+    tagAc(AC(13));
+    const here = dirname(fileURLToPath(import.meta.url));
+    const fmt = readFileSync(resolve(here, "..", "formatting", "formatters.ts"), "utf-8");
+    const scaffold = readFileSync(
+      resolve(here, "..", "..", "..", "shared", "src", "scaffold-data.ts"),
+      "utf-8",
+    );
+
+    // std-15: agent-facing prose has one home, and it is not this formatter.
+    expect(scaffold).toMatch(/SENSITIVE_WARNING_PROSE/);
+    expect(fmt).toMatch(/SENSITIVE_WARNING_PROSE/);
+  });
+
+  it("ac-11: the block cannot reach a terse read — every body render is verbose-gated", () => {
+    tagAc(AC(11));
+    // "Not on terse reads" (dec-3) needed no flag of its own, but the reason is
+    // one level up from where you would first look: `formatFullDocState` is
+    // reached through the `formatState` helper, and the `ctx.verbose` branch sits
+    // at each HANDLER that calls it — not beside the render. So the honest guard
+    // is over every call site, not one of them.
+    const here = dirname(fileURLToPath(import.meta.url));
+    const dir = resolve(here, "..", "agent", "handlers");
+    const files = readdirSync(dir).filter((f) => f.endsWith(".ts") && !f.includes(".test."));
+
+    const ungated: string[] = [];
+    for (const file of files) {
+      const lines = readFileSync(resolve(dir, file), "utf-8").split("\n");
+      lines.forEach((line, i) => {
+        if (!line.includes("formatState(")) return;
+        if (line.includes("function") || line.includes("import")) return;
+        const before = lines.slice(Math.max(0, i - 14), i).join("\n");
+        if (!before.includes("verbose")) ungated.push(`${file}:${i + 1}`);
+      });
+    }
+
+    expect(
+      ungated,
+      `These render the full doc body with no verbose guard above them, so the ` +
+        `sensitivity block would reach a TERSE read — which dec-3 rules out:\n  ${ungated.join("\n  ")}`,
+    ).toEqual([]);
   });
 });
