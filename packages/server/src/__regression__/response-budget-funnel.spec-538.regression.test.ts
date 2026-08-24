@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { formatState } from "../agent/handlers/shared.js";
-import { RESPONSE_BUDGET_CHARS } from "../mcp/response-budget.js";
+import { RESPONSE_BODY_BUDGET_CHARS } from "../mcp/response-budget.js";
 import type { Doc, DocSection } from "../db/schema.js";
 
 const AC = (n: number) =>
@@ -83,7 +83,7 @@ describe("the budget lives at the funnel, so every caller inherits it (ac-15)", 
       tasks: [],
     } as never);
 
-    expect(out.length).toBeLessThanOrEqual(RESPONSE_BUDGET_CHARS);
+    expect(out.length).toBeLessThanOrEqual(RESPONSE_BODY_BUDGET_CHARS);
     expect(out).toContain("Response shape:");
   });
 

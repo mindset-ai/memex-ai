@@ -13,12 +13,42 @@
 //
 // ONE CONSTANT, ONE FILE — the shape spec-203 dec-3 established with
 // `footer-delimiter.ts`. Everything else in this module is derived from it.
+//
+// NAMING, and it is load-bearing (dec-7, ac-28): the budget bounds the response
+// BODY, not the whole response. The envelope is attached after the body is
+// rendered and cannot be measured from inside it, so it is accounted for by how
+// this number was chosen. A reader who budgets a whole response against it would
+// be over by up to 23k — which is exactly the class of defect ac-6 exists to
+// clean up elsewhere in this Spec.
 
 /**
- * The character budget for a single doc-shaped tool response.
+ * MEASURED, 2026-08-24 (t-6). Two independent bounds, and the window between
+ * them is where this number has to sit.
  *
- * PROVISIONAL — sized properly in t-6, which measures the maximum guidance
- * envelope by rendering every phase locally. Do not tune it here.
+ * All figures come from real MCP responses in local transcripts — the ones that
+ * arrived intact and the ones the client refused — split on the footer
+ * delimiter, so body and envelope are measured separately rather than assumed.
+ *
+ *   reads that ARRIVE INTACT   n=18   body max 33,501   p90 31,358   median 13,044
+ *   envelopes observed         n=18   max 22,215        median 12,052
+ *   smallest read the client REFUSED  70,794            ← upper bound on the cap
+ *
+ * There is a clean gap: everything observed working is ≤ 47,561 in total,
+ * everything observed failing is ≥ 70,794. Nothing lands between.
+ *
+ * LOWER BOUND — ac-26, no read that works today may change shape. The largest
+ * body that currently arrives is 33,501, so anything at or below that would
+ * reshape a response that works fine now. 40,000 clears it by 19%.
+ *
+ * UPPER BOUND — ac-27, body + worst-case envelope must stay under the cap.
+ * 40,000 + 23,244 = 63,244, which is 7,550 under the smallest refusal observed.
+ * Both bounds are asserted in the suite, not claimed here.
+ *
+ * The viable window is therefore roughly 33,501 … 42,550. Move within it freely;
+ * leaving it reds a test.
+ *
+ * CAVEAT ON THE SAMPLE: 18 reads, from one developer's sessions, biased toward
+ * the Specs that developer worked on. The margins above are what absorb that.
  *
  * What is already known and bounds it:
  *   - The client's cap is BELOW 71,292 chars. That figure is the smallest
@@ -34,7 +64,33 @@
  * caps, so a per-environment value would look like tuning while being wrong for
  * half the callers. And we never read the client's cap — we do not know it.
  */
-export const RESPONSE_BUDGET_CHARS = 40_000;
+export const RESPONSE_BODY_BUDGET_CHARS = 40_000;
+
+/**
+ * The worst-case guidance envelope, measured by decomposing a real payload:
+ * 11,228 phase guidance + 11,950 full handoff prompt + 66 activity. The largest
+ * envelope observed independently in transcripts is 22,215, which corroborates
+ * it from the other direction.
+ *
+ * This is NOT subtracted per response — dec-7 option (d): the body budget is
+ * already net of it, and this constant exists so that fact is checkable rather
+ * than asserted in prose.
+ */
+export const MEASURED_ENVELOPE_MAX_CHARS = 23_244;
+
+/**
+ * An upper bound on the MCP client's cap — the smallest response it was observed
+ * to refuse. Not the cap: the real value is lower, belongs to the client, and is
+ * user-configurable. Every budget here is a margin under this, never an equality.
+ */
+export const MEASURED_CAP_BOUND_CHARS = 70_794;
+
+/**
+ * The largest response BODY observed to arrive intact. The floor ac-26 puts
+ * under the body budget: at or below this, a read that works today would start
+ * being excerpted.
+ */
+export const LARGEST_WORKING_BODY_CHARS = 33_501;
 
 /**
  * Below this, an excerpt stops being an excerpt.
@@ -91,9 +147,9 @@ export interface BudgetAllocation {
  * unusable override cannot widen or disable the bound.
  */
 export function effectiveBudget(maxChars?: number): number {
-  if (typeof maxChars !== "number") return RESPONSE_BUDGET_CHARS;
-  if (!Number.isFinite(maxChars) || maxChars <= 0) return RESPONSE_BUDGET_CHARS;
-  return Math.min(maxChars, RESPONSE_BUDGET_CHARS);
+  if (typeof maxChars !== "number") return RESPONSE_BODY_BUDGET_CHARS;
+  if (!Number.isFinite(maxChars) || maxChars <= 0) return RESPONSE_BODY_BUDGET_CHARS;
+  return Math.min(maxChars, RESPONSE_BODY_BUDGET_CHARS);
 }
 
 /**
