@@ -175,6 +175,23 @@ const MAX_ERROR_LENGTH = 8_000;
 // Cap on stored result text (dev-only). Big enough for a verbose tool
 // response but bounded so a pathological return doesn't wedge the row.
 const MAX_RESULT_TEXT_LENGTH = 16_000;
+// spec-538 t-1 (ac-22, issue-1): the footer audit column gets its OWN cap.
+//
+// It used to borrow MAX_RESULT_TEXT_LENGTH — a constant named and documented for
+// result_text, a dev-only debugging capture where clipping is obviously right.
+// footer_text is something else: spec-203 dec-3 calls it "the audit trail of
+// exactly what guidance we inject", captured unconditionally in prod. The two
+// shared a number by accident, not by decision, and the accident made the audit
+// trail wrong for the largest injections — measured in prod as two populations
+// averaging 1,827 and 15,468 chars both topping out at exactly 16,018.
+//
+// 64k is chosen against what the server actually emits: the largest guidance
+// payload measured in the wild is 23,244 chars (phase guidance 11,228 + the full
+// STEP 1-6 handoff prompt 11,950 + activity). That is ~2.7x headroom, and it stays
+// far under PostgreSQL TEXT's practical row size. The cap remains because an audit
+// column must not be a way to wedge a row on a pathological payload — but it is no
+// longer allowed to cut silently: see footerTextLength below.
+const MAX_FOOTER_TEXT_LENGTH = 64_000;
 
 function clip(s: string, max: number): string {
   return s.length <= max ? s : `${s.slice(0, max)}…[truncated ${s.length - max}]`;
@@ -202,7 +219,14 @@ export async function logToolCall(input: LogToolCallInput): Promise<void> {
     const footer = input.resultText
       ? splitToolResult(input.resultText).footer
       : null;
-    const footerText = footer ? clip(footer, MAX_RESULT_TEXT_LENGTH) : null;
+    const footerText = footer ? clip(footer, MAX_FOOTER_TEXT_LENGTH) : null;
+    // The TRUE length, before any clipping. Without it a clipped row is
+    // indistinguishable from a short one in aggregate, which is precisely how the
+    // envelope's worst case came to be understated by ~7k (spec-538 dec-2 c-2) and
+    // how spec-510 ac-6's measurement gate ends up biased against its own promise.
+    // Clipped <=> footer_text_length > length(footer_text): arithmetic, not
+    // string-matching the "…[truncated N]" suffix.
+    const footerTextLength = footer ? footer.length : null;
     // Derive org_id from memex_id at insert time so analytics queries
     // don't need a 3-table join every time. lookupOrgForMemex returns
     // null for personal-kind memexes (no owning org).
@@ -219,6 +243,7 @@ export async function logToolCall(input: LogToolCallInput): Promise<void> {
       error,
       resultText,
       footerText,
+      footerTextLength,
     });
   } catch (err) {
     log("logToolCall failed", { toolName: input.toolName, err });
