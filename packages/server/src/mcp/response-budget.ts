@@ -163,3 +163,58 @@ export function allocateResponseBudget(input: BudgetInput): BudgetAllocation {
     remainingAfterFixed,
   };
 }
+
+// ══════════════════════════════════════════════════════════════════════════
+// Lists — spec-538 dec-5 (ac-20, ac-21)
+// ══════════════════════════════════════════════════════════════════════════
+//
+// The rule is "does this output grow without a bound", and there are TWO axes.
+// The first resolution of dec-5 saw only one: it concluded that a formatter
+// rendering one line per item is safe, from `list_acs` at 27 items and
+// `list_issues` at 5. Then `list_docs` was measured on its DEFAULT path —
+// 467 documents × 187 chars = 88,494, refused by the client and spilled to a
+// file, on the highest-traffic read of the whole surface (5,041 calls / 30d).
+//
+// One line per item is not a bound. It is a coefficient. Item COUNT grows just
+// as unboundedly as body length, and it is the axis that was already failing.
+
+export interface BoundedList {
+  /** The entries that fit, in order. */
+  kept: string[];
+  /** How many were dropped. Zero means the output is untouched. */
+  omitted: number;
+}
+
+/**
+ * Keep whole entries until the budget runs out.
+ *
+ * Entries are never cut mid-way — the same rule dec-4 applies to section bodies,
+ * for the same reason: a half-rendered item read as a whole one is worse than an
+ * item that is honestly absent.
+ *
+ * `reservedChars` is what the caller will spend around the list — its header, and
+ * the marker it must print when anything is dropped. Reserving the marker up
+ * front is what stops the marker itself pushing the response over the line it
+ * exists to announce.
+ *
+ * A list that fits comes back untouched with `omitted: 0`, so a caller can emit
+ * exactly what it emits today (ac-26).
+ */
+export function boundRenderedList(
+  entries: string[],
+  opts: { budgetChars?: number; reservedChars?: number } = {},
+): BoundedList {
+  const budget = effectiveBudget(opts.budgetChars);
+  const available = budget - (opts.reservedChars ?? 0);
+
+  let spent = 0;
+  const kept: string[] = [];
+  for (const entry of entries) {
+    const cost = entry.length + 1; // the newline that joins it
+    if (spent + cost > available) break;
+    spent += cost;
+    kept.push(entry);
+  }
+
+  return { kept, omitted: entries.length - kept.length };
+}

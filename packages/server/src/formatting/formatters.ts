@@ -3,7 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Doc, DocSection, DocComment, Decision, Task, Tag } from "../db/schema.js";
 import { formatTag } from "../services/tags.js";
-import { allocateResponseBudget } from "../mcp/response-budget.js";
+import { allocateResponseBudget, effectiveBudget } from "../mcp/response-budget.js";
 import type { DocSummary } from "../types/index.js";
 import type { TaskWithBlockers } from "../services/tasks.js";
 import type { DocCommentsResult } from "../services/comments.js";
@@ -226,9 +226,14 @@ export function formatFullDocState(
 
   const budget = allocateResponseBudget({
     signalsChars: signalLines.join("\n").length,
-    // spec-538 t-5 (ac-18) wires the real guidance envelope in here. Zero until
-    // then — an understatement, which errs toward emitting MORE than the ceiling
-    // allows rather than less, and is the reason t-5 is not optional.
+    // Zero is CORRECT here, not a stopgap (dec-7 option (d)). The body is
+    // rendered before the envelope exists — `spec-traffic.ts` attaches the
+    // envelope after the handler returns — so this number cannot be measured at
+    // this point in the call. It does not have to be: the budget constant is a
+    // BODY budget, already net of the envelope's worst case, and the headroom
+    // between it and the client cap is asserted by a test rather than claimed
+    // here. A caller that genuinely knows its envelope may pass one to tighten
+    // further; this one does not know it and must not pretend to.
     envelopeChars: 0,
     proseChars,
     decisionsFullChars: decisionsFull.length,
@@ -624,40 +629,82 @@ export function formatDocComments(
   lines.push(`# Comments (${total} total)`);
   lines.push("");
 
-  for (const { section, comments } of sections) {
-    lines.push(`## Section: ${section.title ?? section.sectionType}`);
-    if (parentDoc) {
-      lines.push(`Section ref: ${maybeChildRef(slugs, parentDoc, "sections", section.seq)}`);
+  // spec-538 dec-5 (ac-20) — comments are unbounded free text that accumulates
+  // for a Spec's whole life, and nothing prunes them. Measured: spec-510 at ten
+  // comments reached ~55% of the client cap. Whole comments are dropped from the
+  // end and announced; never cut mid-comment, for the same reason dec-4 refuses
+  // to cut a section body — a half-rendered item read as a whole one is worse
+  // than one that is honestly absent.
+  //
+  // The marker is reserved up front so announcing the omission cannot itself
+  // push the response over the line it announces.
+  const COMMENT_LIST_RESERVE = 240;
+  const commentBudget = effectiveBudget() - COMMENT_LIST_RESERVE;
+  let spent = lines.join("\n").length;
+  let omitted = 0;
+  let stopped = false;
+  const pushGroupHeader = (...header: string[]): void => {
+    if (stopped) return;
+    for (const h of header) {
+      spent += h.length + 1;
+      lines.push(h);
     }
+  };
+  const pushComment = (c: DocComment): void => {
+    if (stopped) {
+      omitted++;
+      return;
+    }
+    const text = formatComment(c, slugs, parentDoc);
+    if (spent + text.length + 2 > commentBudget) {
+      stopped = true;
+      omitted++;
+      return;
+    }
+    spent += text.length + 2;
+    lines.push(text);
     lines.push("");
-    for (const c of comments) {
-      lines.push(formatComment(c, slugs, parentDoc));
-      lines.push("");
-    }
+  };
+
+  for (const { section, comments } of sections) {
+    pushGroupHeader(
+      `## Section: ${section.title ?? section.sectionType}`,
+      ...(parentDoc
+        ? [`Section ref: ${maybeChildRef(slugs, parentDoc, "sections", section.seq)}`]
+        : []),
+      "",
+    );
+    for (const c of comments) pushComment(c);
   }
 
   for (const { decision, comments } of decisions) {
-    lines.push(`## Decision: dec-${decision.seq} — ${decision.title}`);
-    if (parentDoc) {
-      lines.push(`Decision ref: ${maybeChildRef(slugs, parentDoc, "decisions", decision.seq)}`);
-    }
-    lines.push("");
-    for (const c of comments) {
-      lines.push(formatComment(c, slugs, parentDoc));
-      lines.push("");
-    }
+    pushGroupHeader(
+      `## Decision: dec-${decision.seq} — ${decision.title}`,
+      ...(parentDoc
+        ? [`Decision ref: ${maybeChildRef(slugs, parentDoc, "decisions", decision.seq)}`]
+        : []),
+      "",
+    );
+    for (const c of comments) pushComment(c);
   }
 
   for (const { task, comments } of tasks) {
-    lines.push(`## Task: t-${task.seq} — ${task.title}`);
-    if (parentDoc) {
-      lines.push(`Task ref: ${maybeChildRef(slugs, parentDoc, "tasks", task.seq)}`);
-    }
-    lines.push("");
-    for (const c of comments) {
-      lines.push(formatComment(c, slugs, parentDoc));
-      lines.push("");
-    }
+    pushGroupHeader(
+      `## Task: t-${task.seq} — ${task.title}`,
+      ...(parentDoc
+        ? [`Task ref: ${maybeChildRef(slugs, parentDoc, "tasks", task.seq)}`]
+        : []),
+      "",
+    );
+    for (const c of comments) pushComment(c);
+  }
+
+  // A Spec whose comments fit is rendered exactly as before — no marker, same
+  // bytes (ac-26).
+  if (omitted > 0) {
+    lines.push(
+      `… ${omitted} more comment${omitted === 1 ? "" : "s"} not shown — this Spec holds more comment text than one response can carry. Read one in place with get_doc on its section, decision or task ref.`,
+    );
   }
 
   return lines.join("\n").trimEnd();

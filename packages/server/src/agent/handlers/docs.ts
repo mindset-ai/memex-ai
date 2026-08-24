@@ -6,6 +6,7 @@
 import {
   z,
 } from "zod";
+import { boundRenderedList } from "../../mcp/response-budget.js";
 import {
   buildChildRef,
   buildDocRef,
@@ -281,9 +282,14 @@ export const docsTools: ToolSpec[] = [
         taskCountsByDoc(memexId, docIds),
         successorHandlesByDoc(memexId, docs),
       ]);
-      return (
-        header(docs.length) +
-        docs
+      // spec-538 dec-5 (ac-20, ac-21) — this list grows with the number of
+      // documents in the Memex, which only ever increases and which nothing
+      // prunes. Measured on the default path: 467 docs x 187 chars = 88,494,
+      // refused by the client and spilled to a file — on the highest-traffic
+      // read of the surface. An agent calling this to orient was getting a file
+      // path instead of a list.
+      const head = header(docs.length);
+      const entries = docs
           .map((d) => {
             const ref = slugs ? buildDocRef(slugs, d) : d.handle;
             // ac-13: a superseded Spec STAYS in the set and carries its successor, so
@@ -294,9 +300,28 @@ export const docsTools: ToolSpec[] = [
             const decisionCount = decisionCounts.get(d.id) ?? 0;
             const taskCount = taskCounts.get(d.id) ?? 0;
             return `- ref: ${ref} [${d.docType}, ${d.status}${supersededSeg}] "${d.title}" (${decisionCount} decisions, ${taskCount} tasks)`;
-          })
-          .join("\n") + catalogue
-      );
+          });
+
+      // The marker is reserved BEFORE the split, so announcing the omission
+      // cannot itself push the response over the line it announces.
+      const OMISSION_MARKER_RESERVE = 240;
+      const { kept, omitted } = boundRenderedList(entries, {
+        reservedChars: head.length + catalogue.length + OMISSION_MARKER_RESERVE,
+      });
+
+      // A Memex small enough to list comfortably lists exactly as it did before
+      // — same header, same lines, no marker (ac-26).
+      if (omitted === 0) {
+        return head + kept.join("\n") + catalogue;
+      }
+
+      // Never a silent truncation: say how many are missing and name the
+      // arguments that actually narrow this call — docType, statusIn and tags
+      // are real parameters on this tool, not advice invented for the message.
+      const note =
+        `\n… ${omitted} more not shown — this Memex holds more documents than one response can carry. ` +
+        `Narrow with docType, statusIn or tags, or use search_memex.`;
+      return head + kept.join("\n") + note + catalogue;
     },
   },
   {
