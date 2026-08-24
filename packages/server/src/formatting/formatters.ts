@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Doc, DocSection, DocComment, Decision, Task, Tag } from "../db/schema.js";
 import { formatTag } from "../services/tags.js";
+import { allocateResponseBudget } from "../mcp/response-budget.js";
 import type { DocSummary } from "../types/index.js";
 import type { TaskWithBlockers } from "../services/tasks.js";
 import type { DocCommentsResult } from "../services/comments.js";
@@ -190,6 +191,50 @@ export function formatFullDocState(
     }
   }
 
+  // ── spec-538 t-3: decide the response shape BEFORE rendering it ──────────
+  //
+  // The signals are built here rather than pushed inline so their cost is known
+  // when the budget is divided: dec-1's allocation order takes them off the top,
+  // and you cannot subtract what you have not measured. They are pushed at their
+  // usual position a few lines below, unchanged.
+  const signalLines: string[] = [];
+  if (doc.sensitive) {
+    signalLines.push("");
+    signalLines.push(SENSITIVE_WARNING_PROSE.rule);
+    signalLines.push(SENSITIVE_WARNING_PROSE.heading);
+    signalLines.push(
+      doc.sensitiveByName
+        ? SENSITIVE_WARNING_PROSE.contact(doc.sensitiveByName)
+        : SENSITIVE_WARNING_PROSE.contactUnknown,
+    );
+    // dec-7: the discharge condition rides with the ask. A stop-and-ask with no
+    // stated end reads as "ask before every edit", which the operator learns to
+    // wave through — that destroys the signal faster than ignoring it would.
+    signalLines.push(SENSITIVE_WARNING_PROSE.scope);
+    signalLines.push(SENSITIVE_WARNING_PROSE.advisory);
+    signalLines.push(SENSITIVE_WARNING_PROSE.rule);
+  }
+
+  const proseChars = doc.sections.reduce(
+    (n, sec) => n + (sec.content?.length ?? 0) + (sec.title?.length ?? 0),
+    0,
+  );
+  // Rendered in full first, then measured. The allocator needs the real cost to
+  // pick a tier, and rendering twice in memory is cheaper than guessing wrong.
+  const decisionsFull =
+    decisions.length > 0 ? formatDecisionList(decisions, doc, slugs) : "";
+
+  const budget = allocateResponseBudget({
+    signalsChars: signalLines.join("\n").length,
+    // spec-538 t-5 (ac-18) wires the real guidance envelope in here. Zero until
+    // then — an understatement, which errs toward emitting MORE than the ceiling
+    // allows rather than less, and is the reason t-5 is not optional.
+    envelopeChars: 0,
+    proseChars,
+    decisionsFullChars: decisionsFull.length,
+    decisionCount: decisions.length,
+  });
+
   // Header
   lines.push(`# ${doc.title} [${doc.status.toUpperCase()}]`);
   lines.push(`ref: ${maybeDocRef(slugs, doc)}`);
@@ -213,6 +258,22 @@ export function formatFullDocState(
   }
   const tagStrip = formatTagStrip(tags);
   if (tagStrip) lines.push(tagStrip);
+  // spec-538 ac-13 — the response says what shape it is. Three possible shapes
+  // with no self-description would trade a silent overflow for a silent
+  // truncation: an agent would believe it had read the Spec when it had read a
+  // table of contents. Emitted at EVERY tier, including the complete one, because
+  // "absence means complete" is the inference this line exists to remove.
+  //
+  // Single-line pushes, like every other header line here: the scaffold
+  // drift-guard (std-15) fails markdown-shaped literals of two or more newlines in
+  // server/src, and this file is not on its allowlist.
+  if (budget.tier === 1) {
+    lines.push(`Response shape: COMPLETE — every section body and decision is below in full.`);
+  } else if (budget.tier === 2) {
+    lines.push(`Response shape: EXCERPTED — decision resolutions are shortened; each carries a ref that returns it in full.`);
+  } else {
+    lines.push(`Response shape: SECTION MAP — section bodies are NOT below; fetch one with get_doc on its ref.`);
+  }
   // spec-535 dec-3 — the sensitivity warning, LAST in the header and immediately
   // before the content, so it is the final thing read before editing starts. The
   // same intent the `Checked out by:` line above already serves ("so a reader, or
@@ -227,22 +288,9 @@ export function formatFullDocState(
   // into one multi-line template literal: the scaffold drift-guard fails any
   // markdown-shaped literal of two or more newlines in server/src, and this file
   // is not on its allowlist.
-  if (doc.sensitive) {
-    lines.push("");
-    lines.push(SENSITIVE_WARNING_PROSE.rule);
-    lines.push(SENSITIVE_WARNING_PROSE.heading);
-    lines.push(
-      doc.sensitiveByName
-        ? SENSITIVE_WARNING_PROSE.contact(doc.sensitiveByName)
-        : SENSITIVE_WARNING_PROSE.contactUnknown,
-    );
-    // dec-7: the discharge condition rides with the ask. A stop-and-ask with no
-    // stated end reads as "ask before every edit", which the operator learns to
-    // wave through — that destroys the signal faster than ignoring it would.
-    lines.push(SENSITIVE_WARNING_PROSE.scope);
-    lines.push(SENSITIVE_WARNING_PROSE.advisory);
-    lines.push(SENSITIVE_WARNING_PROSE.rule);
-  }
+  // Built above so it could be measured; emitted here, at its usual position and
+  // in full at every tier. Signals are never rationed to buy room (ac-9).
+  for (const line of signalLines) lines.push(line);
   lines.push("");
 
   // Sections
@@ -250,7 +298,16 @@ export function formatFullDocState(
     const section = doc.sections[i];
     const num = i + 1;
     lines.push(`## ${num}. ${section.title ?? section.sectionType}`);
-    lines.push(section.content);
+    // spec-538 dec-4 tier 3 (ac-12, ac-14): when section prose alone exceeds the
+    // budget — spec-472's is 85,580 chars, larger than the whole measured cap on
+    // its own — bodies are omitted WHOLE and announced. Never truncated mid-flow:
+    // shortening a human's prose and trusting a marker to be noticed is the
+    // founding defect in different clothing.
+    if (budget.renderProseBodies) {
+      lines.push(section.content);
+    } else {
+      lines.push(`[body not included — this Spec exceeds one response; fetch this section with get_doc on the ref below]`);
+    }
     lines.push("");
     // spec-106 (ac-9 sectionType / ac-10 description): section metadata travels
     // in the read surface next to the ref. `description` is nullable — only
@@ -265,7 +322,13 @@ export function formatFullDocState(
   // Decisions
   if (decisions.length > 0) {
     // doc is the parent for every decision in this list (formatFullDocState is per-doc).
-    lines.push(formatDecisionList(decisions, doc, slugs));
+    // At tier 1 the full render measured above is reused verbatim — the common case
+    // pays nothing for the ladder and its bytes are identical to before (ac-11).
+    lines.push(
+      budget.tier === 1
+        ? decisionsFull
+        : formatDecisionList(decisions, doc, slugs, budget.perDecisionChars),
+    );
     lines.push("");
   }
 
@@ -786,30 +849,73 @@ function decisionOptionsBlock(decision: Decision): string | null {
   return lines.join("\n");
 }
 
+// spec-538 t-3 (ac-8) — cut prose to a budget without pretending it was whole.
+// Returns the kept text plus whether anything was dropped, so the caller can say
+// so rather than leaving an abrupt ending to be noticed.
+function excerptFor(text: string, max: number): { text: string; truncated: boolean } {
+  if (!Number.isFinite(max) || text.length <= max) return { text, truncated: false };
+  if (max <= 0) return { text: "", truncated: true };
+  return { text: text.slice(0, max).trimEnd(), truncated: true };
+}
+
 function formatDecision(
   decision: Decision & { facets?: string[] },
   parentDoc?: Doc,
   slugs?: FormatterRefContext,
+  // spec-538 dec-1 — how much of this decision's RESOLUTION may be spent.
+  // Infinity renders exactly as before (tier 1, the common case, ac-11); a finite
+  // budget excerpts the resolution and drops the background (dec-1 option (b) is
+  // "first N characters of the resolution plus a marker and the ref" — context and
+  // options are background, not the settled answer); 0 leaves headline + ref only,
+  // which is where the excerpt floor lands rather than emitting a fragment nobody
+  // could act on.
+  perDecisionChars: number = Number.POSITIVE_INFINITY,
 ): string {
   const status = decisionStatusBadge(decision);
   const source = decisionSourcePill(decision);
   const refLabel = decisionRef(decision, parentDoc);
   const lines = [`- ${refLabel} ${status}${source}: "${decision.title}"`];
+  const budgeted = Number.isFinite(perDecisionChars);
+  // The allowance is what this decision may occupy IN TOTAL, so the scaffolding it
+  // cannot drop — the headline, the marker, the ref line — is measured first and
+  // the resolution gets what is left. Budgeting the resolution alone was the first
+  // version, and it overran by roughly 140 chars per decision: the bound held for
+  // the excerpt and not for the response, which is the only one that matters.
+  const fixedCost = budgeted
+    ? lines[0].length +
+      (decision.resolution ? 60 : 0) +
+      (parentDoc ? 80 : 0)
+    : 0;
+  const resolutionBudget = budgeted
+    ? Math.max(0, perDecisionChars - fixedCost)
+    : perDecisionChars;
   if (decision.resolution) {
-    lines[0] += ` → "${decision.resolution}"`;
+    const kept = excerptFor(decision.resolution, resolutionBudget);
+    if (kept.text) lines[0] += ` → "${kept.text}"`;
+    // The marker is the honest half of the excerpt: an agent must be able to tell
+    // text was withheld without inferring it from a sentence that stops. The ref
+    // line below is the door (spec-538 dec-6 makes it open).
+    if (kept.truncated) lines.push(`  … [shortened — the full resolution is at the ref below]`);
   }
-  const chose = decisionChoseLine(decision);
-  if (chose) lines.push(chose);
-  const options = decisionOptionsBlock(decision);
-  if (options) lines.push(options);
-  if (decision.context) {
-    lines.push(`  Context: ${decision.context}`);
+  // Background is dropped rather than shortened once a budget applies. Truncating
+  // context AND resolution would spend the same bytes twice on the same decision
+  // and leave neither usable.
+  if (!budgeted) {
+    const chose = decisionChoseLine(decision);
+    if (chose) lines.push(chose);
+    const options = decisionOptionsBlock(decision);
+    if (options) lines.push(options);
+    if (decision.context) {
+      lines.push(`  Context: ${decision.context}`);
+    }
   }
   // spec-445 dec-2 — the decision's facet classification, surfaced on retrieval as
   // context (it informs the ballots of the tasks that implement it; it never pre-fills them).
-  if (decision.facets && decision.facets.length > 0) {
+  if (!budgeted && decision.facets && decision.facets.length > 0) {
     lines.push(`  Facets: ${decision.facets.join(", ")}`);
   }
+  // The ref is emitted at EVERY budget, including 0 — it is what makes a shortened
+  // decision a door rather than a dead end.
   if (parentDoc) {
     const canonical = maybeChildRef(slugs, parentDoc, "decisions", decision.seq);
     lines.push(`  ref: ${canonical}`);
@@ -821,6 +927,7 @@ function formatDecisionList(
   decs: (Decision & { facets?: string[] })[],
   parentDoc?: Doc,
   slugs?: FormatterRefContext,
+  perDecisionChars: number = Number.POSITIVE_INFINITY,
 ): string {
   const open = decs.filter((d) => d.status === "open");
   const resolved = decs.filter((d) => d.status === "resolved");
@@ -830,10 +937,20 @@ function formatDecisionList(
     `## Decisions (${decs.length} total: ${open.length} open, ${resolved.length} resolved)`
   );
 
+  // The `## Decisions (…)` header above is part of what this block spends, so it
+  // is charged across the entries rather than added on top of a budget that has
+  // already been divided.
+  const headerShare = Number.isFinite(perDecisionChars) && decs.length > 0
+    ? Math.ceil((lines[0].length + 1) / decs.length)
+    : 0;
+  const perEntry = Number.isFinite(perDecisionChars)
+    ? Math.max(0, perDecisionChars - headerShare)
+    : perDecisionChars;
+
   for (const d of decs) {
     // Pass parentDoc through so each list entry surfaces the qualified `M-N:D-M`
     // handle (t-20 W-A) when a parent doc is in scope.
-    lines.push(formatDecision(d, parentDoc, slugs));
+    lines.push(formatDecision(d, parentDoc, slugs, perEntry));
   }
 
   return lines.join("\n");
