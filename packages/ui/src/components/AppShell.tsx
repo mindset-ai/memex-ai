@@ -314,6 +314,20 @@ function PlayCircleIcon() {
   );
 }
 
+// spec-537 t-1: a plain person glyph for "My profile". InvitePersonIcon (below) is
+// the same figure PLUS a "+", which reads "invite someone" — wrong verb for this row.
+function PersonIcon() {
+  return (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.5 20.118a7.5 7.5 0 0115 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.5-1.632z"
+      />
+    </svg>
+  );
+}
+
 function LogoutIcon() {
   return (
     <svg className={MENU_ICON_CLASS} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} aria-hidden="true">
@@ -651,6 +665,20 @@ function SidebarUserCard({
             <BookCallIcon />
             Book a call
           </a>
+          {/* spec-537 ac-7: the user's own profile — the account menu's only route to
+              editing your own display name (dec-1: /settings/profile, never a flat
+              /profile). It is the LAST menu item before Sign out, and it sits ABOVE
+              the divider on purpose: spec-456 ac-3 requires Sign out's immediately
+              preceding sibling to be the separator, so that the destructive action
+              keeps its own group. Nothing but that divider separates the two. */}
+          <UserMenuLink
+            to="/settings/profile"
+            icon={<PersonIcon />}
+            testId="user-menu-profile"
+            onClick={() => setOpen(false)}
+          >
+            My profile
+          </UserMenuLink>
           <UserMenuDivider />
           <button
             onClick={() => {
