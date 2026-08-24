@@ -76,6 +76,11 @@ const OauthAuthorize = lazy(() =>
 const SettingsIntegrations = lazy(() =>
   import('./pages/SettingsIntegrations').then((m) => ({ default: m.SettingsIntegrations })),
 );
+// spec-537 dec-1: the user's own profile. Nested under the reserved `settings` root so
+// it cannot shadow a namespace slug (std-3 cl-6) — never a flat /profile.
+const SettingsProfile = lazy(() =>
+  import('./pages/SettingsProfile').then((m) => ({ default: m.SettingsProfile })),
+);
 const Onboarding = lazy(() => import('./pages/Onboarding').then((m) => ({ default: m.Onboarding })));
 const WelcomePage = lazy(() =>
   import('./pages/WelcomePage').then((m) => ({ default: m.WelcomePage })),
@@ -506,6 +511,7 @@ export function PostLoginRouter() {
       <Route path="/oauth/authorize" element={<OauthAuthorize />} />
       <Route path="/settings/tokens" element={<Navigate to="/settings/integrations" replace />} />
       <Route path="/settings/integrations" element={<FlatShell><SettingsIntegrations /></FlatShell>} />
+      <Route path="/settings/profile" element={<FlatShell><SettingsProfile /></FlatShell>} />
       {/* spec-226 t-6: internal email-preview gallery. Gated off prod — the
           conditional Route is inert when emailPreviewEnabled() is false (falls
           through to RootRedirect), mirroring the server's prod-unmounted API. */}
