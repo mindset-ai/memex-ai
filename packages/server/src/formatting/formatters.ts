@@ -970,6 +970,52 @@ function formatDecision(
   return lines.join("\n");
 }
 
+// spec-538 t-10 (ac-23, ac-24) — render ONE addressed child, in full.
+//
+// dec-1 chose the bounded excerpt over headline-only because headline-only
+// "requires the agent to know it should ask for more, and the founding incident
+// is an agent that did not know". The excerpt was meant to be a door. Until
+// dec-6 there was no door: nothing on the surface read a single decision, and
+// `get_doc` refused the ref outright.
+//
+// NEVER EXCERPTED (ac-24). A child fetched by its own ref is the thing the
+// truncation marker pointed at. Budgeting it would send the reader back to the
+// same locked room — so the budget deliberately does not reach here. One child
+// cannot approach the cap: the largest resolution measured anywhere is a few
+// thousand characters against a body budget of forty thousand.
+export function formatResolvedChild(
+  entity:
+    | { kind: "decision"; row: Decision & { facets?: string[] } }
+    | { kind: "section"; row: DocSection }
+    | { kind: "task"; row: TaskWithBlockers },
+  doc: Doc,
+  slugs?: FormatterRefContext,
+  appBaseUrl?: string,
+): string {
+  const lines: string[] = [];
+  lines.push(`ref: ${maybeDocRef(slugs, doc)} — one ${entity.kind}, in full`);
+  if (appBaseUrl) {
+    lines.push(`URL: ${docUrl(appBaseUrl, doc.docType, doc.handle)}`);
+  }
+  lines.push("");
+
+  if (entity.kind === "decision") {
+    lines.push(formatDecision(entity.row, doc, slugs));
+  } else if (entity.kind === "task") {
+    lines.push(formatTask(entity.row, undefined, slugs, doc));
+  } else {
+    const section = entity.row;
+    lines.push(`## ${section.title ?? section.sectionType}`);
+    lines.push(section.content);
+    lines.push("");
+    lines.push(
+      `Section #${section.seq} | ref: ${maybeChildRef(slugs, doc, "sections", section.seq)} | Type: ${section.sectionType} | Updated: ${formatDate(section.updatedAt)}`,
+    );
+  }
+
+  return lines.join("\n");
+}
+
 function formatDecisionList(
   decs: (Decision & { facets?: string[] })[],
   parentDoc?: Doc,
