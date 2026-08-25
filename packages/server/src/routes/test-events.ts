@@ -91,6 +91,14 @@ import { mutate } from "../services/mutate.js";
 // `test_events` cannot answer it — retention is by COUNT per (subject_ref,
 // test_identifier) and no column records the route (dec-3 / dec-4).
 import { recordEmissionAccepted } from "../observability/otel/index.js";
+// spec-533 t-3 (dec-2/dec-3): the staleness advisory. It rides THIS route only —
+// the batch route below sets no header at all, which is what makes "clients that
+// already batch hear nothing" structural rather than a check anyone maintains.
+import {
+  STALENESS_ADVISORY,
+  shouldAdvise,
+  composeWarning,
+} from "../services/emission-advisory.js";
 import type { ChangeEntity } from "../services/bus.js";
 
 const testEventsRouter = new Hono();
@@ -592,12 +600,19 @@ testEventsRouter.post("/", async (c) => {
   const result = await processOneEvent(auth.key, body);
   if (!result.ok) return c.json(result.body, result.code);
 
-  if (result.droppedKeys.length > 0) {
-    c.header(
-      "X-Memex-Warning",
-      `metadata keys dropped (size limits exceeded): ${result.droppedKeys.join(", ")}`,
-    );
-  }
+  // ONE header, never two: repeated response headers are read inconsistently by
+  // the clients we know of (fetch comma-joins; Dart's HttpHeaders.value() raises
+  // on multiple values, and the Dart emitter is a real reader). The specific fact
+  // about THIS emission goes before the general advisory about the client's
+  // configuration, and the dropped-keys warning is unchanged when the advisory
+  // does not fire — spec-358 dec-3 expressly preserved it.
+  const droppedWarning =
+    result.droppedKeys.length > 0
+      ? `metadata keys dropped (size limits exceeded): ${result.droppedKeys.join(", ")}`
+      : null;
+  const advisory = shouldAdvise() ? STALENESS_ADVISORY : null;
+  const warning = composeWarning([droppedWarning, advisory]);
+  if (warning !== null) c.header("X-Memex-Warning", warning);
   // One emission, one request: this is the ratio ≈ 1 end of the signal, and the
   // route arriving here IS the un-batched path (ac-19).
   recordEmissionAccepted(1, { route: "single" });
