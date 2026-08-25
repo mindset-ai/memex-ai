@@ -15,7 +15,7 @@
 //      /mcp-only), so the e2e tier needs both credentials. Requires
 //      AUTH_JWT_SECRET to match the target env (Secret Manager: auth-jwt-secret).
 //
-// Store both printed tokens as GitHub environment secrets (int / prod) so the
+// Store the printed tokens as GitHub environment secrets (int / prod) so the
 // deploy-tail smoke runs the authed tier. The session token expires — re-run
 // this script to rotate (default TTL 180 days).
 
@@ -24,14 +24,23 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { eq, and } from "drizzle-orm";
 import * as schema from "./schema.js";
-import { namespaces, memexes, users } from "./schema.js";
+import { namespaces, memexes, users, documents, acs } from "./schema.js";
 import { mintMcpToken } from "../services/mcp-tokens.js";
 import { signSessionToken } from "../services/auth-jwt.js";
+// spec-533 t-4: the warning-header wire probe needs a REAL emission that lands, because
+// X-Memex-Warning is set after processOneEvent succeeds — unlike the gate marker, which
+// middleware sets ahead of authentication and which therefore needs no credential.
+import { mintEmissionKey } from "../services/emission-keys.js";
+import { createDocDraft } from "../services/documents.js";
+import { createAc } from "../services/acs.js";
 
 const SMOKE_EMAIL = "smoke-probe@memex.ai";
 const SMOKE_NAMESPACE_SLUG = "zzz-smoke";
 const SMOKE_MEMEX_SLUG = "main";
 const SESSION_TTL_SECONDS = 180 * 24 * 60 * 60; // 180 days — rotate by re-running.
+// spec-533: the Spec the emission probe targets. Title is the idempotency key — the
+// script must be safe to re-run, and re-running must not pile up throwaway Specs.
+const SMOKE_PROBE_SPEC_TITLE = "Smoke probe target (spec-533 wire check)";
 
 async function main() {
   const connectionString = process.env.DATABASE_URL;
@@ -99,10 +108,75 @@ async function main() {
   // ── 4. Session JWT (for the SSE routes) ─────────────────────────────
   const sessionToken = signSessionToken(user.id, SESSION_TTL_SECONDS);
 
+  // ── 5. Spec + AC for the emission probe, and a permanent emission key ───
+  //
+  // The probe posts a real test-event, so it needs (a) an AC ref its key authorises and
+  // (b) a durable key. Both live in the throwaway island — spec-70 dec-2: the smoke suite
+  // owns its own data island and MUST NEVER touch a real namespace or memex.
+  //
+  // A PERMANENT key (expiresAt NULL), not the ephemeral Spec-scoped kind: this is a CI
+  // credential, and provision_ac_emission deliberately cannot mint one because a
+  // long-lived secret must not round-trip an agent's transcript (spec-234 dec-1/dec-5).
+  // Minting it HERE is the same act as a human minting in Settings — the script prints it
+  // once into the operator's terminal, exactly as it already does for the PAT above.
+  let probeSpec = await db.query.documents.findFirst({
+    where: and(
+      eq(documents.memexId, memex.id),
+      eq(documents.title, SMOKE_PROBE_SPEC_TITLE),
+    ),
+  });
+  if (!probeSpec) {
+    const created = await createDocDraft(
+      memex.id,
+      SMOKE_PROBE_SPEC_TITLE,
+      "Target for the post-deploy X-Memex-Warning wire probe (spec-533 ac-18/ac-20). " +
+        "Its criterion exists to be emitted against; nothing here is real work.",
+      "spec",
+      undefined,
+      undefined,
+      user.id,
+    );
+    probeSpec = created;
+    console.log(`  Created probe Spec ${probeSpec.handle}`);
+  } else {
+    console.log(`  Probe Spec exists: ${probeSpec.handle}`);
+  }
+
+  let probeAc = await db.query.acs.findFirst({
+    where: eq(acs.briefId, probeSpec.id),
+  });
+  if (!probeAc) {
+    probeAc = await createAc({
+      memexId: memex.id,
+      briefId: probeSpec.id,
+      kind: "scope",
+      statement:
+        "A custom response header set by /api/test-events reaches an external client " +
+        "through the load balancer. Emitted against by the post-deploy wire probe.",
+    });
+    console.log(`  Created probe AC ac-${probeAc.seq}`);
+  } else {
+    console.log(`  Probe AC exists: ac-${probeAc.seq}`);
+  }
+
+  const emitKey = await mintEmissionKey(
+    memex.id,
+    "post-deploy smoke — warning-header wire probe (spec-533 t-4)",
+    user.id,
+  );
+  const probeRef =
+    `${SMOKE_NAMESPACE_SLUG}/${SMOKE_MEMEX_SLUG}/specs/${probeSpec.handle}/acs/ac-${probeAc.seq}`;
+
   console.log("\nDone. Provision these as GitHub environment secrets:\n");
   console.log(`  SMOKE_MCP_TOKEN=${minted.raw}`);
   console.log(`  SMOKE_SESSION_TOKEN=${sessionToken}`);
+  console.log(`  SMOKE_EMIT_KEY=${emitKey.raw}`);
+  console.log(`  SMOKE_EMIT_AC_REF=${probeRef}`);
   console.log(`\n  (session token TTL ${SESSION_TTL_SECONDS / 86400} days — re-run to rotate)`);
+  console.log(
+    "  (SMOKE_EMIT_KEY is permanent — re-running mints an ADDITIONAL key rather than\n" +
+      "   rotating; revoke the old one in Settings if you replace it)",
+  );
 
   await client.end();
 }

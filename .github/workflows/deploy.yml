@@ -178,6 +178,17 @@ jobs:
         # prod memex (spec-156 ac-12/ac-13: the live relay-health + MCP→SSE
         # checks verify their ACs on every deploy). Without it the smoke still
         # runs — emissions are just silently rejected 401.
+        #
+        # SMOKE_EMIT_KEY + SMOKE_EMIT_AC_REF drive spec-533's warning-header wire
+        # probe (ac-18/ac-20). Distinct from MEMEX_EMIT_KEY above, which is how the
+        # smoke suite reports its OWN results: these two are the payload the probe
+        # POSTs to prove a custom response header survives Cloud Run and the load
+        # balancer. It needs a real emission because X-Memex-Warning is set after
+        # processOneEvent succeeds, unlike the gate marker that middleware sets ahead
+        # of authentication. Both are minted by the same seed-smoke.ts run and target
+        # the throwaway zzz-smoke island — never a real tenant (spec-70 dec-2). The
+        # probe skips cleanly when either is unset, so this stays green until they
+        # are provisioned.
         env:
           # spec-518 dec-4 / t-6 — obey the CANONICAL config source.
           #
@@ -200,6 +211,8 @@ jobs:
           SMOKE_MCP_TOKEN: ${{ secrets.SMOKE_MCP_TOKEN }}
           SMOKE_SESSION_TOKEN: ${{ secrets.SMOKE_SESSION_TOKEN }}
           MEMEX_EMIT_KEY: ${{ secrets.MEMEX_EMIT_KEY }}
+          SMOKE_EMIT_KEY: ${{ secrets.SMOKE_EMIT_KEY }}
+          SMOKE_EMIT_AC_REF: ${{ vars.SMOKE_EMIT_AC_REF }}
           # spec-428 dec-1/dec-3 — team-identity sender for the welcome + spec-427 drip.
           # Non-sensitive brand copy, so kept as per-environment VARIABLES (not in the
           # memex-<env>-deploy-env secret). deploy.sh pushes them to Cloud Run via its
