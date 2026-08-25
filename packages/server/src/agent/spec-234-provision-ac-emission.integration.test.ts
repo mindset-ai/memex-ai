@@ -30,13 +30,23 @@ const AC_1 = `${M}/ac-1`; // single MCP call yields a usable key, no human/Setti
 const AC_2 = `${M}/ac-2`; // returns markdown guidance to wire emission natively
 const AC_3 = `${M}/ac-3`; // multiple suites covered
 const AC_4 = `${M}/ac-4`; // a fresh session re-establishes a working key
-const AC_6 = `${M}/ac-6`; // no install step to begin emitting
-const AC_13 = `${M}/ac-13`; // registered single tool (manifest + specs)
-const AC_14 = `${M}/ac-14`; // single ref → key + guidance in one response
+const AC_6 = `${M}/ac-6`; // an unshipped stack can emit with nothing installed
+const AC_13 = `${M}/ac-13`; // guidance: detect runner, prefer helper when present, else hand-roll
+const AC_14 = `${M}/ac-14`; // registered single tool (manifest + tool-specs)
+const AC_15 = `${M}/ac-15`; // single ref → key + guidance in one response
 const AC_16 = `${M}/ac-16`; // guidance from the shared bootstrap source, not duplicated
-const AC_17 = `${M}/ac-17`; // member-level auth; created_by_user_id recorded
-const AC_18 = `${M}/ac-18`; // no persist-to-disk instruction
-const AC_19 = `${M}/ac-19`; // no separate package-install gateway
+const AC_17 = `${M}/ac-17`; // no repo file written; no persist-to-disk instruction
+const AC_18 = `${M}/ac-18`; // member-level auth; created_by_user_id recorded
+const AC_19 = `${M}/ac-19`; // agent keys named `agent · <spec> · <date>`
+
+// spec-533 issue-1 — the tags above were SCRAMBLED against Memex: the manifest
+// test carried ac-13 (whose real subject is the guidance), the key+guidance test
+// carried ac-14 (the manifest AC), ac-17/ac-18 were swapped, and ac-19 — whose
+// real subject is emission-key NAMING — was tagged on a test that asserts four
+// guidance regexes and nothing about names. spec-234 read 21/21 verified with
+// five ACs green off tests that checked a different criterion, and the naming
+// behaviour had no coverage at all. Re-pointed here; spec-234 stays `done` and
+// is not retro-edited.
 
 const created = {
   users: [] as string[],
@@ -125,8 +135,8 @@ describe("spec-234 — provision_ac_emission MCP tool", () => {
     out = await callTool(actor.user.id, "provision_ac_emission", { ref });
   });
 
-  it("is a single registered tool in the manifest [ac-13]", () => {
-    tagAc(AC_13);
+  it("is a single registered tool in the manifest [ac-14]", () => {
+    tagAc(AC_14);
     const entries = toolManifest.filter((e) => e.name === "provision_ac_emission");
     expect(entries).toHaveLength(1);
     expect(entries[0]!.readOnlyHint).toBe(false);
@@ -134,8 +144,8 @@ describe("spec-234 — provision_ac_emission MCP tool", () => {
     expect(registryFor(actor.user.id)["provision_ac_emission"]).toBeDefined();
   });
 
-  it("returns a key AND the integration guidance in one response [ac-14]", () => {
-    tagAc(AC_14);
+  it("returns a key AND the integration guidance in one response [ac-15]", () => {
+    tagAc(AC_15);
     expect(out).toMatch(/MEMEX_EMIT_KEY=mxk_/);
     expect(out).toMatch(/Wire emission into/i);
     expect(out).toContain(handle); // the response names the Spec it scoped to
@@ -148,27 +158,45 @@ describe("spec-234 — provision_ac_emission MCP tool", () => {
     expect(out).toContain(bootstrap.body);
   });
 
-  it("guidance tells the agent to detect the runner, author natively, cover every suite, no install [ac-2][ac-3][ac-6][ac-19]", () => {
+  it("guidance tells the agent to detect the runner, install the helper where one exists, else hand-roll, across every suite [ac-2][ac-3][ac-13]", () => {
     tagAc(AC_2);
     tagAc(AC_3);
-    tagAc(AC_6);
-    tagAc(AC_19);
+    tagAc(AC_13);
     expect(out).toMatch(/detect the test runner/i);
     expect(out).toMatch(/hand-roll/i); // native authoring when no official helper
     expect(out).toMatch(/every\s+suite|multiple suites/i);
-    expect(out).toMatch(/no package install|no install/i);
+    // spec-533 dec-5 SUPERSEDES spec-234 dec-2 for covered stacks: the old
+    // assertion here was /no package install|no install/, which is exactly the
+    // framing that sent a Vitest repo to hand-roll 80 lines it did not need.
+    // What replaces it is the conditional rule — and the table that makes the
+    // condition evaluable, which the agent could never see before (dec-1).
+    expect(out).toMatch(/expected path/i);
+    expect(out).toMatch(/npm install --save-dev @memex-ai-ac\/vitest/);
+    expect(out).not.toMatch(/no package install/i);
   });
 
-  it("never instructs persisting the key to disk [ac-18]", () => {
-    tagAc(AC_18);
+  it("still lets a stack with no official helper emit with nothing installed [ac-6]", () => {
+    tagAc(AC_6);
+    // spec-234's load-bearing property, deliberately preserved by dec-5: the
+    // supersession is scoped to stacks a helper COVERS. Nobody is stranded —
+    // the full hand-roll protocol is still served, to every repo.
+    expect(out).toMatch(/every other stack/i);
+    expect(out).toMatch(/hand-roll it with the protocol below/i);
+    // The behavioural contract itself must still be there to follow.
+    expect(out).toMatch(/api\/test-events\/batch/);
+    expect(out).toMatch(/X-Memex-Warning/);
+  });
+
+  it("never instructs persisting the key to disk [ac-17]", () => {
+    tagAc(AC_17);
     expect(out).toMatch(/do not (save|persist|write)/i);
     expect(out).toMatch(/this session only/i);
     // Must not tell the agent to put it in a file.
     expect(out).not.toMatch(/add (it )?to your \.env|write it to \.env\b/i);
   });
 
-  it("records the minting member and is gated to members [ac-17]", async () => {
-    tagAc(AC_17);
+  it("records the minting member and is gated to members [ac-18]", async () => {
+    tagAc(AC_18);
     const rows = await db.query.memexEmissionKeys.findMany({
       where: eq(memexEmissionKeys.memexId, actor.memexId),
     });
@@ -179,6 +207,26 @@ describe("spec-234 — provision_ac_emission MCP tool", () => {
     const stranger = await setupActor("stranger");
     const denied = await callToolRaw(stranger.user.id, "provision_ac_emission", { ref });
     expect(denied.isError).toBe(true);
+  });
+
+  it("names agent-provisioned keys so a human can tell them from a CI key [ac-19]", async () => {
+    tagAc(AC_19);
+    // spec-533 issue-1: this behaviour was claimed verified and tested NOWHERE.
+    // ac-19's only test asserted four guidance regexes and nothing about names,
+    // so the naming contract — the primary human audit signal in
+    // Settings → Emission Keys — was green on unrelated evidence.
+    const rows = await db.query.memexEmissionKeys.findMany({
+      where: eq(memexEmissionKeys.memexId, actor.memexId),
+    });
+    expect(rows.length).toBeGreaterThan(0);
+    // `agent · <spec> · <date>`: marks the key as agent/ephemeral and ties it
+    // to its origin, distinguishable from a human-chosen CI key name.
+    const agentKeys = rows.filter((r) => r.name.startsWith("agent"));
+    expect(agentKeys.length).toBeGreaterThan(0);
+    for (const k of agentKeys) {
+      expect(k.name).toContain(handle); // the Spec it was scoped to
+      expect(k.name).toMatch(/\d{4}-\d{2}-\d{2}/); // and when it was minted
+    }
   });
 
   it("the provisioned key actually emits for this Spec, and a fresh call yields another working key [ac-1][ac-4]", async () => {

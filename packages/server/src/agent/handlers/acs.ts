@@ -181,8 +181,9 @@ export const acsTools: ToolSpec[] = [
       "working, ephemeral, spec-scoped emission key for this repo's Memex and returns the " +
       "raw value once, and (2) returns markdown guidance for wiring emission into whatever " +
       "test runner(s) the repo actually uses — authoring a native integration when no " +
-      "official helper exists for the stack. No Settings-UI detour and no package install " +
-      "are needed to start emitting. The key is short-lived (~2h) and may ONLY record " +
+      "official helper exists for the stack. No Settings-UI detour is needed; where an official " +
+      "helper DOES exist for the detected stack, installing it is the expected path — the returned " +
+      "guidance names which stacks have one. The key is short-lived (~2h) and may ONLY record " +
       "emissions for this Spec; use it in the test process environment for THIS session and " +
       "do not persist it — call again next session for a fresh key. For a long-lived CI key, " +
       "a human mints one in Settings → Emission Keys (this tool does not produce CI keys).",
@@ -234,11 +235,13 @@ export const acsTools: ToolSpec[] = [
         "",
         "## 2. Wire emission into the repo's test runner(s)",
         "",
-        "Detect the test runner(s) **this** repo actually uses (do not assume one). For each suite: if an " +
-          "official Memex helper exists for that stack, prefer it; otherwise hand-roll the native emitter using " +
-          "the protocol below. A repo with multiple suites (e.g. a web suite plus a mobile/native suite) wires " +
-          "emission into **every** suite, not just one. Tag each test with the AC ref it verifies and the emitter " +
-          "POSTs the result — no package install is required to begin.",
+        "Detect the test runner(s) **this** repo actually uses (do not assume one). For each suite, look it up " +
+          "in the helper table in the guidance below: **if an official Memex helper exists for that stack, " +
+          "install it — that is the expected path**, not an optional accelerator, because a hand-rolled emitter " +
+          "carries no version to bump and no fix shipped later can reach it. Hand-roll the native emitter only " +
+          "where the table names none. A repo with multiple suites (e.g. a web suite plus a mobile/native suite) " +
+          "wires emission into **every** suite, not just one, and each suite is looked up separately. Tag each " +
+          "test with the AC ref it verifies and the emitter POSTs the result.",
         "",
         "---",
         "",
