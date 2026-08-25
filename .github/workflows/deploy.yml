@@ -212,7 +212,11 @@ jobs:
           SMOKE_SESSION_TOKEN: ${{ secrets.SMOKE_SESSION_TOKEN }}
           MEMEX_EMIT_KEY: ${{ secrets.MEMEX_EMIT_KEY }}
           SMOKE_EMIT_KEY: ${{ secrets.SMOKE_EMIT_KEY }}
-          SMOKE_EMIT_AC_REF: ${{ vars.SMOKE_EMIT_AC_REF }}
+          # Accepts EITHER placement. It is a ref, not a credential, so a
+          # Variable is the tidier home — but stored as a Secret it still works,
+          # and a wired-to-the-wrong-place value would make the probe skip
+          # SILENTLY, which is the one failure mode dec-7 exists to prevent.
+          SMOKE_EMIT_AC_REF: ${{ vars.SMOKE_EMIT_AC_REF || secrets.SMOKE_EMIT_AC_REF }}
           # spec-428 dec-1/dec-3 — team-identity sender for the welcome + spec-427 drip.
           # Non-sensitive brand copy, so kept as per-environment VARIABLES (not in the
           # memex-<env>-deploy-env secret). deploy.sh pushes them to Cloud Run via its
