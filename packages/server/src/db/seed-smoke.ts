@@ -25,6 +25,7 @@ import postgres from "postgres";
 import { eq, and } from "drizzle-orm";
 import * as schema from "./schema.js";
 import { namespaces, memexes, users, documents, acs } from "./schema.js";
+import { runWithMemexId } from "./connection.js";
 import { mintMcpToken } from "../services/mcp-tokens.js";
 import { signSessionToken } from "../services/auth-jwt.js";
 // spec-533 t-4: the warning-header wire probe needs a REAL emission that lands, because
@@ -126,15 +127,24 @@ async function main() {
     ),
   });
   if (!probeSpec) {
-    const created = await createDocDraft(
-      memex.id,
-      SMOKE_PROBE_SPEC_TITLE,
-      "Target for the post-deploy X-Memex-Warning wire probe (spec-533 ac-18/ac-20). " +
-        "Its criterion exists to be emitted against; nothing here is real work.",
-      "spec",
-      undefined,
-      undefined,
-      user.id,
+    // Wrapped in runWithMemexId: documents / doc_members / acs are RLS-gated, and
+    // spec-440's guard fires on a context-less write to any of them. This script runs
+    // as the table OWNER, which bypasses RLS [per std-36], so the write lands either
+    // way — but the guard is right to complain. Cloud Run sets
+    // MEMEX_RLS_GUARD_THROW=1, so a context-less write there ABORTS, and under the
+    // runtime role it would be silently REJECTED. Relying on "we happen to connect as
+    // owner" is exactly the accident this Spec is about.
+    const created = await runWithMemexId(memex.id, () =>
+      createDocDraft(
+        memex.id,
+        SMOKE_PROBE_SPEC_TITLE,
+        "Target for the post-deploy X-Memex-Warning wire probe (spec-533 ac-18/ac-20). " +
+          "Its criterion exists to be emitted against; nothing here is real work.",
+        "spec",
+        undefined,
+        undefined,
+        user.id,
+      ),
     );
     probeSpec = created;
     console.log(`  Created probe Spec ${probeSpec.handle}`);
@@ -146,14 +156,16 @@ async function main() {
     where: eq(acs.briefId, probeSpec.id),
   });
   if (!probeAc) {
-    probeAc = await createAc({
-      memexId: memex.id,
-      briefId: probeSpec.id,
-      kind: "scope",
-      statement:
-        "A custom response header set by /api/test-events reaches an external client " +
-        "through the load balancer. Emitted against by the post-deploy wire probe.",
-    });
+    probeAc = await runWithMemexId(memex.id, () =>
+      createAc({
+        memexId: memex.id,
+        briefId: probeSpec!.id,
+        kind: "scope",
+        statement:
+          "A custom response header set by /api/test-events reaches an external client " +
+          "through the load balancer. Emitted against by the post-deploy wire probe.",
+      }),
+    );
     console.log(`  Created probe AC ac-${probeAc.seq}`);
   } else {
     console.log(`  Probe AC exists: ac-${probeAc.seq}`);
