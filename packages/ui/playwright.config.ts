@@ -22,6 +22,14 @@ const DATABASE_URL =
 
 export default defineConfig({
   testDir: "./e2e",
+  // spec-539: journeys are `*.spec.ts` — ONLY. Playwright's default testMatch also
+  // collects `*.test.ts`, which silently swept up the vitest unit test that dec-3 put
+  // beside its subject at `e2e/helpers/emit-ac.test.ts` and ran it under the Playwright
+  // runner, where a vitest `describe`/`tagAc` throws "Vitest failed to find the current
+  // suite" — killing all three e2e shards in CI while every local `--grep`-filtered run
+  // stayed green, because a filter never collected the file. Pinning the pattern closes
+  // the class, not just that one file.
+  testMatch: "**/*.spec.ts",
   // spec-172 dec-3: name the dev user once per run, AFTER webServer boots (Playwright starts
   // webServers before globalSetup), so a cold DB doesn't route every journey into Onboarding.
   // See e2e/global-setup.ts.
