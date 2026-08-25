@@ -87,6 +87,10 @@ import {
   resolveMemexId,
 } from "../services/emission-keys.js";
 import { mutate } from "../services/mutate.js";
+// spec-533 t-2 (ac-19): the batching ratio is counted here, at ingest, because
+// `test_events` cannot answer it — retention is by COUNT per (subject_ref,
+// test_identifier) and no column records the route (dec-3 / dec-4).
+import { recordEmissionAccepted } from "../observability/otel/index.js";
 import type { ChangeEntity } from "../services/bus.js";
 
 const testEventsRouter = new Hono();
@@ -594,6 +598,9 @@ testEventsRouter.post("/", async (c) => {
       `metadata keys dropped (size limits exceeded): ${result.droppedKeys.join(", ")}`,
     );
   }
+  // One emission, one request: this is the ratio ≈ 1 end of the signal, and the
+  // route arriving here IS the un-batched path (ac-19).
+  recordEmissionAccepted(1, { route: "single" });
   return c.json({ id: result.id, created_at: result.createdAt }, 201);
 });
 
@@ -680,6 +687,10 @@ testEventsRouter.post("/batch", async (c) => {
     }
   }
 
+  // N emissions, ONE request. `accepted` rather than events.length: a partially
+  // rejected batch counts what landed, which understates batching slightly and
+  // never overstates adoption (ac-19).
+  recordEmissionAccepted(accepted, { route: "batch" });
   return c.json({ accepted, rejected, results }, 200);
 });
 

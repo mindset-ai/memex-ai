@@ -110,6 +110,8 @@ export function __resetDbTelemetryForTests(): void {
   rlsViolationCounter = null;
   emissionShedEvents = null;
   emissionShedRequests = null;
+  emissionAcceptedEvents = null;
+  emissionAcceptedRequests = null;
 }
 
 // ── Emission admission shed metric (spec-525 t-5, ac-13 / ac-14) ─────────────
@@ -220,6 +222,130 @@ export const __emissionShedProbe = (() => {
     /** The label keys actually attached — asserted to never include a credential. */
     labelKeys(): string[] {
       return ["cause", "waited"];
+    },
+  };
+})();
+
+// ── Emission ACCEPTED metric (spec-533 t-2, ac-19) ───────────────────────────
+// The companion to the shed counters above, and deliberately the same shape: two
+// instruments on the same meter, one for emissions and one for requests. spec-525
+// ac-13 established why a single axis is not enough — "one 429 can destroy 500
+// emissions while a per-request counter reads 1" — and the mirror image is what
+// this Spec needs. Eight emissions in one batch and eight single POSTs carry the
+// same event volume and describe opposite clients; only the second axis separates
+// them, and their RATIO is the adoption signal:
+//
+//   ratio ≈ 1     one request per test   — the un-batched path
+//   ratio ≈ 8–10  one request per file   — a client that batches
+//
+// WHY NOT READ IT BACK FROM `test_events`. Retention there is by COUNT, not age:
+// RETENTION_KEEP = 10 per (subject_ref, test_identifier), trimmed inside the
+// emission transaction (spec-398 dec-2). The busiest consumers therefore destroy
+// their own history fastest, and no column records which route a row arrived on.
+// The ratio is not merely at risk of being trimmed — it is not derivable from
+// what the table stores. spec-525's dec-6 became unanswerable on exactly this,
+// so dec-3 makes deciding where this number lands a prerequisite of shipping.
+//
+// READ CADENCE (dec-3 asks for this to be written down, not discovered later):
+// the counters are cumulative and exported on the OTLP interval already wired by
+// deploy.sh (MEMEX_OTEL_EXPORT_INTERVAL_MS). Read the ratio as a rate over a
+// window wide enough to span a CI run — daily is the useful grain for adoption,
+// since the thing being watched is repos changing a dependency range, not
+// per-request behaviour. There is no retention to race: the metrics tier holds
+// its own history independently of `test_events`.
+let emissionAcceptedEvents: Counter | null = null;
+let emissionAcceptedRequests: Counter | null = null;
+
+/** The label set: bounded to two series by construction. See recordEmissionAccepted. */
+export interface EmissionAcceptedLabels {
+  /**
+   * Which endpoint served it. This is the whole point of the metric: the route is
+   * a fact about the request rather than a claim by the caller, and it is the only
+   * thing on the wire that separates a client which batches from one which does
+   * not — there is no User-Agent and no version field on either path.
+   */
+  readonly route: "single" | "batch";
+}
+
+/**
+ * Record accepted emissions and the one request that carried them.
+ *
+ * `events` is the number of emissions ACCEPTED, so a partially-rejected batch
+ * counts only what landed. That slightly understates a client's batching (ten
+ * packed, two malformed, ratio reads 8) and is the honest reading of ac-19 as
+ * written; rejected events are a small population and the distortion is toward
+ * caution, never toward declaring adoption that did not happen.
+ *
+ * No-op unless OTLP telemetry is configured — the same contract as
+ * {@link recordEmissionShed}, and for the same reason: telemetry-off is the normal
+ * state in dev and CI, and an instrument that threw there would turn every
+ * successful emission into a 500. Telemetry must never be able to break ingest.
+ *
+ * **Nothing tenant-shaped or credential-shaped is ever a label.** Not the key, not
+ * a hash or prefix of it, not the memex id, namespace or Spec ref. spec-525 ac-14
+ * bars the credential on cardinality grounds — the gate ahead of this route runs
+ * before authentication, so presented tokens are caller-controlled and unbounded.
+ * Here the reason is additionally that the question is about client BEHAVIOUR and
+ * needs no identity to answer. Two series total.
+ */
+export function recordEmissionAccepted(
+  events: number,
+  labels: EmissionAcceptedLabels,
+  config: OtelConfig = readOtelConfig(),
+): void {
+  if (events <= 0) return; // a fully-rejected request accepted nothing
+  __emissionAcceptedProbe.record(events, labels);
+  if (!config.enabled) return;
+  if (!emissionAcceptedEvents || !emissionAcceptedRequests) {
+    const meter = getDbTelemetry(config).provider.getMeter("memex.emission");
+    emissionAcceptedEvents ??= meter.createCounter("memex.emission.accepted.events", {
+      description:
+        "AC emissions accepted at ingest (a batch counts its accepted length).",
+    });
+    emissionAcceptedRequests ??= meter.createCounter(
+      "memex.emission.accepted.requests",
+      {
+        description:
+          "Requests that carried accepted emissions — the companion axis; events/requests is the batching ratio.",
+      },
+    );
+  }
+  const attrs = { route: labels.route };
+  emissionAcceptedEvents.add(events, attrs);
+  emissionAcceptedRequests.add(1, attrs);
+}
+
+/**
+ * Test-only in-memory mirror of {@link recordEmissionAccepted}, mirroring
+ * unconditionally so the COUNTING CONTRACT is observable in the normal
+ * telemetry-off state. Asserting it through a real OTLP exporter would test the
+ * OpenTelemetry SDK rather than this Spec — the same reasoning as
+ * {@link __emissionShedProbe}.
+ */
+export const __emissionAcceptedProbe = (() => {
+  let events = 0;
+  let requests = 0;
+  const byRoute: Record<string, number> = {};
+  return {
+    record(n: number, labels: EmissionAcceptedLabels): void {
+      events += n;
+      requests += 1;
+      byRoute[labels.route] = (byRoute[labels.route] ?? 0) + n;
+    },
+    reset(): void {
+      events = 0;
+      requests = 0;
+      for (const k of Object.keys(byRoute)) delete byRoute[k];
+    },
+    snapshot(): { events: number; requests: number } {
+      return { events, requests };
+    },
+    byRoute(): Record<string, number> {
+      return { ...byRoute };
+    },
+    /** The label keys actually attached — asserted to never include a credential. */
+    labelKeys(): string[] {
+      return ["route"];
     },
   };
 })();
