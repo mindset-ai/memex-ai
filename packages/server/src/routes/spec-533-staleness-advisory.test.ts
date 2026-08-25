@@ -129,7 +129,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  __setAdvisoryRandomForTests(null); // restore Math.random [per std-37]
+  // Restore the suite-wide PIN, not Math.random: vitest.worker-db.setup.ts pins the
+  // advisory off for every test so that other Specs' header assertions stay
+  // deterministic. Handing back a live Math.random would reintroduce the ~0.6%
+  // flake this pin exists to remove [per std-37: restore global stubs].
+  __setAdvisoryRandomForTests(() => 1);
 });
 
 describe("spec-533 t-3: the advisory rides the single-event route only [ac-11]", () => {
