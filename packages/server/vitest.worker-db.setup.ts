@@ -26,3 +26,25 @@ if (poolId && process.env.DATABASE_URL) {
     poolId,
   );
 }
+
+// spec-533 t-3: pin the staleness advisory OFF for every test, deterministically.
+//
+// The advisory fires on 1-in-500 successful single-event emissions. Left live, ANY
+// test that POSTs to /api/test-events and asserts on response headers becomes
+// probabilistic — and three pre-existing assertions (test-events.test.ts, spec-115
+// and spec-358 criteria) do exactly that: `expect(res.headers.get("X-Memex-Warning"))
+// .toBeNull()`. A ~0.6%-per-run flake introduced into other Specs' tests is not an
+// acceptable cost for a telemetry nudge, and it is invisible until it bites.
+//
+// Pinned HERE rather than behind a production env switch on purpose: an off switch
+// in the shipped code could silently disable the advisory in prod, and dec-7 chose a
+// smoke probe that deliberately does NOT observe the advisory, so nothing would catch
+// it. A test-only pin cannot reach production at all.
+//
+// Tests that need the advisory call __setAdvisoryRandomForTests themselves — see
+// routes/spec-533-staleness-advisory.test.ts, which drives both outcomes explicitly.
+// Their afterEach restores this pin rather than Math.random, so the deterministic
+// default survives across files [per std-37: restore global stubs].
+import { __setAdvisoryRandomForTests } from "./src/services/emission-advisory.js";
+
+__setAdvisoryRandomForTests(() => 1); // 1 < 1/N is false for every N ≥ 1

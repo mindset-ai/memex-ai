@@ -3896,6 +3896,14 @@ export const mcpToolCalls = pgTable(
     // the full tool output. NULL when the response carried no footer (non-Spec
     // docs, terse responses). The audit trail of exactly what guidance we inject.
     footerText: text("footer_text"),
+    // spec-538 t-1 (ac-22, issue-1): the footer's TRUE length before any clipping.
+    // footer_text is capped so a pathological payload can't wedge the row; without
+    // this, a clipped row is indistinguishable from a short one in aggregate — which
+    // is how spec-538 dec-2 came to understate the envelope's worst case by ~7k, and
+    // how spec-510 ac-6's measurement gate is biased against its own promise.
+    // Clipped ⇔ footer_text_length > length(footer_text). NULL = no footer injected
+    // (and NULL for pre-spec-538 rows, deliberately not backfilled).
+    footerTextLength: integer("footer_text_length"),
   },
   (table) => [
     index("mcp_tool_calls_session_idx").on(table.sessionId, table.createdAt),

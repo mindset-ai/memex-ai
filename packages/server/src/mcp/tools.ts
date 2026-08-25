@@ -337,10 +337,21 @@ export function createMcpServer(
   // resolve call so the membership check applies the same filter.
   // Per dec-1 of doc-20 the default response shape is TERSE — the call
   // input carries the optional `verbose` flag (see VERBOSE_FIELD in
-  // tool-specs.ts) that opts in to the full markdown surface. The flip
-  // here means the MCP surface no longer overflows the agent's tool-result
-  // budget on a large doc; the agent can still pass `verbose: true` on the
-  // rare occasion it wants the full state right after a mutation.
+  // tool-specs.ts) that opts in to the full markdown surface. The agent can
+  // pass `verbose: true` when it wants the full state right after a mutation.
+  //
+  // spec-538 t-8 (ac-6): this comment used to claim the flip meant "the MCP
+  // surface no longer overflows the agent's tool-result budget on a large doc".
+  // That was measurably false, and believing it is part of why the overflow went
+  // unfixed for two months — the terse default is not the path anyone uses to
+  // orient, so the mitigation existed and the only sensible usage bypassed it.
+  // Measured: 23 spilled `get_doc` payloads across 14 Specs, 70,794–137,269
+  // chars, and a lost sensitivity warning (spec-535 issue-5).
+  //
+  // What holds the bound now is spec-538's budget, enforced inside `formatState`
+  // so every one of its call sites inherits it — see mcp/response-budget.ts. Do
+  // not re-assert a bound here: a comment cannot hold one, and this file is the
+  // reason that lesson has a Spec attached to it.
   // handleError flattens domain errors to MCP error results and lets
   // unknown errors bubble (the MCP transport will turn those into a
   // JSON-RPC error response).

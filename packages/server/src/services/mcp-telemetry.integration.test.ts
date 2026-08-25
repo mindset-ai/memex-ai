@@ -501,3 +501,99 @@ describe("logToolCall — footer-only audit capture (spec-203 dec-3)", () => {
     expect(row.footerText).toBeNull();
   });
 });
+
+// spec-538 t-1 (ac-22, from issue-1) — the guidance audit trail must not lie
+// about its own completeness.
+//
+// footer_text was clipped at MAX_RESULT_TEXT_LENGTH (16,000) — a constant named
+// and documented for result_text, a dev-only debugging capture where clipping is
+// obviously right, silently reused for an audit column. Prod evidence: two
+// populations averaging 1,827 and 15,468 chars both topping out at exactly 16,018.
+// That is a ceiling, not a maximum, and nothing in the row said so.
+const AC538 = (n: number) =>
+  `mindset-prod/memex-building-itself/specs/spec-538/acs/ac-${n}`;
+
+describe("logToolCall — the footer audit trail records what it really carried (spec-538 t-1)", () => {
+  async function logFooterOfLength(len: number, sessionPrefix: string) {
+    const userId = await seedUser();
+    const sessionId = unique(sessionPrefix);
+    createdSessionIds.push(sessionId);
+    await db.insert(mcpSessions).values({ sessionId, userId });
+
+    const footer = "g".repeat(len);
+    await logToolCall({
+      sessionId,
+      userId,
+      memexId: null,
+      toolName: "get_doc",
+      args: { ref: "x" },
+      durationMs: 5,
+      error: null,
+      resultText: `body\n${FOOTER_DELIMITER}\n${footer}`,
+    });
+
+    const [row] = await db
+      .select()
+      .from(mcpToolCalls)
+      .where(eq(mcpToolCalls.sessionId, sessionId));
+    return row;
+  }
+
+  it("stores a real-world oversized footer IN FULL — the result_text cap no longer governs the audit column", async () => {
+    tagAc(AC538(22));
+    // 20,000 > the old 16,000 cap, and comfortably above the largest guidance
+    // payload measured in the wild (23,244 was the post-delimiter region of a
+    // real get_doc; the phase guidance + full handoff prompt together).
+    const row = await logFooterOfLength(20_000, "footer-full-sess");
+
+    expect(row.footerText).toHaveLength(20_000);
+    expect(row.footerText).not.toContain("truncated");
+  });
+
+  it("records the footer's true length, so a short footer and a clipped one are distinguishable", async () => {
+    tagAc(AC538(22));
+    const row = await logFooterOfLength(20_000, "footer-len-sess");
+
+    expect(row.footerTextLength).toBe(20_000);
+    // Nothing was cut, so the arithmetic test for "clipped" is false.
+    expect(row.footerTextLength).toBe(row.footerText?.length);
+  });
+
+  it("a clip is still detectable by arithmetic, not by string-matching the suffix", async () => {
+    tagAc(AC538(22));
+    // Far beyond anything the server emits — the cap still protects the row, but
+    // it must no longer do so silently. This is the property the old code lacked:
+    // clipped  <=>  footer_text_length > length(footer_text).
+    const row = await logFooterOfLength(200_000, "footer-clip-sess");
+
+    expect(row.footerTextLength).toBe(200_000);
+    expect(row.footerText!.length).toBeLessThan(200_000);
+    expect(row.footerTextLength!).toBeGreaterThan(row.footerText!.length);
+  });
+
+  it("leaves the true length NULL when no footer was injected", async () => {
+    tagAc(AC538(22));
+    const userId = await seedUser();
+    const sessionId = unique("footer-nolen-sess");
+    createdSessionIds.push(sessionId);
+    await db.insert(mcpSessions).values({ sessionId, userId });
+
+    await logToolCall({
+      sessionId,
+      userId,
+      memexId: null,
+      toolName: "list_memexes",
+      args: {},
+      durationMs: 2,
+      error: null,
+      resultText: "a terse response with no footer",
+    });
+
+    const [row] = await db
+      .select()
+      .from(mcpToolCalls)
+      .where(eq(mcpToolCalls.sessionId, sessionId));
+    expect(row.footerText).toBeNull();
+    expect(row.footerTextLength).toBeNull();
+  });
+});

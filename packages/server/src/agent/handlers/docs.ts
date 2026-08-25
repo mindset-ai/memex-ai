@@ -6,6 +6,8 @@
 import {
   z,
 } from "zod";
+import { boundRenderedList } from "../../mcp/response-budget.js";
+import { formatResolvedChild } from "../../formatting/formatters.js";
 import {
   buildChildRef,
   buildDocRef,
@@ -281,9 +283,14 @@ export const docsTools: ToolSpec[] = [
         taskCountsByDoc(memexId, docIds),
         successorHandlesByDoc(memexId, docs),
       ]);
-      return (
-        header(docs.length) +
-        docs
+      // spec-538 dec-5 (ac-20, ac-21) — this list grows with the number of
+      // documents in the Memex, which only ever increases and which nothing
+      // prunes. Measured on the default path: 467 docs x 187 chars = 88,494,
+      // refused by the client and spilled to a file — on the highest-traffic
+      // read of the surface. An agent calling this to orient was getting a file
+      // path instead of a list.
+      const head = header(docs.length);
+      const entries = docs
           .map((d) => {
             const ref = slugs ? buildDocRef(slugs, d) : d.handle;
             // ac-13: a superseded Spec STAYS in the set and carries its successor, so
@@ -294,16 +301,37 @@ export const docsTools: ToolSpec[] = [
             const decisionCount = decisionCounts.get(d.id) ?? 0;
             const taskCount = taskCounts.get(d.id) ?? 0;
             return `- ref: ${ref} [${d.docType}, ${d.status}${supersededSeg}] "${d.title}" (${decisionCount} decisions, ${taskCount} tasks)`;
-          })
-          .join("\n") + catalogue
-      );
+          });
+
+      // The marker is reserved BEFORE the split, so announcing the omission
+      // cannot itself push the response over the line it announces.
+      const OMISSION_MARKER_RESERVE = 240;
+      const { kept, omitted } = boundRenderedList(entries, {
+        reservedChars: head.length + catalogue.length + OMISSION_MARKER_RESERVE,
+      });
+
+      // A Memex small enough to list comfortably lists exactly as it did before
+      // — same header, same lines, no marker (ac-26).
+      if (omitted === 0) {
+        return head + kept.join("\n") + catalogue;
+      }
+
+      // Never a silent truncation: say how many are missing and name the
+      // arguments that actually narrow this call — docType, statusIn and tags
+      // are real parameters on this tool, not advice invented for the message.
+      const note =
+        `\n… ${omitted} more not shown — this Memex holds more documents than one response can carry. ` +
+        `Narrow with docType, statusIn or tags, or use search_memex.`;
+      return head + kept.join("\n") + note + catalogue;
     },
   },
   {
     name: "get_doc",
     annotations: { title: "Get document", readOnlyHint: true, destructiveHint: false },
     description:
-      "Get a document with all its sections, decisions, tasks, comments, and blockers. Returns the full picture: content, decision statuses, task readiness, and phase-aware guidance. The response includes the public URL — no separate get_doc_url call needed.",
+      "Get a document, or one part of one. Given a document ref it returns the full picture: sections, decisions, tasks, comments, blockers, statuses and phase-aware guidance. " +
+      "Given a DECISION, SECTION or TASK ref it returns just that part, in full and never shortened — which is how you read something a large document's response only had room to summarise. " +
+      "The response includes the public URL — no separate get_doc_url call needed.",
     schema: {
       ref: z
         .string()
@@ -315,9 +343,45 @@ export const docsTools: ToolSpec[] = [
     async handler(input, ctx) {
       const ref = input.ref as string;
       const resolved = await resolveRefArg(ctx, ref);
+      // spec-538 dec-6 (ac-23) — a sub-ref returns THE CHILD, not an error and
+      // not the parent document.
+      //
+      // This is what makes dec-1's truncation marker a door. It also clears the
+      // 70 `expects a doc-level ref; got decision/section/task` errors (~12
+      // users / 30 days) that spec-472 dec-5 identified — ahead of the redesign
+      // that owns them. spec-472 dec-5 currently says a sub-ref resolves to the
+      // PARENT; combined with this Spec that is a loop (the parent read is the
+      // one that was truncated), so dec-6 asked for the clause to say CHILD and
+      // carried the request to spec-511 dec-1 c-7.
+      //
+      // A child of an archived Spec still 404s: the resolver refuses it upstream
+      // (spec-521 dec-2), so widening here cannot weaken that.
+      if (
+        resolved.entity.kind === "decision" ||
+        resolved.entity.kind === "section" ||
+        resolved.entity.kind === "task"
+      ) {
+        const childUrl = await ctx.workspaceUrl(resolved.memexId);
+        // A task's blocked/READY label is derived from its blockers, which the
+        // resolver does not load. Rendering the bare row would print READY for a
+        // task that is actually BLOCKED — a confident lie is worse than a missing
+        // field, so the blockers are fetched rather than defaulted away.
+        const entity =
+          resolved.entity.kind === "task"
+            ? ({
+                kind: "task" as const,
+                row: await getTask(
+                  resolved.memexId,
+                  resolved.entity.row.id,
+                  resolved.doc.id,
+                ),
+              })
+            : resolved.entity;
+        return formatResolvedChild(entity, resolved.doc, resolved.slugs, childUrl);
+      }
       if (!isDocLikeKind(resolved.entity.kind)) {
         throw new ValidationError(
-          `get_doc expects a doc-level ref; got ${resolved.entity.kind}.`,
+          `get_doc expects a document, or a decision / section / task within one; got ${resolved.entity.kind}.`,
         );
       }
       const { memexId, doc, slugs } = resolved;
