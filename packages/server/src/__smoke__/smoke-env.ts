@@ -58,6 +58,42 @@ export const SMOKE_SESSION_TOKEN = process.env.SMOKE_SESSION_TOKEN ?? "";
 export const SMOKE_DATABASE_URL = process.env.SMOKE_DATABASE_URL ?? "";
 
 /**
+ * Emission key for the smoke island, used by the spec-533 warning-header probe.
+ *
+ * Absent today, and deliberately NOT something an agent can mint: `provision_ac_emission`
+ * produces only short-lived, Spec-scoped keys, because a long-lived secret must not
+ * round-trip through an agent's transcript (spec-234 dec-1/dec-5). A durable smoke key is
+ * a human mint in Settings → Emission Keys, stored the same way SMOKE_MCP_TOKEN is. Until
+ * it exists the probe skips cleanly, exactly like the authed tier above — visibly unrun
+ * rather than quietly passing.
+ */
+/**
+ * Metadata value length the spec-533 wire probe sends to force the over-cap warning.
+ *
+ * The server's caps are ~4KB total / 32 keys / 256 chars per value. 8,000 chars breaches
+ * BOTH the per-value and the total cap by a wide margin, so a future loosening would have
+ * to be dramatic before the probe stopped firing — and a probe that silently stops firing
+ * silently stops proving anything, which is the failure mode dec-7 cares most about.
+ *
+ * It lives HERE, not in the smoke test, for two reasons: the smoke file must not import
+ * routes/test-events.js (that module demands DATABASE_URL at load and would kill a run
+ * against a remote host — how the 2026-08-14 int deploy failed), and a non-smoke guard
+ * needs to import this number alongside the real caps to check the margin still holds.
+ */
+export const SMOKE_OVERCAP_VALUE_CHARS = 8000;
+
+export const SMOKE_EMIT_KEY = process.env.SMOKE_EMIT_KEY ?? "";
+
+/**
+ * The AC the smoke probe emits against — must live in the smoke island's Memex, never a
+ * real namespace (spec-70 dec-2: the suite owns its own data island and MUST NEVER touch
+ * any other namespace/memex on the shared host). Paired with SMOKE_EMIT_KEY: the probe
+ * runs only when BOTH are set, since a key without a ref it authorises would 401 and a
+ * ref without a key would too.
+ */
+export const SMOKE_EMIT_AC_REF = process.env.SMOKE_EMIT_AC_REF ?? "";
+
+/**
  * The throwaway namespace the authed tier owns and self-cleans inside
  * (dec-2). Reserved as an obvious non-production slug. The authed tier MUST
  * NEVER touch any other namespace/memex on the shared host.
