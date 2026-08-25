@@ -1,0 +1,64 @@
+-- spec-538 t-1 (ac-22, from issue-1) — record the footer's TRUE length, so the
+-- guidance audit trail stops lying about its own completeness.
+--
+-- THE DEFECT. spec-203 dec-3 introduced mcp_tool_calls.footer_text as "the audit
+-- trail of exactly what guidance we inject", captured unconditionally in prod
+-- precisely because it is an audit trail. It is clipped at 16,000 chars by
+-- MAX_RESULT_TEXT_LENGTH — a constant named and documented for result_text, a
+-- dev-only debugging capture where clipping is obviously right, and reused here
+-- for a column with entirely different requirements. The two shared a number by
+-- accident, not by decision.
+--
+-- MEASURED, prod 30 days to 2026-08-24:
+--
+--   carries_full_handoff | calls  | avg_chars | max_chars
+--   ---------------------+--------+-----------+-----------
+--    f                   | 35,224 |     1,827 |    16,018
+--    t                   |  3,860 |    15,468 |    16,018
+--
+-- Two populations an order of magnitude apart in mean, topping out at precisely
+-- the same character. That is a ceiling, not a maximum. Ground truth from a
+-- spilled payload on disk: a real post-delimiter region measured 23,244 chars
+-- (phase guidance 11,228 + full handoff prompt 11,950 + activity 66).
+--
+-- WHY A COLUMN AND NOT JUST A BIGGER CAP. Raising the cap makes today's payloads
+-- fit; it does not make a future clip VISIBLE. The failure this whole Spec exists
+-- to remove is a mechanism that works until the input grows, and a cap with no
+-- record of what it cut is exactly that. With the true length stored, a clipped
+-- row is detectable as `footer_text_length > length(footer_text)` — arithmetic,
+-- not string-matching the "…[truncated N]" suffix. Both are done: the cap gets its
+-- own generous constant AND every row records what it really carried.
+--
+-- THE DIAGNOSTIC TRAP THIS CLOSES, worth recording because it cost a wrong
+-- conclusion. Per-tool maxima read 16018 / 16017, which looks like natural content
+-- variation and was cited as evidence AGAINST a cap. It is the cap's fingerprint:
+-- clip() appends "…[truncated N]", one character longer when the overflow needs
+-- five digits instead of four. Anyone auditing a capped column from aggregates
+-- alone meets this again.
+--
+-- WHO READS THIS. spec-538 dec-2 sized the response budget partly against these
+-- figures and understated the envelope's worst case by ~7k (corrected in c-2).
+-- spec-510 ac-6 is measured on this same column: its gate is "prove the drop on
+-- live data or do not widen", and the saving is largest on the heaviest responses
+-- — exactly the rows whose BEFORE size is clipped. The bias runs against their own
+-- gate, so a genuine win can read as marginal (spec-510 t-9 c-11).
+--
+-- COST (std-39). ADD COLUMN of a nullable integer with no DEFAULT is a catalogue-
+-- only change in PostgreSQL 11+: no table rewrite, no backfill, an ACCESS EXCLUSIVE
+-- lock held for microseconds. mcp_tool_calls carries ~56k rows per 30 days, so the
+-- table is small regardless. No index: nothing filters on this column — it is read
+-- in aggregates that already scan the window, and an index would cost write
+-- throughput on the hottest insert path in the server for no read that needs it.
+--
+-- NULLABLE, and it means something: NULL = no footer was injected (the same rows
+-- where footer_text is NULL). Historic rows stay NULL and are NOT backfilled —
+-- their true lengths are unrecoverable, and inventing a value from the clipped
+-- text would fabricate exactly the number this column exists to make honest.
+-- Queries comparing before/after must therefore window on created_at, not assume
+-- the column is populated for all history.
+
+ALTER TABLE mcp_tool_calls
+  ADD COLUMN IF NOT EXISTS footer_text_length integer;
+
+COMMENT ON COLUMN mcp_tool_calls.footer_text_length IS
+  'True character length of the injected footer BEFORE any clipping. NULL when no footer was injected, and NULL for rows written before spec-538 t-1 (not backfilled — unrecoverable). A clipped row is footer_text_length > length(footer_text).';
