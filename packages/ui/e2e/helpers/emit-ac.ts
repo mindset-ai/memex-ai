@@ -8,6 +8,19 @@
 // missing key warns server-side and the AC simply stays unverified, it never
 // fails the run.
 
+// spec-539 dec-1: provenance is DERIVED IN ONE PLACE. buildMetadata() reads the CI
+// environment itself (GitHub Actions / GitLab / BuildKite / CircleCI) plus the
+// MEMEX_METADATA_* convention, and is the same function the official vitest emitter
+// uses — so the two paths cannot report a run differently. Do not re-derive any
+// GITHUB_* variable here; that second copy was the defect this Spec fixes.
+//
+// ⚠ buildMetadata's parameter is EXPLICIT PER-CALL METADATA, not the environment.
+// buildMetadata(process.env) merges every environment variable into the payload, and
+// test_events metadata is world-readable on a public Memex [per std-31] — that would
+// publish every CI runner's and every laptop's secrets. Call it with NO argument.
+// ac-10's test fails the suite if an arbitrary env key ever reaches the payload.
+import { buildMetadata } from "@memex-ai-ac/vitest";
+
 const NAMESPACE_TO_BASE_URL: Record<string, string> = {
   "mindset-prod": "https://memex.ai",
   "mindset-int": "https://int.memex.ai",
@@ -26,6 +39,8 @@ export async function emitAcEvents(
   if (/^(false|0|no|off)$/i.test(process.env.MEMEX_EMIT ?? "")) return;
 
   const key = process.env.MEMEX_EMIT_KEY;
+  // One derivation per call, shared by every ref in this batch.
+  const metadata = buildMetadata();
   for (const ac_uid of acRefs) {
     const namespace = ac_uid.split("/")[0] ?? "";
     const base = NAMESPACE_TO_BASE_URL[namespace];
@@ -47,6 +62,10 @@ export async function emitAcEvents(
           test_identifier: testIdentifier,
           duration_ms: durationMs,
           actor: process.env.GITHUB_ACTOR ?? process.env.USER,
+          // Omitted entirely when empty (a bare local run) rather than sent as `{}`:
+          // an absent key reads as "no provenance", which is the honest answer, and
+          // spec-391 dec-4's audit then correctly reports the run as local-only.
+          ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
         }),
       });
     } catch {

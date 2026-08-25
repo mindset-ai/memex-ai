@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { tagAc } from "@memex-ai-ac/vitest";
 
 // ──────────────────────────────────────────────────────────────────────────
 // Mocks
@@ -157,7 +158,19 @@ describe("exchangeOAuthCode", () => {
   });
 
   it("throws not_configured when env vars are missing", async () => {
-    vi.unstubAllEnvs();
+    // spec-539 dec-2: this used to be `vi.unstubAllEnvs()`, which restores the REAL
+    // process.env — populated locally from packages/server/.env, empty in CI. So the
+    // test passed only where no .env exists, making `.husky/pre-push` red on every
+    // developer machine and `--no-verify` routine. Stub the three variables away
+    // explicitly, mirroring how this same describe stubs them in at L129-131.
+    tagAc("mindset-prod/memex-building-itself/specs/spec-539/acs/ac-8");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-539/acs/ac-9");
+    // scope ac-4: the test still proves what it was written to prove — refusal with
+    // not_configured when the credentials are absent. Made env-independent, not weaker.
+    tagAc("mindset-prod/memex-building-itself/specs/spec-539/acs/ac-4");
+    vi.stubEnv("SLACK_CLIENT_ID", "");
+    vi.stubEnv("SLACK_CLIENT_SECRET", "");
+    vi.stubEnv("SLACK_OAUTH_REDIRECT_URI", "");
     await expect(exchangeOAuthCode("any-code")).rejects.toMatchObject({
       name: "SlackOAuthError",
       code: "not_configured",

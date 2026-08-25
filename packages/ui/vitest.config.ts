@@ -37,7 +37,14 @@ const COLLECT_ONLY_THRESHOLDS = Object.fromEntries(
 export default defineConfig({
   plugins: [react()],
   test: {
-    include: ['src/**/*.test.{ts,tsx}'],
+    // spec-539 dec-3 — the ONLY vitest include outside `src/**` in this monorepo, and
+    // deliberate. `e2e/helpers/emit-ac.ts` is e2e-only code (the Playwright AC emitter)
+    // whose payload-building is worth unit-testing without booting Playwright and a
+    // database. The alternative was moving that runtime code into `src/` purely for
+    // testability, which would put e2e-only code in the app's module graph. Note nothing
+    // under `e2e/` is compiled by `tsc -b` (tsconfig.app.json includes only `src`), so a
+    // type error in these files surfaces when vitest runs them, not at typecheck.
+    include: ['src/**/*.test.{ts,tsx}', 'e2e/helpers/**/*.test.ts'],
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./src/test/setup.ts'],
