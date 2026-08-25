@@ -132,8 +132,9 @@ export async function createIssue(input: CreateIssueInput): Promise<Mutated<Issu
     );
   }
   // NO phase guard (ac-12): an Issue may be raised against a Spec in ANY status —
-  // draft / specify / build / verify / done, paused or archived. We assert the Spec
-  // exists in the memex (tenancy, std-7) but never read or gate on its status.
+  // draft / specify / build / verify / done — and on an archived Spec too (archival
+  // is the `archived_at` column, not a status). We assert the Spec exists in the
+  // memex (tenancy, std-7) but never read or gate on its status.
   await assertSpecInMemex(memexId, docId);
 
   // Allocate seq + insert under withSeqRetry, mirroring createTask / createAc.

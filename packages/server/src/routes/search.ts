@@ -34,6 +34,7 @@ import {
   searchMemex,
   resolveJumpTo,
   resolveAssignedSpecs,
+  loadMemexSlugs,
   type MemexSearchHit,
   type MemexSearchKind,
 } from "../services/memex-search.js";
@@ -123,9 +124,20 @@ search.get("/", async (c) => {
 
   // spec-64 t-1 (ac-11/ac-13/ac-14): apply NO status filter and NO
   // includeArchived — searchMemex already returns drafts (ac-13), excludes
-  // archived/paused (ac-14), and falls back to FTS-only when no embedding
-  // provider is configured (ac-11). We forward only `kind` + `limit`; the
-  // provider is resolved inside searchMemex from env (omitted here).
+  // archived and demo content (ac-14), and falls back to FTS-only when no
+  // embedding provider is configured (ac-11). We forward only `kind` + `limit`;
+  // the provider is resolved inside searchMemex from env (omitted here).
+  //
+  // (This comment used to say "archived/paused". No paused status exists and no
+  // query filters for one — spec-409 removed the pause feature and migration 0113
+  // dropped documents.paused_at. Corrected by spec-522 s-3.)
+  //
+  // spec-522 dec-5: resolve the namespace/memex slugs ONCE here and hand them to
+  // both lanes. searchMemex and resolveJumpTo each used to load the same single
+  // row independently, and they run concurrently, so every ⌘K request issued the
+  // identical query twice — three times for an `@name` query. `withOpenComments`
+  // is deliberately NOT set: the palette never renders the indicator, so this
+  // path no longer pays a grouped comment query per keystroke burst.
   //
   // spec-64 t-2 (ac-17/ac-18/ac-19): resolve the jumpTo + assigned lanes
   // alongside the content tier. jumpTo (handle + Spec title-substring) is
@@ -134,9 +146,17 @@ search.get("/", async (c) => {
   // for an anonymous public-memex read — is deliberately not consulted; the
   // public-read contract holds, returning empty rather than 401). Run content +
   // jumpTo in parallel since neither depends on the other.
+  const slugs = await loadMemexSlugs(memexId);
+  if (!slugs) {
+    // No slugs means the memex row vanished between the resolver and here — both
+    // lanes would return empty anyway, so answer with the empty envelope rather
+    // than running six arms to prove it.
+    return c.json({ jumpTo: [], assigned: [], content: [] });
+  }
+
   const [hits, jumpToHits] = await Promise.all([
-    searchMemex(memexId, query, { kind, limit }),
-    resolveJumpTo(memexId, query),
+    searchMemex(memexId, query, { kind, limit, slugs }),
+    resolveJumpTo(memexId, query, slugs),
   ]);
 
   // spec-64 t-2 (ac-19): the `assigned` lane is populated ONLY for an `@<name>`
@@ -157,6 +177,7 @@ search.get("/", async (c) => {
       assignedHits = await resolveAssignedSpecs(
         memexId,
         members.map((m) => m.userId),
+        slugs,
       );
     }
   }

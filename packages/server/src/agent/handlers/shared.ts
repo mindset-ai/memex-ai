@@ -1671,7 +1671,7 @@ export function isDocLikeKind(kind: ResolvedEntity["kind"]): kind is DocLikeKind
 
 // spec-112 (ac-25/ac-27): rank the best-suited Specs to home a homeless Issue.
 // Semantic search over the issue text (title + body) restricted to Specs
-// (kind:'spec'). searchMemex already excludes archived + paused content; we
+// (kind:'spec'). searchMemex already excludes archived + demo content; we
 // additionally drop `done` so ONLY active-phase Specs are suggested. The vector
 // arm of searchMemex runs whenever a provider is supplied — so this ranks via
 // the vector path when embeddings are configured, and falls back to FTS-only
@@ -1691,9 +1691,17 @@ export async function suggestActiveSpecsForIssue(
     provider,
     limit,
   });
-  // searchMemex drops archived/paused already; exclude `done` so the
+  // searchMemex drops archived (and demo) content already; exclude `done` so the
   // suggestions are active-phase Specs only (ac-27).
-  return hits.filter((h) => h.status !== "done" && h.status !== "archived");
+  //
+  // Filter on `done` ONLY. `h.status` is doc_status — draft | review |
+  // implementation | done | approved | specify | build | verify (schema.ts) —
+  // and neither "archived" nor "paused" is a member of it: archiving is the
+  // `archived_at` column, and the pause feature was removed by spec-409 (commit
+  // 3a17b45) with its column dropped in 0113_drop_documents_paused_at.sql. A
+  // `h.status !== "archived"` clause lived here and could never be false; don't
+  // restore it or add a paused twin.
+  return hits.filter((h) => h.status !== "done");
 }
 
 // spec-112 (ac-4 / ac-15): decision-time auto-surfacing of related Issues.

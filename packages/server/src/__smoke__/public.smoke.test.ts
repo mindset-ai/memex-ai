@@ -16,7 +16,12 @@
 
 import { describe, it, expect } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
-import { SMOKE_BASE_URL, SMOKE_MCP_URL, SMOKE_NAMESPACE } from "./smoke-env.js";
+import {
+  SMOKE_BASE_URL,
+  SMOKE_CANONICAL_REF,
+  SMOKE_MCP_URL,
+  SMOKE_NAMESPACE,
+} from "./smoke-env.js";
 
 describe(`public smoke @ ${SMOKE_BASE_URL}`, () => {
   it("GET /api/health → 200 {status:ok}", async () => {
@@ -154,5 +159,54 @@ describe(`public smoke @ ${SMOKE_BASE_URL}`, () => {
     // The SPA index, not a GCS error page (status may be 404 per the
     // pre-existing deep-link behaviour; browsers render the app regardless).
     expect(text).toMatch(/<div id="root">|Memex\.AI/);
+  });
+
+  // ── spec-522 t-1/t-2 (std-17) — ⌘K search survives the deploy ──────────────
+  //
+  // WHY THIS IS THE HIGHEST-VALUE CHECK THIS SPEC OWES. spec-522 moved both FTS
+  // arms onto a generated `content_tsv` column added by migration 0132. If that
+  // migration does not apply on a deploy, the column is absent and EVERY
+  // free-text search 500s — the arms reference a column that does not exist.
+  // Nothing else in the suite would catch that: /api/health stays green, the SPA
+  // still serves, and the failure only appears when a user types into ⌘K.
+  //
+  // A schema/code split like this is exactly what post-deploy smoke is for, and
+  // it is invisible to `make test` (which runs against a locally-migrated DB).
+  //
+  // Public, unauthenticated, read-only — the same tier as the checks above. It
+  // reads the env-appropriate real namespace via SMOKE_CANONICAL_REF rather than
+  // the throwaway one, because the throwaway memex may be empty and an empty
+  // result would not exercise the arms. Never writes.
+  const SEARCH_TARGET = SMOKE_CANONICAL_REF.split("/").slice(0, 2).join("/");
+
+  it("GET /api/<ns>/<mx>/search → 200 three-lane envelope (0132 applied, arms serving)", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-522/acs/ac-3");
+    const res = await fetch(
+      `${SMOKE_BASE_URL}/api/${SEARCH_TARGET}/search?q=${encodeURIComponent("search latency")}`,
+    );
+
+    // A 5xx here is the migration-not-applied signature. 404 is legitimate only
+    // if the memex is private on this env; anything else is a real failure.
+    expect(res.status).toBeLessThan(500);
+    expect([200, 404]).toContain(res.status);
+
+    if (res.status === 200) {
+      const body = (await res.json()) as Record<string, unknown>;
+      for (const lane of ["jumpTo", "assigned", "content"]) {
+        expect(Array.isArray(body[lane])).toBe(true);
+      }
+    }
+  });
+
+  it("GET /api/<ns>/<mx>/search?kind=decision → 200 (the arm 0132 rewrote)", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-522/acs/ac-3");
+    // Scoped to the decisions arm specifically: it is the one whose SQL changed
+    // most, and the one that reads `decisions.content_tsv`. A generic free-text
+    // query could in principle be answered without ever touching it.
+    const res = await fetch(
+      `${SMOKE_BASE_URL}/api/${SEARCH_TARGET}/search?q=${encodeURIComponent("cache")}&kind=decision`,
+    );
+    expect(res.status).toBeLessThan(500);
+    expect([200, 404]).toContain(res.status);
   });
 });

@@ -240,7 +240,9 @@ describe("audit: McpServer instructions reference real tools", () => {
         candidate === "build" ||
         candidate === "verify" ||
         candidate === "done" ||
-        candidate === "paused" ||
+        // No "paused" entry: spec-409 (commit 3a17b45) removed the pause feature
+        // and 0113_drop_documents_paused_at.sql dropped its column, so a
+        // backticked `paused` in the instructions is a defect, not a phase token.
         candidate === "archived" ||
         candidate === "complete" ||
         candidate === "memex" ||

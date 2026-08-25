@@ -189,7 +189,7 @@ describe("issue-N seq allocation (ac-10)", () => {
 
 // ac-12 — create works against a Spec in ANY status (no phase guard).
 describe("create against any Spec status (ac-12)", () => {
-  it("creates an Issue for a Spec in draft, build, done, paused and archived", async () => {
+  it("creates an Issue for a Spec in draft, specify, build, verify and done", async () => {
     tagAc(AC(12));
     for (const status of ["draft", "specify", "build", "verify", "done"]) {
       const docId = await makeSpec(`Issue Status ${status} Doc`);

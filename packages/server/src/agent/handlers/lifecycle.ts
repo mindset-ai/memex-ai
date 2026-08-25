@@ -449,6 +449,11 @@ export const lifecycleTools: ToolSpec[] = [
         limit,
         provider,
         excludeDocId,
+        // spec-522 dec-5: opt in — formatSearchResults below renders the
+        // open-comment indicator (spec-259 ac-12). It is off by default because
+        // the ⌘K route never displays it and was paying a grouped query per
+        // keystroke burst for a field it discarded.
+        withOpenComments: true,
       });
       return formatSearchResults(query, hits, {
         verbose: ctx.verbose,

@@ -614,7 +614,7 @@ export const docsTools: ToolSpec[] = [
     annotations: { title: "Update document", readOnlyHint: false, destructiveHint: false },
     description:
       "Update a document's status, title, and/or tags. Pass only the fields you want to change. " +
-      "**status** transitions a Spec through draft → specify → build → verify → done; backward moves and pauses are supported. Run `assess_spec({mode:'phase', target:<phase>})` BEFORE any forward Spec transition past specify — it returns the rubric + a fact sheet of open decisions / incomplete work / drift. Closing to 'done' is the user's call. " +
+      "**status** transitions a Spec through draft → specify → build → verify → done; backward moves are supported. Run `assess_spec({mode:'phase', target:<phase>})` BEFORE any forward Spec transition past specify — it returns the rubric + a fact sheet of open decisions / incomplete work / drift. Closing to 'done' is the user's call. " +
       "**title** renames the document (handle stays immutable). " +
       "**tags** adds tags to the Spec — array of `scope::value` (e.g. `priority::high`) or flat (e.g. `bug`) strings; a scoped tag is mutually exclusive within its scope (applying `priority::high` drops any other `priority::*`). New tags are created on first use. " +
       "**removeTags** removes the given tags from the Spec (same string form); removing a tag the Spec doesn't carry is a no-op. " +

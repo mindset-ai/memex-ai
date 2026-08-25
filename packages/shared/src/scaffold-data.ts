@@ -753,7 +753,7 @@ const PHASE_PLAN_SEARCH: PromptBlockNode = {
     '- **The user references prior work without a handle.** *"Didn\'t we decide something about retry policy last month?"* → `search_memex({ query: "retry policy", kind: "decision" })`. Cite the hits inline so the user can confirm you found the right one.\n' +
     '- **Before authoring substantive new section content.** If you\'re about to add or significantly rewrite a section, run `search_memex({ query })` (no `kind`) first to surface related Specs / Standards / Decisions you should reference or align with.\n' +
     '- **When the user mentions a Standard by topic.** `search_memex({ query, kind: "standard" })` — the standards-only filter keeps results focused on rules.\n\n' +
-    'Default `kind` omitted to search everything; narrow with `kind: "spec" | "standard" | "decision" | "document"` when you know what you\'re looking for. Results lead with the canonical ref — use it directly in your next tool call (no UUID lookup needed). Archived and paused content is excluded by default.',
+    'Default `kind` omitted to search everything; narrow with `kind: "spec" | "standard" | "decision" | "document"` when you know what you\'re looking for. Results lead with the canonical ref — use it directly in your next tool call (no UUID lookup needed). Archived content is excluded by default; drafts are included.',
   rationale:
     'Per-phase `search_memex` triggers — specify has a heavier search posture (mandatory before resolving load-bearing decisions). Mirrors the "## Searching the Memex" block of `specify/system.md`.',
 };

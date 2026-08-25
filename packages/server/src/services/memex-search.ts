@@ -36,8 +36,11 @@
 // their parent doc; decision hits are atomic. The search method (FTS vs
 // vector) is recorded per-result for debug / telemetry.
 //
-// Archived and paused content is excluded by default (per b-34 spec
-// requirement); `includeArchived: true` opts back in.
+// Archived content is excluded by default (per b-34 spec requirement);
+// `includeArchived: true` opts back in. Drafts are always included, and there is
+// NO status filter of any kind — this said "archived and paused" for a long time,
+// but no paused status exists and no query ever filtered for one (spec-409
+// deleted the pause feature; migration 0113 dropped documents.paused_at).
 //
 // Handhold demo specs (documents.is_demo) are excluded UNCONDITIONALLY from
 // every arm (spec-178 t-11 / dec-11, ac-36). This reverses the earlier
@@ -64,6 +67,10 @@ import { listSpecsAssignedToUser } from "./doc-assignees.js";
 import { buildDocPath, kindForDocType } from "./memex-search/refs.js";
 import { mergeWithRrf } from "./memex-search/ranking.js";
 import {
+  resolveQueryVector,
+  type ResolvedQueryVector,
+} from "./memex-search/query-vector.js";
+import {
   attachOpenComments,
   attachSupersession,
   inScopeDocTypes,
@@ -81,6 +88,7 @@ import type {
   DecisionRow,
   IssueRow,
   MemexSearchHit,
+  MemexSlugs,
   SectionRow,
 } from "./memex-search/types.js";
 
@@ -97,6 +105,11 @@ export type {
   SearchStrategy,
 } from "./memex-search/types.js";
 export { formatSearchResults } from "./memex-search/formatting.js";
+// spec-522 dec-5: the search route resolves the slugs once and passes them to
+// both lanes, so it needs this. Re-exported here rather than having the route
+// reach into memex-search/retrieval.js directly, which would break the
+// "this file is the entry layer" boundary spec-363 sol-7 established.
+export { loadMemexSlugs } from "./memex-search/retrieval.js";
 
 import type { SearchMemexOptions } from "./memex-search/types.js";
 
@@ -137,8 +150,15 @@ export async function searchMemex(
   const includeArchived = options.includeArchived ?? false;
   const excludeDocId = options.excludeDocId;
 
-  const slugs = await loadMemexSlugs(memexId);
+  // spec-522 dec-5: the route resolves the slugs once and passes them to both
+  // this and resolveJumpTo, which it runs concurrently. Falling back to our own
+  // load keeps every other caller working unchanged.
+  const slugs = options.slugs ?? (await loadMemexSlugs(memexId));
   if (!slugs) return [];
+
+  // spec-522 dec-5: opt-in, default off. Only the agent-facing markdown formatter
+  // renders this; the ⌘K palette discarded it on every keystroke burst.
+  const withOpenComments = options.withOpenComments === true;
 
   // 1. Handle short-circuit — exact lookup wins. Direct lookups bypass
   //    the self-filter: if you explicitly named the doc, you want it back.
@@ -146,7 +166,7 @@ export async function searchMemex(
   //    through to FTS/vector.)
   if (HANDLE_REGEX.test(trimmed)) {
     const direct = await lookupByHandle(memexId, slugs, trimmed, includeArchived);
-    if (direct) return attachOpenComments([direct]);
+    if (direct) return withOpenComments ? attachOpenComments([direct]) : [direct];
     // Fall through to fuzzy search if nothing matched (the user might have
     // typed a handle that doesn't exist; better to show paraphrase candidates
     // than an empty result).
@@ -156,6 +176,34 @@ export async function searchMemex(
     options.provider !== undefined ? options.provider : resolveEmbeddingProvider();
   const disableVector = options.disableVector === true || provider === null;
   const maxVectorDistance = resolveMaxVectorDistance(options.maxVectorDistance);
+
+  // spec-522 dec-1 — ONE embed per search, shared by all three vector arms.
+  // Previously each arm embedded the same string independently: three external
+  // round-trips per search, and every search waited on the slowest of three
+  // independent samples (measured p50 810 ms / p90 1153 ms — s-2).
+  //
+  // DELIBERATELY NOT AWAITED HERE. Awaiting before the arms are built would put
+  // the embed round-trip in front of the FTS arms as well, turning
+  // `max(fts, embed + vector)` into `embed + max(fts, vector)` — which would make
+  // the FTS path SLOWER than before this change. Instead the promise is created
+  // once and every vector arm awaits the same one, so the FTS arms still start
+  // immediately and the three vector arms share a single round-trip.
+  const queryVectorPromise: Promise<ResolvedQueryVector | null> = disableVector
+    ? Promise.resolve(null)
+    : resolveQueryVector(provider, trimmed);
+
+  /** Run a vector arm once the shared query vector resolves. Yields no rows when
+   *  it could not be resolved — no provider, provider error, or timeout — so the
+   *  handle + FTS lanes still answer and search degrades rather than failing
+   *  (ac-4). This is where the per-arm try/catch that used to live in each
+   *  `run*Vector` now has its single home. */
+  async function vectorArm<T>(
+    run: (queryVec: ResolvedQueryVector) => Promise<T[]>,
+  ): Promise<T[]> {
+    const queryVec = await queryVectorPromise;
+    if (!queryVec) return [];
+    return run(queryVec);
+  }
 
   const sectionDocTypes = inScopeDocTypes(options.kind);
   const includeDecisions =
@@ -167,49 +215,46 @@ export async function searchMemex(
   const sectionTasks = sectionDocTypes
     ? [
         runSectionFts(memexId, trimmed, sectionDocTypes, includeArchived, excludeDocId),
-        disableVector || !provider
-          ? Promise.resolve<SectionRow[]>([])
-          : runSectionVector(
-              memexId,
-              trimmed,
-              sectionDocTypes,
-              includeArchived,
-              provider,
-              maxVectorDistance,
-              excludeDocId,
-            ),
+        vectorArm<SectionRow>((queryVec) =>
+          runSectionVector(
+            memexId,
+            sectionDocTypes,
+            includeArchived,
+            queryVec,
+            maxVectorDistance,
+            excludeDocId,
+          ),
+        ),
       ]
     : [Promise.resolve<SectionRow[]>([]), Promise.resolve<SectionRow[]>([])];
 
   const decisionTasks = includeDecisions
     ? [
         runDecisionFts(memexId, trimmed, includeArchived, excludeDocId),
-        disableVector || !provider
-          ? Promise.resolve<DecisionRow[]>([])
-          : runDecisionVector(
-              memexId,
-              trimmed,
-              includeArchived,
-              provider,
-              maxVectorDistance,
-              excludeDocId,
-            ),
+        vectorArm<DecisionRow>((queryVec) =>
+          runDecisionVector(
+            memexId,
+            includeArchived,
+            queryVec,
+            maxVectorDistance,
+            excludeDocId,
+          ),
+        ),
       ]
     : [Promise.resolve<DecisionRow[]>([]), Promise.resolve<DecisionRow[]>([])];
 
   const issueTasks = includeIssues
     ? [
         runIssueFts(memexId, trimmed, includeArchived, excludeDocId),
-        disableVector || !provider
-          ? Promise.resolve<IssueRow[]>([])
-          : runIssueVector(
-              memexId,
-              trimmed,
-              includeArchived,
-              provider,
-              maxVectorDistance,
-              excludeDocId,
-            ),
+        vectorArm<IssueRow>((queryVec) =>
+          runIssueVector(
+            memexId,
+            includeArchived,
+            queryVec,
+            maxVectorDistance,
+            excludeDocId,
+          ),
+        ),
       ]
     : [Promise.resolve<IssueRow[]>([]), Promise.resolve<IssueRow[]>([])];
 
@@ -244,7 +289,12 @@ export async function searchMemex(
   // indicators in one grouped query — batched over the result docs, never N+1.
   // spec-521 ac-7: the supersession pointer rides the same post-merge seat, for the
   // same reason and at the same cost — one batched query over the capped set.
-  return attachSupersession(await attachOpenComments(merged));
+  // spec-522 dec-5: the open-comment indicator is opt-in. Only the agent-facing
+  // markdown formatter renders it; the ⌘K palette discarded it on every keystroke
+  // burst, paying a grouped query per search for a field it never displayed.
+  return attachSupersession(
+    withOpenComments ? await attachOpenComments(merged) : merged,
+  );
 }
 
 // ── Jump-to lane (spec-64 t-2) ─────────────────────────
@@ -262,12 +312,18 @@ export async function searchMemex(
 //      enough to win the FTS content ranking. ILIKE = case-insensitive contains.
 //
 // Visibility posture matches the content tier EXACTLY (ac per design): archived
-// AND paused excluded, drafts included (NO status filter). Note lookupByHandle
-// only filters archived; we re-check paused in resolveJumpTo's dedicated query
-// path for the title arm, and accept the handle arm's archived-only filter since
-// a paused doc you named by exact handle is still a legitimate jump target (it
-// can't surface in the content tier, but the handle tier is "I know exactly what
-// I want"). The route projects these MemexSearchHit[] through the same public,
+// excluded, demo Specs excluded, drafts included, NO status filter. Both arms use
+// the same two predicates — `archived_at IS NULL` and `is_demo IS NOT TRUE` — so
+// there is nothing for one arm to compensate for in the other.
+//
+// This passage previously described a second exclusion ("paused") and a re-check
+// in the title arm that compensated for lookupByHandle not applying it. Neither
+// existed: no paused status has ever been valid (spec-409 removed the pause
+// feature and migration 0113 dropped documents.paused_at), and the title arm does
+// no such re-check. Corrected by spec-522 s-3 rather than left to mislead the next
+// reader into thinking the visibility rules are subtler than they are.
+//
+// The route projects these MemexSearchHit[] through the same public,
 // UUID-stripped shape as content.
 
 // Cap on title-substring jump hits. The jump lane is a short, high-signal list;
@@ -285,11 +341,16 @@ interface JumpTitleRow {
 export async function resolveJumpTo(
   memexId: string,
   query: string,
+  /** Pre-resolved slugs from the caller (spec-522 dec-5). The search route runs
+   *  this concurrently with searchMemex, and both used to load the same single
+   *  row independently — two identical queries per ⌘K request. Omit to load our
+   *  own, so every other caller is unaffected. */
+  slugsHint?: MemexSlugs,
 ): Promise<MemexSearchHit[]> {
   const trimmed = (query ?? "").trim();
   if (trimmed.length === 0) return [];
 
-  const slugs = await loadMemexSlugs(memexId);
+  const slugs = slugsHint ?? (await loadMemexSlugs(memexId));
   if (!slugs) return [];
 
   const hits: MemexSearchHit[] = [];
@@ -347,7 +408,7 @@ export async function resolveJumpTo(
   }
 
   // 2. Spec title-substring (ac-18) — docType='spec' only ("Spec title"),
-  //    case-insensitive contains. Same archived/paused exclusion as the content
+  //    case-insensitive contains. Same archived + demo exclusion as the content
   //    tier; NO status filter so drafts are eligible. ESCAPE the LIKE wildcards
   //    in the user's text so `%`/`_` are treated literally.
   const escaped = trimmed.replace(/([\\%_])/g, "\\$1");
@@ -409,7 +470,7 @@ export async function resolveJumpTo(
 // Specs assigned to them in THIS memex as navigable hits. The assignment data
 // itself comes from the spec-118 doc_assignees relation
 // (doc-assignees.ts:listSpecsAssignedToUser, which applies the same
-// archived/paused exclusion + no-status-filter posture as the content tier).
+// archived-exclusion + no-status-filter posture as the content tier).
 // Here we only own the slug/path projection — building the canonical doc path
 // so the hit is a jump target, identical to how the section/handle arms do it.
 // A Spec assigned to two matched people (an ambiguous `@al`) is deduped so it
@@ -417,15 +478,18 @@ export async function resolveJumpTo(
 export async function resolveAssignedSpecs(
   memexId: string,
   userIds: string[],
+  /** Pre-resolved slugs (spec-522 dec-5) — an `@name` query used to make this the
+   *  THIRD identical slug load in one request. */
+  slugsHint?: MemexSlugs,
 ): Promise<MemexSearchHit[]> {
   if (userIds.length === 0) return [];
 
-  const slugs = await loadMemexSlugs(memexId);
+  const slugs = slugsHint ?? (await loadMemexSlugs(memexId));
   if (!slugs) return [];
 
   // spec-178 t-11 / dec-11 (ac-36): a demo spec must not surface in the
   // assigned lane either. listSpecsAssignedToUser (doc-assignees.ts) excludes
-  // archived/paused but not is_demo and doesn't project the flag, so resolve the
+  // archived docs but not is_demo, and doesn't project the flag, so resolve the
   // demo doc ids for this memex in one batched read and skip them below. The
   // demo set is tiny (one per phase), so this is a cheap single round-trip.
   const demoRows = (await db.execute(sql`

@@ -8,7 +8,7 @@
 // core itself is covered by services/memex-search.integration.test.ts. Here we
 // pin the HTTP contract: the `{ jumpTo, assigned, content }` envelope, UUID
 // stripping, param forwarding, the unknown-tenant 404, the FTS-only fallback,
-// draft inclusion, and archived/paused exclusion.
+// draft inclusion, and archived exclusion.
 //
 // EMBEDDING_DISABLED=1 (hoisted below) forces resolveEmbeddingProvider() to
 // return null for the whole file, so every request here runs the FTS-only path
@@ -269,7 +269,7 @@ describe("spec-64 t-1 — draft Specs are returned (ac-13)", () => {
   });
 });
 
-describe("spec-64 t-1 — archived/paused docs excluded (ac-14)", () => {
+describe("spec-64 t-1 — archived docs excluded (ac-14)", () => {
   it("an archived spec matching the query does NOT appear", async () => {
     tagAc(AC(14));
     const res = await req(searchUrl({ q: TOKEN }));

@@ -6,7 +6,7 @@
 //   - vector path with deterministic FakeEmbeddingProvider
 //   - RRF merge across FTS + vector
 //   - Decision arm hits + path shape
-//   - Archived / paused exclusion (default + opt-in)
+//   - Archived exclusion (default + opt-in via includeArchived)
 //   - Memex scoping (no cross-tenant leakage)
 //   - Result formatter: zero UUIDs in output (b-36 D-7)
 
@@ -1574,6 +1574,12 @@ describe("searchMemex — open-comment indicator (spec-259 ac-12)", () => {
       provider,
       kind: "spec",
       disableVector: true,
+      // spec-522 dec-5: the indicator is opt-in now. This suite exercises the
+      // spec-259 ac-12 feature itself, so it takes the same opt-in the two
+      // formatter call sites do; the ⌘K route deliberately does not, because it
+      // never renders the field. The behaviour under the flag is unchanged —
+      // only who pays the extra query.
+      withOpenComments: true,
     });
     const hit = hits.find((h) => h.id === spec.id);
     expect(hit).toBeDefined();

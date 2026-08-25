@@ -123,10 +123,12 @@ export async function listDocIdsAssignedToUser(memexId: string, userId: string):
 // second lookup. Backs the search route's `@<name>` "assigned" lane — the same
 // doc_assignees relation as the board filter (listDocIdsAssignedToUser above),
 // but returning the doc row fields the search envelope needs. Visibility posture
-// matches the search content tier: archived AND paused excluded (so an
-// assigned-but-archived Spec doesn't leak into the omnibox). NO status filter —
-// drafts are assignable and must surface. Scoped to memexId on BOTH the
-// assignment and the doc (defence-in-depth: doc_assignees.memex_id is
+// matches the search content tier: archived excluded (so an assigned-but-archived
+// Spec doesn't leak into the omnibox). NO status filter — drafts are assignable and
+// must surface. There is no "paused" state to exclude: spec-409 (commit 3a17b45)
+// removed the pause feature and migration 0113_drop_documents_paused_at.sql dropped
+// the column. Scoped to memexId on BOTH the assignment and the doc
+// (defence-in-depth: doc_assignees.memex_id is
 // denormalised, documents.memex_id is the source of truth).
 export interface AssignedSpecRow {
   docId: string;

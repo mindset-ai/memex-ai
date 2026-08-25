@@ -118,8 +118,24 @@ export interface SearchMemexOptions {
   disableVector?: boolean;
   /** Inject a deterministic provider; tests use this to avoid API calls. */
   provider?: EmbeddingProvider | null;
-  /** Include archived / paused content. Default false. */
+  /** Include archived content. Default false. Demo Specs are excluded
+   *  unconditionally and are not controlled by this flag; drafts are always
+   *  included, and there is no status filter of any kind.
+   *
+   *  (This said "archived / paused" until spec-522 s-3. No such status exists —
+   *  spec-409 removed the pause feature and migration 0113 dropped
+   *  `documents.paused_at` — and no query ever filtered for one.) */
   includeArchived?: boolean;
+  /** Attach the open-comment indicator to each hit (spec-259 ac-12).
+   *
+   *  Default FALSE, and the default is the point (spec-522 dec-5). Attaching costs
+   *  an extra grouped query per search, and only ONE consumer renders the result:
+   *  the agent-facing markdown formatter (memex-search/formatting.ts). The ⌘K
+   *  palette never displays it — `openComments` appears nowhere in the UI's search
+   *  path — so the hot, highest-frequency caller was paying for a field it threw
+   *  away on every keystroke burst. Callers that go on to call
+   *  `formatSearchResults` opt in; nobody else should. */
+  withOpenComments?: boolean;
   /** Max cosine distance for a vector hit to count as relevant — the semantic
    *  relevance floor (spec-64 i-1). Vector hits at or beyond this distance are
    *  dropped so a low-signal query doesn't surface unrelated nearest-neighbour
@@ -132,6 +148,15 @@ export interface SearchMemexOptions {
    *  agent already has it in its Document Context system block). MCP
    *  callers omit this; unset = no filter. */
   excludeDocId?: string;
+  /** Pre-resolved namespace/memex slugs — internal plumbing, not a feature.
+   *
+   *  `searchMemex` and `resolveJumpTo` each used to load this same single row
+   *  independently, and the search route runs both concurrently, so every ⌘K
+   *  request issued the identical slug query twice (three times for an `@name`
+   *  query, which also runs `resolveAssignedSpecs`). The route now resolves it
+   *  once and hands it down. Omit it and the callee loads its own, so every other
+   *  caller is unaffected. (spec-522 dec-5) */
+  slugs?: MemexSlugs;
 }
 
 export interface SectionRow {

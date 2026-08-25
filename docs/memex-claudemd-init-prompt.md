@@ -43,10 +43,10 @@ This repo's work — Specs, Standards, decisions, and tasks — lives in the Mem
 **Chat is permissive; MCP is strict.** A human may type `spec-36`, `s36`, or "the spec we were on" — resolve it from context and build the canonical `ref` *before* the MCP call. The MCP boundary accepts only canonical refs (correct prefix, fixed case, no leading zeros).
 
 **Two non-negotiable rules:**
-1. **Tasks only exist in the `build` phase.** A task in draft/plan is a guess pretending to be a commitment — resolve decisions first.
+1. **Tasks only exist in the `build` phase.** A task in draft/specify is a guess pretending to be a commitment — resolve decisions first.
 2. **`complete` a task only when verification actually ran** (tests + type checks + exercising the path, not vibes). Closing a Spec (`done`) is the user's call, never the agent's.
 
-Pipeline: `draft → plan → build → verify → done` (plus orthogonal `paused`/`archived`). Before any forward phase move, call `assess_spec({ mode: "phase", target: "<phase>" })` and walk its rubric.
+Pipeline: `draft → specify → build → verify → done` (plus the one orthogonal lifecycle flag, `archived`). Before any forward phase move, call `assess_spec({ mode: "phase", target: "<phase>" })` and walk its rubric.
 
 ### Reading a Memex URL
 

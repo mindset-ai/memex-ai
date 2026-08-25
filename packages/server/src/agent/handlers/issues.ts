@@ -54,7 +54,7 @@ export const issuesTools: ToolSpec[] = [
       "Register an Issue (a bug or a todo) against a Spec. Pass `spec_ref` to home it on a " +
       "specific Spec; the Issue belongs to that Spec as a whole (it does NOT anchor to a " +
       "section/decision/task). An Issue may be raised against a Spec in ANY status — draft, " +
-      "specify, build, verify, done, paused, archived (no phase guard). " +
+      "specify, build, verify, done — and on an archived Spec too (no phase guard). " +
       "**Every Issue must be bound to a Spec — a homeless Issue is never persisted (std-5, no " +
       "silent default home).** If you OMIT `spec_ref`, this tool persists NOTHING and instead " +
       "returns a two-option assist so the caller can decide where it lives: (1) turn the issue " +
@@ -399,7 +399,7 @@ export const issuesTools: ToolSpec[] = [
     description:
       "Search Issues across the Memex — a scoped wrapper over the unified search restricted to " +
       "`kind: 'issue'`. Returns cross-spec Issue matches ranked by RRF over FTS + vector arms: an " +
-      "Issue registered on one Spec is discoverable from another. Excludes archived/paused content " +
+      "Issue registered on one Spec is discoverable from another. Excludes archived content " +
       "by default. Use this to spot a pre-existing Issue overlapping work in flight before raising a duplicate.",
     schema: {
       memex: z.string().optional().describe(MEMEX_DESC),
@@ -407,7 +407,7 @@ export const issuesTools: ToolSpec[] = [
       includeArchived: z
         .boolean()
         .optional()
-        .describe("Include Issues on archived/paused Specs. Default false."),
+        .describe("Include Issues on archived Specs. Default false."),
       limit: z
         .number()
         .int()
@@ -430,6 +430,9 @@ export const issuesTools: ToolSpec[] = [
         includeArchived,
         limit,
         provider,
+        // spec-522 dec-5: opt in — formatSearchResults renders the open-comment
+        // indicator, so this is one of the two paths that still needs it.
+        withOpenComments: true,
       });
       return formatSearchResults(query, hits, { verbose: ctx.verbose });
     },

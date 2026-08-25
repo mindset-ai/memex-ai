@@ -8,7 +8,7 @@
 
 import { sql } from "drizzle-orm";
 import { db } from "../../db/connection.js";
-import type { EmbeddingProvider } from "../embedding-provider.js";
+import type { ResolvedQueryVector } from "./query-vector.js";
 import { buildDocPath, kindForDocType } from "./refs.js";
 import { toIso, toMillis } from "./time.js";
 import type {
@@ -39,6 +39,31 @@ import type {
 // SearchMemexOptions.maxVectorDistance) so it can be tuned on INT without a
 // code change before prod.
 const DEFAULT_MAX_VECTOR_DISTANCE = 0.65;
+
+// PER-ARM FETCH DEPTH — why every arm below still says `LIMIT 50`, and why that
+// is a recorded decision rather than an oversight (spec-522 dec-5, item 3).
+//
+// Six arms x 50 rows, with full `s.content` on the section arms, are fetched and
+// ranked to render a default of 8 hits. That is real payload and it was in scope
+// to reduce. It was NOT reduced, because the depth cannot be lowered without
+// risking ac-3 (result parity), and parity could not be demonstrated at a lower
+// depth on representative data in the session that made this change:
+//
+//   * RRF fuses ACROSS arms, so a hit's final position depends on its rank in
+//     every arm that surfaced it, not just the best one. Truncating an arm does
+//     not merely drop its tail — it silently removes that arm's contribution for
+//     any hit ranked below the cut, which can REORDER hits that still appear.
+//   * With RRF_K = 60 the contributions across this range are close together
+//     (rank 1 = 1/61 ≈ 0.0164, rank 25 = 1/85 ≈ 0.0118, rank 50 = 1/111 ≈
+//     0.0090), so a dropped contribution is comparable in size to the gaps
+//     between adjacent results. Ties and near-ties are exactly where it bites.
+//   * The available test corpora are far smaller than 50 rows per arm, so a
+//     parity test over them would pass at ANY depth and prove nothing.
+//
+// Lowering this is still worth doing; it needs a parity harness over a
+// production-scale corpus (compare the merged top-N at depth 50 vs the candidate
+// depth across a broad query set), which is a piece of work in its own right.
+// Registered as a follow-up rather than guessed at here.
 
 export function resolveMaxVectorDistance(explicit?: number): number {
   if (typeof explicit === "number" && Number.isFinite(explicit)) return explicit;
@@ -287,22 +312,18 @@ export async function runSectionFts(
 
 export async function runSectionVector(
   memexId: string,
-  query: string,
   docTypes: string[],
   includeArchived: boolean,
-  provider: EmbeddingProvider,
+  queryVec: ResolvedQueryVector,
   maxDistance: number,
   excludeDocId?: string,
 ): Promise<SectionRow[]> {
-  let queryVec: number[];
-  try {
-    [queryVec] = await provider.embed([query], "query");
-  } catch {
-    return [];
-  }
-  if (!queryVec) return [];
-
-  const literal = `[${queryVec.join(",")}]`;
+  // spec-522 dec-1: this arm no longer embeds. It receives an already-resolved
+  // vector so ONE embed serves all three vector arms instead of three identical
+  // round-trips per search. `query` is gone from the signature because the arm
+  // has no remaining use for the raw string — keeping it would invite someone to
+  // re-add an embed call here.
+  const literal = `[${queryVec.vector.join(",")}]`;
   const archivedClause = includeArchived
     ? sql``
     : sql`AND d.archived_at IS NULL`;
@@ -334,7 +355,7 @@ export async function runSectionVector(
       ${excludeClause}
       AND (s.status <> 'deleted' OR s.status IS NULL)
       AND s.embedding IS NOT NULL
-      AND s.embedding_model = ${provider.name}
+      AND s.embedding_model = ${queryVec.model}
       AND (s.embedding <=> ${literal}::vector) < ${maxDistance}
     ORDER BY s.embedding <=> ${literal}::vector
     LIMIT 50
@@ -343,9 +364,16 @@ export async function runSectionVector(
 }
 
 // ── Decision FTS ───────────────────────────────────────
-// Inline tsvector since `decisions` doesn't have a generated content_tsv
-// column. Concatenate title + context + resolution at query time. Cost is
-// modest because the table is small relative to doc_sections.
+// Index-served via `decisions.content_tsv` — a STORED generated column over
+// title + context + resolution, with a GIN index (migration 0132, spec-522 t-1).
+//
+// This arm used to build `to_tsvector(...)` inline, per row and TWICE (once in
+// the WHERE predicate, once inside ts_rank), across every decision in the Memex
+// on every keystroke burst — and the comment here claimed the cost was "modest
+// because the table is small relative to doc_sections". It was not: measured at
+// ~390 ms per ⌘K search against live prod, which made this single arm the
+// critical path of the entire search (spec-522 s-2). A query matching ZERO rows
+// still paid it. Read the column; never reintroduce an inline to_tsvector here.
 
 // spec-521 dec-5 (ac-7) — attach the supersession pointer to an already-capped hit
 // set, in ONE query.
@@ -406,13 +434,7 @@ export async function runDecisionFts(
       d.handle        AS doc_handle,
       d.title         AS doc_title,
       d.doc_type      AS doc_type,
-      ts_rank(
-        to_tsvector('english',
-          coalesce(dec.title, '') || ' ' ||
-          coalesce(dec.context, '') || ' ' ||
-          coalesce(dec.resolution, '')),
-        plainto_tsquery('english', ${query})
-      ) AS rank
+      ts_rank(dec.content_tsv, plainto_tsquery('english', ${query})) AS rank
     FROM decisions dec
     INNER JOIN documents d ON d.id = dec.doc_id
     LEFT JOIN users au ON au.id = dec.actor_user_id
@@ -420,11 +442,7 @@ export async function runDecisionFts(
       ${archivedClause}
       AND d.is_demo IS NOT TRUE
       ${excludeClause}
-      AND to_tsvector('english',
-            coalesce(dec.title, '') || ' ' ||
-            coalesce(dec.context, '') || ' ' ||
-            coalesce(dec.resolution, ''))
-          @@ plainto_tsquery('english', ${query})
+      AND dec.content_tsv @@ plainto_tsquery('english', ${query})
     ORDER BY rank DESC
     LIMIT 50
   `)) as unknown as DecisionRow[];
@@ -435,21 +453,13 @@ export async function runDecisionFts(
 
 export async function runDecisionVector(
   memexId: string,
-  query: string,
   includeArchived: boolean,
-  provider: EmbeddingProvider,
+  queryVec: ResolvedQueryVector,
   maxDistance: number,
   excludeDocId?: string,
 ): Promise<DecisionRow[]> {
-  let queryVec: number[];
-  try {
-    [queryVec] = await provider.embed([query], "query");
-  } catch {
-    return [];
-  }
-  if (!queryVec) return [];
-
-  const literal = `[${queryVec.join(",")}]`;
+  // spec-522 dec-1 — see runSectionVector: the embed happens once, upstream.
+  const literal = `[${queryVec.vector.join(",")}]`;
   const archivedClause = includeArchived
     ? sql``
     : sql`AND d.archived_at IS NULL`;
@@ -481,7 +491,7 @@ export async function runDecisionVector(
       AND d.is_demo IS NOT TRUE
       ${excludeClause}
       AND dec.embedding IS NOT NULL
-      AND dec.embedding_model = ${provider.name}
+      AND dec.embedding_model = ${queryVec.model}
       AND (dec.embedding <=> ${literal}::vector) < ${maxDistance}
     ORDER BY dec.embedding <=> ${literal}::vector
     LIMIT 50
@@ -491,9 +501,17 @@ export async function runDecisionVector(
 
 // ── Issue FTS ──────────────────────────────────────────
 // Same shape as the decision arm (spec-112 t-4). Issues live in their own
-// `issues` table (0068_issues.sql) — bug/todo backlog raised against a Spec —
-// with no generated tsvector column, so we concatenate title + body at query
-// time. Cheap: the issues table is small relative to doc_sections. The join to
+// `issues` table (0068_issues.sql) — bug/todo backlog raised against a Spec.
+//
+// Index-served via `issues.content_tsv` — a STORED generated column over
+// title + body, with a GIN index (migration 0132, spec-522 t-1). This arm
+// carried the identical inline-to_tsvector anti-pattern as the decision arm, and
+// the identical wrong comment ("cheap: the issues table is small relative to
+// doc_sections"). It was cheap only because `issues` is still small — spec-522
+// s-2 used it as the experimental CONTROL for exactly that reason: same code
+// shape, small corpus, 356 ms versus the decision arm's 784 ms. It was the next
+// decisions arm, so it was fixed in the same migration rather than waited for
+// [per std-39: reason about growth, not present cost]. The join to
 // `documents` is on `iss.doc_id` (the parent Spec), giving us the handle +
 // docType needed to build the `/issues/issue-N` path.
 
@@ -523,12 +541,7 @@ export async function runIssueFts(
       d.handle        AS doc_handle,
       d.title         AS doc_title,
       d.doc_type      AS doc_type,
-      ts_rank(
-        to_tsvector('english',
-          coalesce(iss.title, '') || ' ' ||
-          coalesce(iss.body, '')),
-        plainto_tsquery('english', ${query})
-      ) AS rank
+      ts_rank(iss.content_tsv, plainto_tsquery('english', ${query})) AS rank
     FROM issues iss
     INNER JOIN documents d ON d.id = iss.doc_id
     LEFT JOIN users au ON au.id = iss.created_by_user_id
@@ -536,10 +549,7 @@ export async function runIssueFts(
       ${archivedClause}
       AND d.is_demo IS NOT TRUE
       ${excludeClause}
-      AND to_tsvector('english',
-            coalesce(iss.title, '') || ' ' ||
-            coalesce(iss.body, ''))
-          @@ plainto_tsquery('english', ${query})
+      AND iss.content_tsv @@ plainto_tsquery('english', ${query})
     ORDER BY rank DESC
     LIMIT 50
   `)) as unknown as IssueRow[];
@@ -550,21 +560,13 @@ export async function runIssueFts(
 
 export async function runIssueVector(
   memexId: string,
-  query: string,
   includeArchived: boolean,
-  provider: EmbeddingProvider,
+  queryVec: ResolvedQueryVector,
   maxDistance: number,
   excludeDocId?: string,
 ): Promise<IssueRow[]> {
-  let queryVec: number[];
-  try {
-    [queryVec] = await provider.embed([query], "query");
-  } catch {
-    return [];
-  }
-  if (!queryVec) return [];
-
-  const literal = `[${queryVec.join(",")}]`;
+  // spec-522 dec-1 — see runSectionVector: the embed happens once, upstream.
+  const literal = `[${queryVec.vector.join(",")}]`;
   const archivedClause = includeArchived
     ? sql``
     : sql`AND d.archived_at IS NULL`;
@@ -595,7 +597,7 @@ export async function runIssueVector(
       AND d.is_demo IS NOT TRUE
       ${excludeClause}
       AND iss.embedding IS NOT NULL
-      AND iss.embedding_model = ${provider.name}
+      AND iss.embedding_model = ${queryVec.model}
       AND (iss.embedding <=> ${literal}::vector) < ${maxDistance}
     ORDER BY iss.embedding <=> ${literal}::vector
     LIMIT 50

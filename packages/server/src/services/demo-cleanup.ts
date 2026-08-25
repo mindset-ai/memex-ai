@@ -37,8 +37,9 @@ async function resolveMemexSlugs(
   return row;
 }
 
-// List the memex's is_demo doc ids. Includes archived/paused — teardown/idempotency
-// must see EVERY demo doc, not just the active ones.
+// List the memex's is_demo doc ids. Deliberately unfiltered — archived docs and
+// every status included, because teardown/idempotency must see EVERY demo doc,
+// not just the active ones.
 async function listDemoDocIds(memexId: string): Promise<string[]> {
   const rows = await db
     .select({ id: documents.id })
