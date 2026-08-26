@@ -206,6 +206,17 @@ export function formatFullDocState(
     signalLines.push("");
     signalLines.push(SENSITIVE_WARNING_PROSE.rule);
     signalLines.push(SENSITIVE_WARNING_PROSE.heading);
+    // The relay ask comes SECOND, before the substance, so it frames how the
+    // rest is read rather than arriving after a reader has already decided what
+    // to keep. Added 2026-08-26 from a field report: an agent saw this block and
+    // compressed it to one line that inverted dec-7's ask and dropped both the
+    // discharge condition and the non-blocking promise. Every other line here
+    // speaks to the EDIT; this one speaks to the CHANNEL.
+    //
+    // MCP-only, deliberately: the web banner has no intermediary to relay
+    // through — the human reading it IS the recipient. The two surfaces still
+    // ask the same thing ABOUT THE SPEC, which is what ac-24 requires.
+    signalLines.push(SENSITIVE_WARNING_PROSE.relay);
     signalLines.push(
       doc.sensitiveByName
         ? SENSITIVE_WARNING_PROSE.contact(doc.sensitiveByName)
