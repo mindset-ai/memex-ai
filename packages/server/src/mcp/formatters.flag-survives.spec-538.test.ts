@@ -171,3 +171,34 @@ describe("bounding never became refusing (ac-2, spec-535 ac-3)", () => {
     expect(out).toMatch(/Section #1 \| ref: s-1/);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The relay ask (2026-08-26, from a field report on spec-533).
+//
+// Deliberately UNTAGGED. spec-535 owns this copy and is `done`, so there is no
+// acceptance criterion claiming this line — inventing a tag to turn a badge
+// green would be the dishonesty this Spec keeps arguing against. The change is
+// recorded on spec-535 issue-4, the open collector for field observations.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("the block asks to be relayed, not just read", () => {
+  it("carries an explicit relay instruction, and it survives every tier", () => {
+    for (const [prose, decs] of [[2_000, 2], [2_000, 12], [90_000, 7]] as const) {
+      const out = formatFullDocState(
+        flaggedSpec(prose, decs),
+        decisions(decs, 8_000),
+        [],
+      );
+      expect(out).toContain("SENSITIVE");
+      expect(out.toLowerCase()).toContain("do not summarise it away");
+    }
+  });
+
+  it("says nothing new on an unflagged Spec", () => {
+    const out = formatFullDocState(
+      { ...flaggedSpec(2_000, 2), sensitive: false, sensitiveByName: null } as never,
+      [],
+      [],
+    );
+    expect(out.toLowerCase()).not.toContain("do not summarise");
+  });
+});

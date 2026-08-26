@@ -2540,6 +2540,41 @@ export const SENSITIVE_WARNING_PROSE = {
    *  this MORE load-bearing, not less: without it the honest reading of a
    *  stop-and-ask instruction is "you may not proceed", which is not what this means. */
   advisory: '⚠  Advisory only: this blocks nothing. Every read and write still works.',
+  /**
+   * The RELAY ask — added 2026-08-26 from a field report on spec-533.
+   *
+   * Every other line here asks the reader to do something about the EDIT. This
+   * one asks about the COMMUNICATION, and it exists because the observed failure
+   * was neither invisibility nor disobedience: an agent read the block, saw it,
+   * and compressed it to "parle à Frederic avant toute modif" — one line that
+   * inverted the ask dec-7 had deliberately replaced, and dropped both the
+   * discharge condition and the non-blocking promise.
+   *
+   * Shortening the block would NOT fix that. The agent is not copying the text,
+   * it is writing prose about it, so decoration and length are properties of a
+   * source the summary does not carry. The only thing that acts on a summary is
+   * asking, explicitly, not to summarise.
+   *
+   * HONEST ABOUT ITS FORCE: this is advisory, like everything else here. We emit
+   * the response; we do not control what a third-party agent renders to its user
+   * (the same capability boundary std-34 names for the web/MCP split). It is a
+   * probable improvement, never a guarantee — and unlike "contact someone you
+   * cannot reach", it asks for something the reader can always actually do.
+   *
+   * Three parts, each load-bearing:
+   *   RELAY:        a label, because every other line here speaks to the EDIT
+   *                 and this one speaks to the CHANNEL — the register shift has
+   *                 to be visible at a glance.
+   *   before you    a timing trigger. "Show this block" with no moment attached
+   *   continue      is a instruction that can always be deferred, which is the
+   *                 same hole dec-7 closed at the other end with a discharge
+   *                 condition.
+   *   the person    names the recipient, so the ask stays executable — dec-7's
+   *   you are       whole correction was that an unnameable target makes
+   *   working with  rationalising it away the path of least resistance.
+   */
+  relay:
+    '⚠  RELAY: before you continue, show this block as written to the person you are working with — do not summarise it away.',
 };
 
 export const BUILD_AC_NAG_PROSE = {

@@ -4,6 +4,7 @@ import { describe, it, expect } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
 import {
   RESPONSE_BODY_BUDGET_CHARS,
+  STRUCTURAL_RESERVE_CHARS,
   MIN_EXCERPT_CHARS,
   allocateResponseBudget,
   effectiveBudget,
@@ -110,8 +111,12 @@ describe("allocateResponseBudget — signals come off the top and are never rati
   it("subtracts signals and the envelope before anything negotiable", () => {
     tagAc(AC(9));
     const a = allocateResponseBudget({ ...SMALL, signalsChars: 1_200 });
+    // spec-538 dec-8 added a THIRD fixed cost: the document's own scaffolding
+    // (title, refs, the tier line, block headers). The intent of this assertion
+    // is unchanged — signals and envelope come off the top before anything
+    // negotiable — but the arithmetic now has three terms, not two.
     expect(a.remainingAfterFixed).toBe(
-      RESPONSE_BODY_BUDGET_CHARS - 1_200 - SMALL.envelopeChars,
+      RESPONSE_BODY_BUDGET_CHARS - 1_200 - SMALL.envelopeChars - STRUCTURAL_RESERVE_CHARS,
     );
   });
 
@@ -132,7 +137,10 @@ describe("allocateResponseBudget — signals come off the top and are never rati
     // after the fixed costs is exactly budget − signals − envelope, whatever
     // the content does.
     expect(a.remainingAfterFixed).toBe(
-      RESPONSE_BODY_BUDGET_CHARS - SMALL.signalsChars - SMALL.envelopeChars,
+      RESPONSE_BODY_BUDGET_CHARS -
+        SMALL.signalsChars -
+        SMALL.envelopeChars -
+        STRUCTURAL_RESERVE_CHARS,
     );
   });
 
