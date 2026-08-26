@@ -103,6 +103,20 @@ export const LARGEST_WORKING_BODY_CHARS = 33_501;
  */
 export const MIN_EXCERPT_CHARS = 200;
 
+/**
+ * The document's own scaffolding, reserved before anything negotiable.
+ *
+ * Title, ref, type, status, checkout, URL, the tier declaration, the block
+ * headers, the blank lines between them. None of it is content and none of it
+ * can be dropped, but the first version budgeted only signals, envelope and
+ * prose — so the shares summed to the budget and the render came out 152–557
+ * chars over it. Small, and still a bound that did not hold.
+ */
+export const STRUCTURAL_RESERVE_CHARS = 2_400;
+
+/** Per-section marker line, emitted at every tier. */
+export const SECTION_MARKER_CHARS = 200;
+
 /** Which shape the render must take. dec-4's ladder, decided by arithmetic. */
 export type ResponseTier = 1 | 2 | 3;
 
@@ -118,6 +132,22 @@ export interface BudgetInput {
   /** How many decisions that cost is spread across. */
   decisionCount: number;
   /**
+   * What the tasks block would cost rendered in full (spec-538 dec-8).
+   *
+   * This region was missing from the first version, and it was the largest
+   * unbudgeted one: 33,689 chars on spec-538 against 14,347 for its bounded
+   * decisions. The Spec that defines the bound could not load itself.
+   */
+  tasksFullChars?: number;
+  /** How many tasks that cost is spread across. */
+  taskCount?: number;
+  /**
+   * How many sections the doc has — used to reserve the per-section marker
+   * lines (`Section #N | ref: … | Type: … | Updated: …`) the render emits
+   * whatever the tier.
+   */
+  sectionCount?: number;
+  /**
    * Optional per-call ceiling. Only the client truly knows its own limit, so
    * accepting one is the theoretically correct shape — but it is never the
    * default: an agent-supplied number is one the agent can omit or get wrong.
@@ -131,6 +161,16 @@ export interface BudgetAllocation {
   /** The ceiling actually applied. */
   budget: number;
   tier: ResponseTier;
+  /**
+   * What the WHOLE tasks block may occupy. `Infinity` renders as before.
+   *
+   * The block's total is passed rather than a per-task figure, because a
+   * per-task figure cannot be multiplied back safely: below MIN_EXCERPT_CHARS
+   * it is floored to 0, and `budget * count` then reads as "no budget", which
+   * `effectiveBudget` treats as "unspecified" and answers with the full
+   * constant. The block owns its own division.
+   */
+  tasksBudgetChars: number;
   /**
    * Characters each decision's resolution may occupy. `0` means headline + ref
    * only — either the floor bit, or tier 3 where there is nothing left to give.
@@ -170,8 +210,12 @@ export function effectiveBudget(maxChars?: number): number {
 export function allocateResponseBudget(input: BudgetInput): BudgetAllocation {
   const budget = effectiveBudget(input.maxChars);
 
-  // 1. Signals and the envelope are fixed costs, taken first.
-  const fixed = input.signalsChars + input.envelopeChars;
+  // 1. Signals, the envelope and the document's own scaffolding are fixed costs.
+  const fixed =
+    input.signalsChars +
+    input.envelopeChars +
+    STRUCTURAL_RESERVE_CHARS +
+    SECTION_MARKER_CHARS * (input.sectionCount ?? 0);
   const remainingAfterFixed = budget - fixed;
 
   // 2. Section prose — what humans wrote.
@@ -186,6 +230,7 @@ export function allocateResponseBudget(input: BudgetInput): BudgetAllocation {
       budget,
       tier: 3,
       perDecisionChars: 0,
+      tasksBudgetChars: 0,
       renderProseBodies: false,
       remainingAfterFixed,
     };
@@ -193,21 +238,36 @@ export function allocateResponseBudget(input: BudgetInput): BudgetAllocation {
 
   // Tier 1: everything fits at full size. Nine Specs in ten are here and their
   // output must not change shape.
-  if (input.decisionsFullChars <= remainingAfterProse) {
+  //
+  // TASKS ARE PART OF "everything" (dec-8). The first version compared only the
+  // decisions block, so a Spec whose tasks blew the budget was still declared
+  // tier 1 or 2 — it announced a bound it did not hold, which is the defect
+  // ac-6 exists to clean up elsewhere in this Spec.
+  const tasksFull = input.tasksFullChars ?? 0;
+  if (input.decisionsFullChars + tasksFull <= remainingAfterProse) {
     return {
       budget,
       tier: 1,
       perDecisionChars: Number.POSITIVE_INFINITY,
+      tasksBudgetChars: Number.POSITIVE_INFINITY,
       renderProseBodies: true,
       remainingAfterFixed,
     };
   }
 
-  // Tier 2: tight. Divide what is left across the decisions.
+  // Tier 2: tight. What is left is shared between the two item blocks in
+  // proportion to how much each would have cost — a Spec that is mostly tasks
+  // spends most of its remainder on tasks, and vice versa. Splitting evenly
+  // would starve whichever block carries the substance.
+  const totalItemWeight = input.decisionsFullChars + tasksFull;
+  const decisionShare =
+    totalItemWeight > 0
+      ? Math.floor((remainingAfterProse * input.decisionsFullChars) / totalItemWeight)
+      : remainingAfterProse;
+  const taskShare = remainingAfterProse - decisionShare;
+
   const derived =
-    input.decisionCount > 0
-      ? Math.floor(remainingAfterProse / input.decisionCount)
-      : 0;
+    input.decisionCount > 0 ? Math.floor(decisionShare / input.decisionCount) : 0;
 
   return {
     budget,
@@ -215,6 +275,7 @@ export function allocateResponseBudget(input: BudgetInput): BudgetAllocation {
     // Below the floor an excerpt is a fragment nobody can act on; fall to
     // headline + ref rather than emit noise that still costs bytes.
     perDecisionChars: derived >= MIN_EXCERPT_CHARS ? derived : 0,
+    tasksBudgetChars: taskShare,
     renderProseBodies: true,
     remainingAfterFixed,
   };
