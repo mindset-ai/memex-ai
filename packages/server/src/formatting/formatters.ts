@@ -3,7 +3,11 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Doc, DocSection, DocComment, Decision, Task, Tag } from "../db/schema.js";
 import { formatTag } from "../services/tags.js";
-import { allocateResponseBudget, effectiveBudget } from "../mcp/response-budget.js";
+import {
+  allocateResponseBudget,
+  effectiveBudget,
+  boundRenderedList,
+} from "../mcp/response-budget.js";
 import type { DocSummary } from "../types/index.js";
 import type { TaskWithBlockers } from "../services/tasks.js";
 import type { DocCommentsResult } from "../services/comments.js";
@@ -224,6 +228,9 @@ export function formatFullDocState(
   const decisionsFull =
     decisions.length > 0 ? formatDecisionList(decisions, doc, slugs) : "";
 
+  const tasksFull =
+    tasks.length > 0 ? formatTaskList(tasks, taskCommentCounts, slugs, doc) : "";
+
   const budget = allocateResponseBudget({
     signalsChars: signalLines.join("\n").length,
     // Zero is CORRECT here, not a stopgap (dec-7 option (d)). The body is
@@ -238,6 +245,10 @@ export function formatFullDocState(
     proseChars,
     decisionsFullChars: decisionsFull.length,
     decisionCount: decisions.length,
+    // spec-538 dec-8 — the region the first ladder never counted.
+    tasksFullChars: tasksFull.length,
+    taskCount: tasks.length,
+    sectionCount: doc.sections.length,
   });
 
   // Header
@@ -272,12 +283,15 @@ export function formatFullDocState(
   // Single-line pushes, like every other header line here: the scaffold
   // drift-guard (std-15) fails markdown-shaped literals of two or more newlines in
   // server/src, and this file is not on its allowlist.
+  // ac-32: the declaration covers all THREE content kinds. Announcing two of
+  // three is the honesty defect issue-2 is about — a reader told "decisions are
+  // shortened" reasonably concludes the tasks are whole.
   if (budget.tier === 1) {
-    lines.push(`Response shape: COMPLETE — every section body and decision is below in full.`);
+    lines.push(`Response shape: COMPLETE — every section body, decision and task is below in full.`);
   } else if (budget.tier === 2) {
-    lines.push(`Response shape: EXCERPTED — decision resolutions are shortened; each carries a ref that returns it in full.`);
+    lines.push(`Response shape: EXCERPTED — resolved decisions and completed tasks are summarised, open ones kept; each carries a ref that returns it in full.`);
   } else {
-    lines.push(`Response shape: SECTION MAP — section bodies are NOT below; fetch one with get_doc on its ref.`);
+    lines.push(`Response shape: SECTION MAP — section bodies are NOT below, and completed tasks are summarised; fetch any part with get_doc on its ref.`);
   }
   // spec-535 dec-3 — the sensitivity warning, LAST in the header and immediately
   // before the content, so it is the final thing read before editing starts. The
@@ -339,7 +353,11 @@ export function formatFullDocState(
 
   // Tasks
   if (tasks.length > 0) {
-    lines.push(formatTaskList(tasks, taskCommentCounts, slugs, doc));
+    lines.push(
+      budget.tier === 1
+        ? tasksFull
+        : formatTaskList(tasks, taskCommentCounts, slugs, doc, budget.tasksBudgetChars),
+    );
     lines.push("");
   }
 
@@ -922,7 +940,12 @@ function formatDecision(
   const source = decisionSourcePill(decision);
   const refLabel = decisionRef(decision, parentDoc);
   const lines = [`- ${refLabel} ${status}${source}: "${decision.title}"`];
-  const budgeted = Number.isFinite(perDecisionChars);
+  // spec-538 dec-8 — status decides. An OPEN decision is the one thing on a
+  // Spec a reader must act on; cutting it as hard as one settled three weeks ago
+  // inverts the rule. dec-5 rejected this shape on a sample where all seven
+  // decisions were resolved, so it cut identically — an argument from one
+  // sample, not from the principle. Amended there.
+  const budgeted = Number.isFinite(perDecisionChars) && decision.status !== "open";
   // The allowance is what this decision may occupy IN TOTAL, so the scaffolding it
   // cannot drop — the headline, the marker, the ref line — is measured first and
   // the resolution gets what is left. Budgeting the resolution alone was the first
@@ -942,7 +965,16 @@ function formatDecision(
     // The marker is the honest half of the excerpt: an agent must be able to tell
     // text was withheld without inferring it from a sentence that stops. The ref
     // line below is the door (spec-538 dec-6 makes it open).
-    if (kept.truncated) lines.push(`  … [shortened — the full resolution is at the ref below]`);
+    // ac-32 — say what was actually removed. The old marker spoke only of the
+    // resolution while context, options and facets were DELETED entirely, and
+    // it said "shortened" even when the allowance was 0 and nothing was shown.
+    if (kept.truncated) {
+      lines.push(
+        kept.text
+          ? `  … [resolution shortened; context and options not shown — the full decision is at the ref below]`
+          : `  … [resolution not shown — the full decision is at the ref below]`,
+      );
+    }
   }
   // Background is dropped rather than shortened once a budget applies. Truncating
   // context AND resolution would spend the same bytes twice on the same decision
@@ -1068,6 +1100,16 @@ function formatTask(
   commentCounts?: { open: number; resolved: number },
   slugs?: FormatterRefContext,
   parentDoc?: Pick<Doc, "docType" | "handle">,
+  // spec-538 dec-8 — how much this task may occupy IN TOTAL. Infinity renders
+  // exactly as before. A finite budget applies the rule:
+  //
+  //   what is finished becomes a summary; what is outstanding stays readable
+  //
+  // so a COMPLETE task collapses to a map (title, status, criteria count, ref)
+  // while an incomplete one keeps its description and its unchecked criteria.
+  // Tasks were the one region the first ladder never counted; measured on
+  // spec-538 they were 33,689 chars — of which 9 complete tasks carried 30,606.
+  budgetChars: number = Number.POSITIVE_INFINITY,
 ): string {
   let statusLabel: string;
   if (t.blocked) {
@@ -1083,23 +1125,78 @@ function formatTask(
 
   const badge = formatCommentBadge(commentCounts);
   const lines = [`- t-${t.seq} [${statusLabel}]: "${t.title}"${badge}`];
-  if (t.description) {
-    lines.push(`  ${t.description}`);
-  }
-  if (t.sectionRef) {
-    lines.push(`  Section: ${t.sectionRef}`);
-  }
-  // spec-445 dec-2 — the task's facet classification, surfaced on retrieval.
-  if (t.facets && t.facets.length > 0) {
-    lines.push(`  Facets: ${t.facets.join(", ")}`);
-  }
+  const budgeted = Number.isFinite(budgetChars);
   const criteria = (t.acceptanceCriteria ?? []) as AcceptanceCriterion[];
-  if (criteria.length > 0) {
-    lines.push(`  Acceptance criteria:`);
-    for (const c of criteria) {
-      lines.push(`    ${c.done ? "[x]" : "[ ]"} ${c.description}`);
+  const checked = criteria.filter((c) => c.done).length;
+  const isComplete = t.status === "complete";
+
+  if (budgeted && isComplete) {
+    // MAP. The work is done; the detail is history, one call away at the ref.
+    if (criteria.length > 0) {
+      lines.push(
+        `  [${criteria.length} acceptance criteria, ${checked} checked · description not included — get_doc on the ref below]`,
+      );
+    } else {
+      lines.push(`  [description not included — get_doc on the ref below]`);
+    }
+  } else if (!budgeted) {
+    if (t.description) lines.push(`  ${t.description}`);
+    if (t.sectionRef) lines.push(`  Section: ${t.sectionRef}`);
+    // spec-445 dec-2 — the task's facet classification, surfaced on retrieval.
+    if (t.facets && t.facets.length > 0) {
+      lines.push(`  Facets: ${t.facets.join(", ")}`);
+    }
+    if (criteria.length > 0) {
+      lines.push(`  Acceptance criteria:`);
+      for (const c of criteria) {
+        lines.push(`    ${c.done ? "[x]" : "[ ]"} ${c.description}`);
+      }
+    }
+  } else {
+    // An OUTSTANDING task under a budget. Everything inside it is bounded —
+    // the first version budgeted only the description and left the criteria
+    // list free, which is a per-item guarantee wearing a budget's clothes:
+    // 6 unchecked criteria x 130 chars x 50 tasks is 39,000 unaccounted chars.
+    // ac-31 exists because that is exactly how this Spec's first bound failed.
+    const overhead = lines[0].length + 220; // ref line + the two markers below
+    const spendable = Math.max(0, budgetChars - overhead);
+
+    // Criteria come first and get the larger share: they are what an agent acts
+    // on, where the description is why. Unchecked ones are listed until the
+    // share runs out; CHECKED ones never list at all, only count.
+    const forCriteria = Math.floor(spendable * 0.6);
+    const unchecked = criteria.filter((c) => !c.done);
+    const shown: string[] = [];
+    let spent = 0;
+    for (const c of unchecked) {
+      const line = `    [ ] ${c.description}`;
+      if (spent + line.length + 1 > forCriteria) break;
+      spent += line.length + 1;
+      shown.push(line);
+    }
+
+    if (t.description) {
+      const kept = excerptFor(t.description, spendable - spent);
+      if (kept.text) lines.push(`  ${kept.text}`);
+      if (kept.truncated) {
+        lines.push(`  … [description shortened — the full task is at the ref below]`);
+      }
+    }
+
+    if (criteria.length > 0) {
+      lines.push(`  Acceptance criteria:`);
+      const hidden = unchecked.length - shown.length;
+      if (checked > 0 || hidden > 0) {
+        const parts: string[] = [];
+        if (checked > 0) parts.push(`${checked} checked`);
+        if (hidden > 0) parts.push(`${hidden} more outstanding`);
+        lines.push(`    [${parts.join(", ")}, not listed — see the ref below]`);
+      }
+      for (const line of shown) lines.push(line);
     }
   }
+
+  // The ref is emitted at every budget — it is what makes a mapped task a door.
   if (parentDoc) {
     const canonical = maybeChildRef(slugs, parentDoc, "tasks", t.seq);
     lines.push(`  ref: ${canonical}`);
@@ -1112,6 +1209,7 @@ function formatTaskList(
   commentCounts?: Map<string, { open: number; resolved: number }>,
   slugs?: FormatterRefContext,
   parentDoc?: Pick<Doc, "docType" | "handle">,
+  perTaskChars: number = Number.POSITIVE_INFINITY,
 ): string {
   const ready = items.filter((t) => !t.blocked && t.status === "not_started");
   const blocked = items.filter((t) => t.blocked);
@@ -1123,8 +1221,69 @@ function formatTaskList(
     `## Tasks (${items.length} total: ${ready.length} ready, ${blocked.length} blocked, ${inProgress.length} in progress, ${complete.length} complete)`
   );
 
-  for (const t of items) {
-    lines.push(formatTask(t, commentCounts?.get(t.id), slugs, parentDoc));
+  // spec-538 dec-8 — a COMPLETE task collapses to a fixed-size map whatever the
+  // allowance, so the negotiable budget belongs entirely to the outstanding
+  // work. Splitting it across all items would starve the tasks a reader is
+  // actually working on to pay for history nobody is reading.
+  const outstanding = items.filter((t) => t.status !== "complete").length;
+  const completeCount = items.length - outstanding;
+
+  // ONE subtraction chain, in order. An earlier version reserved the list-level
+  // costs twice — once here and once at the bound below — so the single
+  // outstanding task no longer fitted in its own list and was dropped whole.
+  const OMISSION_RESERVE = 200;
+  const listReserve = lines[0].length + OMISSION_RESERVE;
+  const available = Number.isFinite(perTaskChars)
+    ? Math.max(0, perTaskChars - listReserve)
+    : Number.POSITIVE_INFINITY;
+
+  // A mapped task costs a fixed floor whatever the allowance. Reserve those
+  // first, then divide what is left among the work still outstanding — the
+  // budget belongs to what someone is doing, not to what is finished.
+  const MAPPED_TASK_COST = 260;
+  const forOutstanding = Number.isFinite(available)
+    ? Math.max(0, available - MAPPED_TASK_COST * completeCount)
+    : Number.POSITIVE_INFINITY;
+  const perOutstanding =
+    Number.isFinite(available) && outstanding > 0
+      ? Math.floor(forOutstanding / outstanding)
+      : forOutstanding;
+
+  const render = (t: TaskWithBlockers & { facets?: string[] }): string =>
+    formatTask(
+      t,
+      commentCounts?.get(t.id),
+      slugs,
+      parentDoc,
+      t.status === "complete" ? perTaskChars : perOutstanding,
+    );
+
+  if (!Number.isFinite(perTaskChars)) {
+    for (const t of items) lines.push(render(t));
+    return lines.join("\n");
+  }
+
+  // Even at a zero allowance a task costs a floor — its headline, its ref, its
+  // criteria count — roughly 200 chars that cannot be dropped. At 200 tasks the
+  // floor ALONE is the whole budget. So the list itself is bounded, exactly as
+  // `list_docs` had to be (dec-5's correction: one line per item is not a bound,
+  // it is a coefficient).
+  //
+  // Outstanding work is rendered first, so when the list must be cut it is the
+  // finished tasks that fall off the end — the same rule as everywhere else.
+  const outstandingFirst = [
+    ...items.filter((t) => t.status !== "complete"),
+    ...items.filter((t) => t.status === "complete"),
+  ];
+  const { kept, omitted } = boundRenderedList(outstandingFirst.map(render), {
+    budgetChars: Math.max(1, available),
+    reservedChars: 0, // already taken out of `available` above
+  });
+  for (const entry of kept) lines.push(entry);
+  if (omitted > 0) {
+    lines.push(
+      `… ${omitted} more task${omitted === 1 ? "" : "s"} not shown — this Spec holds more than one response can carry; fetch one with get_doc on its ref.`,
+    );
   }
 
   return lines.join("\n");
