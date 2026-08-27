@@ -41,6 +41,12 @@ export const RLS_TENANT_TABLES: ReadonlySet<string> = new Set([
   "tags",
   "task_facet_ballots",
   "tasks",
+  // spec-520 t-9 / issue-8 — the per-day test-run rollup, gated by migration 0135.
+  // The FIRST RLS-gated table written from the ingest path, which is why that path's
+  // write transaction had to be wrapped in runWithMemexId in the same change: until
+  // this table existed there was no policy a context-less emission write could fail.
+  // Listing it here also arms spec-440's context guard for it.
+  "test_run_daily",
 ]);
 
 /** True iff `table` is one of the RLS-gated tenant tables (case-insensitive). */

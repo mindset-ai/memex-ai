@@ -27,6 +27,16 @@ const insertSpy = vi.fn().mockReturnValue({
 });
 
 vi.mock("../db/connection.js", () => ({
+  // spec-520 issue-8: the route now wraps its WRITE transaction in runWithMemexId, not
+  // just the auto-resolve read. Mocking db/connection.js means mocking this too — a
+  // pass-through, since these suites assert request/response shaping; the real tenant
+  // context is exercised under the restricted role in
+  // test-events-tenant-context.rls-restricted.test.ts.
+  //
+  // Its absence used to be survivable only because the single call site sat inside a
+  // try/catch that swallowed the TypeError. It no longer is: the wrap is now around the
+  // write, so a missing stub aborts the emission and every POST here returns 500.
+  runWithMemexId: (_memexId: string | null | undefined, fn: () => unknown) => fn(),
   db: {
     insert: () => insertSpy(),
     transaction: (cb: (tx: { insert: () => unknown }) => unknown) =>
@@ -43,6 +53,18 @@ vi.mock("../services/test-event-latest.js", () => ({
 vi.mock("../services/test-event-retention.js", () => ({
   trimTestEventsForPair: vi.fn().mockResolvedValue(undefined),
   recordFirstVerified: vi.fn().mockResolvedValue(undefined),
+}));
+
+// spec-520 t-9: the per-day rollup upsert runs inside the same transaction as
+// the log insert, so it needs the same no-op stub as the two mocks above — the
+// mocked tx here only stubs .insert, and the real upsert chain
+// (.values().onConflictDoUpdate()) would throw against it. That throw does NOT
+// present as a missing mock: it aborts the transaction and every POST in this
+// file returns 500, so the assertions fail on status codes and absent headers
+// instead. The upsert's real arithmetic is covered against a real DB in
+// services/test-run-daily.integration.test.ts.
+vi.mock("../services/test-run-daily.js", () => ({
+  applyEmissionToRollup: vi.fn().mockResolvedValue(undefined),
 }));
 
 // Mutate() is exercised here only as a pass-through wrapper around the insert.
