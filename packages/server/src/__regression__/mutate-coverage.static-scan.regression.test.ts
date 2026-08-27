@@ -88,6 +88,20 @@ const ALLOWLIST: Record<string, string> = {
   // log with no bus entity of its own.
   "services/test-event-latest.ts":
     "tx-helper indirection (spec-162) — applyEmissionToSummary / removeSummaryForPair write test_event_latest only inside callers' mutate() callbacks (routes/test-events.ts, services/acs.ts discontinueTestEventsForAc); both public write paths return through mutate().",
+  // spec-520 t-9 — the per-day rollup's upsert. Exactly the category above, and
+  // deliberately so: applyEmissionToRollup takes the caller's `conn` and is
+  // invoked ONLY from inside routes/test-events.ts's mutate() callback, in the
+  // same db.transaction as the test_events insert and the test_event_latest
+  // upsert. The callback-scoped heuristic (ac-24) cannot follow that indirection.
+  //
+  // It must NOT get its own mutate() call to satisfy the scan literally: the
+  // enclosing mutate() already emits exactly one `test_event.created` frame per
+  // emission, and a second wrapper would DOUBLE the SSE frames every emission
+  // puts on the bus — every AC-health surface that refetches on that frame would
+  // then refetch twice. Same reason test-event-latest.ts is allowlisted rather
+  // than wrapped.
+  "services/test-run-daily.ts":
+    "tx-helper indirection (spec-520 t-9) — applyEmissionToRollup writes test_run_daily only inside routes/test-events.ts's mutate() callback, in the same transaction as the log insert and the test_event_latest upsert; the public write path returns through mutate(). Append-only counter tier with no SSE doc-entity of its own — the enclosing test_event.created frame IS its change signal, and a second emission would double it.",
   // spec-177 issue-1 — findOrCreatePersonalMemex is a tx-helper invoked ONLY from
   // inside ensureUserNamespace's mutate() callbacks (both the ownership-repair
   // branch and the create branch). It race-safely find-or-creates the "personal"

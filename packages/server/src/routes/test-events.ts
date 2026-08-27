@@ -74,6 +74,7 @@ import { Hono } from "hono";
 import { db } from "../db/connection.js";
 import { testEvents } from "../db/schema.js";
 import { applyEmissionToSummary } from "../services/test-event-latest.js";
+import { applyEmissionToRollup } from "../services/test-run-daily.js";
 import {
   trimTestEventsForPair,
   recordFirstVerified,
@@ -464,7 +465,33 @@ async function processOneEvent(
   // already resolved it (targetMemexId) and proved it matches the key, so by
   // this point it is always a real, authorized Memex. Each batched event emits
   // its own bus frame here, exactly as a one-per-POST event would (ac-5).
-  const row = await mutate(
+  // spec-520 issue-8 (ac-22): establish tenant context around the WRITE, not only
+  // around the auto-resolve READ further down.
+  //
+  // t-7 wrapped the read (ac-32), and that was the correct scope at the time: no
+  // table written in this transaction carried RLS, so there was no policy for a
+  // context-less write to fail. t-9's `test_run_daily` rollup is the first one
+  // that does, and that turned a latent gap into an outage.
+  //
+  // Every tenant policy in drizzle/ carries an explicit
+  // `nullif(current_setting('app.memex_id', true), '') IS NOT NULL` conjunct, so
+  // an unset GUC makes the predicate FALSE rather than NULL. For SELECT/UPDATE
+  // that filters to zero rows — quiet. For INSERT it RAISES. The rollup upsert
+  // shares this transaction with the test_events insert and mutate() rethrows, so
+  // without this wrap EVERY emission 500s in production — and the event itself is
+  // lost too, not just the rollup row. Dev and CI stay green throughout, because
+  // the owner role bypasses RLS (std-36: ENABLE, never FORCE). Proven red→green
+  // under the real `memex_app` role in
+  // test-events-tenant-context.rls-restricted.test.ts.
+  //
+  // The wrap goes around the whole transaction rather than around the one write
+  // that needs it, so a write added in here later inherits the context instead of
+  // having to remember it. std-36 asks for context "by construction, not
+  // discipline"; this is the constructive half available at this layer. The other
+  // half is db/rls-context-guard.ts (spec-440), still WARN-only at phase 1 — so
+  // it would not have stopped this, which is why the wrap has to be structural.
+  const writeEventAndSummaries = async () =>
+    mutate(
     {},
     {
       memexId: targetMemexId,
@@ -502,6 +529,33 @@ async function processOneEvent(
           latestRunAt: inserted.createdAt,
           hidden: insertValues.hidden,
         });
+        // spec-520 t-9 (dec-5): the ANALYTICAL tier, in the same transaction as
+        // the log write and the operational summary — so the counts can never
+        // diverge from the rows they count, which is the failure this whole
+        // rollup exists to end.
+        //
+        // Position is deliberate: immediately after the test_event_latest upsert
+        // and before the retention trim, i.e. the same relative point on every
+        // emission. spec-398's restructuring of this path deadlocked and rolled
+        // back a prod deploy (std-39 cl-9); a consistent lock order is what
+        // stops the repeat.
+        //
+        // NOT a second mutate() call, deliberately. The whole transaction is
+        // already inside one (:467), which emits exactly one
+        // `test_event.created` frame per emission. Wrapping this upsert in its
+        // own mutate() would satisfy a naive reading of std-8 while DOUBLING the
+        // SSE frames every emission puts on the bus — the surfaces that refetch
+        // on that frame would then do it twice. std-8 is satisfied here the same
+        // way applyEmissionToSummary satisfies it: by riding the enclosing
+        // mutate()'s transaction.
+        await applyEmissionToRollup(tx, {
+          subjectRef: insertValues.subjectRef,
+          memexId: targetMemexId,
+          testIdentifier: insertValues.testIdentifier,
+          status: insertValues.status as "pass" | "fail" | "error",
+          runAt: inserted.createdAt,
+          hidden: insertValues.hidden,
+        });
         // spec-398 (ac-1): keep this pair bounded to the latest RETENTION_KEEP
         // runs — the steady-state trim-on-write, in the same transaction as the
         // insert so the log never transiently exceeds the cap.
@@ -519,6 +573,8 @@ async function processOneEvent(
       });
     },
   );
+
+  const row = await runWithMemexId(targetMemexId, writeEventAndSummaries);
 
   // spec-129 ac-17: record that this key is live. Fire-and-forget (silent) so a missed
   // bump never blocks or fails the emission — it only leaves a slightly stale timestamp.

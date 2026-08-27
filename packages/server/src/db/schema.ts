@@ -1,4 +1,4 @@
-import { pgTable, text, uuid, timestamp, integer, unique, uniqueIndex, check, primaryKey, jsonb, boolean, index, customType, doublePrecision, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, text, uuid, timestamp, integer, unique, uniqueIndex, check, primaryKey, jsonb, boolean, index, customType, doublePrecision, date, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { relations, type InferSelectModel, type InferInsertModel, sql } from "drizzle-orm";
 import type { CommentAction, CommentAudience } from "../types/roles.js";
 
@@ -1139,6 +1139,74 @@ export const acFirstVerified = pgTable("ac_first_verified", {
   subjectRef: text("subject_ref").primaryKey(),
   firstVerifiedAt: timestamp("first_verified_at", { withTimezone: true }).notNull(),
 });
+
+// ══════════════════════════════════════
+// Per-day test-run rollup (spec-520 dec-5 / t-9)
+// ══════════════════════════════════════
+//
+// The durable, analytical tier for the test-event firehose — spec-125's grain
+// rule applied to it: declare the grain, then keep the counts instead of
+// re-deriving them from rows we delete.
+//
+// Grain: one row per test, per subject, per UTC day.
+//
+// This exists because the history we believed we had did not exist. Retention
+// trims raw `test_events` to a per-pair cap, so `testRunVolume` and
+// `listAcAlignmentOverTime` counted rows that had already been deleted — and
+// hardest for the busiest ACs, which are exactly the pairs that hit the cap.
+// `ac_first_verified` is the same lesson learned once already and patched
+// per-metric: it exists ONLY because retention destroyed the first-green date.
+//
+// Two properties are load-bearing and easy to break:
+//
+//   1. `memexId` is FIRST-CLASS and stamped at write [per std-32] — never
+//      parsed back out of `subject_ref` at read time. That parse is the
+//      spec-396 leak pattern (a real cross-org bleed, ~1.5M rows across 137
+//      memexes) this Spec is closing elsewhere. It is also what makes the table
+//      RLS-able, which `ac_first_verified` — `subject_ref` PK, no tenancy
+//      column — structurally is not.
+//
+//   2. The count columns carry NO INDEX, deliberately [per std-39 cl-7]. These
+//      are hot counter rows; an index on a count column defeats HOT updates and
+//      every increment would then also write an index tuple. Do not add one to
+//      make a chart faster — aggregate on the key columns instead.
+//
+// The CHECK is the wiring invariant: run_count must equal the three outcome
+// counts summed. Each emission increments `run` and exactly one outcome, so a
+// violation means the increment logic is wrong, and it says so on the first
+// write rather than in a chart weeks later. A CHECK is not an index, so HOT
+// still applies.
+//
+// NOTE: RLS is NOT enabled here yet. std-36 requires it for a tenancy-scoped
+// table, and t-9 ac-3 demands it — but issue-8 must close first: the emission
+// WRITE transaction (`routes/test-events.ts`, the `db.transaction` inside
+// `mutate()`) does not run inside `runWithMemexId`, so a policy on this table
+// would be unsatisfiable at write time and every emission would fail in prod
+// while dev and CI stayed green (the owner role bypasses RLS). See issue-8.
+export const testRunDaily = pgTable(
+  "test_run_daily",
+  {
+    memexId: uuid("memex_id").notNull(),
+    subjectRef: text("subject_ref").notNull(),
+    testIdentifier: text("test_identifier").notNull().default(""),
+    // UTC calendar day the runs fall on. Derived from the event's own
+    // created_at, never from the server's local clock.
+    day: date("day").notNull(),
+    runCount: integer("run_count").notNull().default(0),
+    passCount: integer("pass_count").notNull().default(0),
+    failCount: integer("fail_count").notNull().default(0),
+    errorCount: integer("error_count").notNull().default(0),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.memexId, table.subjectRef, table.testIdentifier, table.day],
+    }),
+    check(
+      "test_run_daily_counts_sum",
+      sql`${table.runCount} = ${table.passCount} + ${table.failCount} + ${table.errorCount}`,
+    ),
+  ]
+);
 
 // ══════════════════════════════════════
 // Document versioning (spec-448 t-1)

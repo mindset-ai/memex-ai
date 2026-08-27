@@ -37,6 +37,7 @@ import {
   taskSatisfiesAc,
   tasks,
   testEvents,
+  testRunDaily,
   users,
 } from "../db/schema.js";
 import { upsertUserByEmail } from "../services/users.js";
@@ -47,6 +48,10 @@ import { maybeAutoResolveIssuesForAcUid } from "../services/issues.js";
 import { app } from "../app.js";
 
 const AC_TENANT_CONTEXT = "mindset-prod/memex-building-itself/specs/spec-520/acs/ac-32";
+// ac-22 is the ROLLUP's own claim: RLS enabled + not forced + a memex_id policy that an
+// emission write actually satisfies, proven under this harness. Distinct from ac-32, which
+// is the handler establishing context for its READS. The WRITE block below carries ac-22.
+const AC_ROLLUP_RLS = "mindset-prod/memex-building-itself/specs/spec-520/acs/ac-22";
 
 const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -151,6 +156,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await runWithMemexId(memexId, async () => {
     await db.delete(testEvents).where(eq(testEvents.subjectRef, acRef)).catch(() => {});
+    await db.delete(testRunDaily).where(eq(testRunDaily.subjectRef, acRef)).catch(() => {});
     if (issueId) await db.delete(issues).where(eq(issues.id, issueId)).catch(() => {});
     if (taskId) await db.delete(tasks).where(eq(tasks.id, taskId)).catch(() => {});
     if (acId) await db.delete(acs).where(eq(acs.id, acId)).catch(() => {});
@@ -245,5 +251,121 @@ describe("spec-520 ac-32: the FIX — the ROUTE establishes the context", () => 
         .limit(1),
     );
     expect(latest?.status).toBe("pass");
+  });
+});
+
+describe("spec-520 ac-22 / issue-8: the WRITE half — an RLS-gated write inside the transaction", () => {
+  // ac-32 (above) closed the READ half: the auto-resolve chain now runs in context. This
+  // block closes the WRITE half, and the two are genuinely different failures.
+  //
+  // WHY THIS EXISTS AS A SEPARATE BLOCK. t-7 wrapped only the auto-resolve call, and that
+  // was the right scope at the time — the write transaction touched no RLS-gated table, so
+  // there was no policy for it to fail. t-9's rollup is the first one, which is what turned
+  // a latent gap into a blocker (issue-8).
+  //
+  // THE FAILURE THIS PINS IS NOT SILENT, unlike the read half. Every tenant policy here
+  // carries an explicit `IS NOT NULL` conjunct, so an unset `app.memex_id` makes the
+  // predicate FALSE rather than NULL. For SELECT/UPDATE that filters to nothing — quiet.
+  // For INSERT it RAISES. The rollup write is an upsert inside the same transaction as the
+  // test_events insert, and mutate() rethrows, so the whole emission fails: this test went
+  // red as a 500 on POST /api/test-events, not as a missing rollup row.
+  //
+  // And it can ONLY go red here. Under the owner role the policy is bypassed entirely
+  // (std-36: ENABLE, never FORCE), so the default suite returns 201 either way — 6409 tests
+  // passed against the unwrapped write. That is the whole reason this file exists.
+  it("a passing emission lands its rollup row — the write ran inside tenant context", async () => {
+    tagAc(AC_ROLLUP_RLS);
+    tagAc(AC_TENANT_CONTEXT);
+
+    // Scope every assertion to THIS test's own test_identifier. The ac-32 block above
+    // already POSTed an emission for the same ref on the same UTC day, but under
+    // `spec520-t7::route` — and test_identifier is part of the rollup key, so that is a
+    // DIFFERENT row. Filtering only by (subject_ref, memex_id) returns both, which is the
+    // grain working correctly and an assertion of `toHaveLength(1)` being wrong.
+    const TEST_ID = "spec520-t9::rollup-under-rls";
+
+    const res = await app.request("/api/test-events", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${emissionKey}`,
+      },
+      body: JSON.stringify({
+        ac_uid: acRef,
+        status: "pass",
+        test_identifier: TEST_ID,
+        duration_ms: 1,
+      }),
+    });
+
+    // 201, not 500. Without the wrap the rollup's WITH CHECK fails, the transaction aborts,
+    // and this is a 500 — the event itself never lands either, which is the part that makes
+    // the missing wrap an ingest outage rather than a lost metric. Verified: with migration
+    // 0135 applied and the wrap absent, this returned 500 and so did ac-32's route test
+    // above, because the transaction dies before the auto-resolve is even reached.
+    expect(res.status).toBe(201);
+
+    const after = await runWithMemexId(memexId, async () =>
+      db
+        .select({ runCount: testRunDaily.runCount, passCount: testRunDaily.passCount })
+        .from(testRunDaily)
+        .where(
+          and(
+            eq(testRunDaily.subjectRef, acRef),
+            eq(testRunDaily.memexId, memexId),
+            eq(testRunDaily.testIdentifier, TEST_ID),
+          ),
+        ),
+    );
+    expect(after).toHaveLength(1);
+    expect(after[0]!.runCount).toBe(1);
+    expect(after[0]!.passCount).toBe(1);
+  });
+
+  it("the rollup row is stamped with the authenticated Memex, not left for a read-time parse", async () => {
+    tagAc(AC_ROLLUP_RLS);
+    tagAc(AC_TENANT_CONTEXT);
+
+    // The row is only visible under its OWN tenant context — which is the policy doing its
+    // job, and also the proof that memex_id was written correctly rather than defaulted.
+    // A row stamped with the wrong memex would be invisible here; this asserts the column
+    // directly so the reason is legible rather than inferred from an empty result.
+    //
+    // Every row for this ref, not one: the ac-32 block's emission used a different
+    // test_identifier and therefore holds its own rollup row. Both must carry this memex.
+    const rows = await runWithMemexId(memexId, async () =>
+      db
+        .select({ memexId: testRunDaily.memexId })
+        .from(testRunDaily)
+        .where(eq(testRunDaily.subjectRef, acRef)),
+    );
+    expect(rows.length).toBeGreaterThanOrEqual(1);
+    expect(rows.every((r) => r.memexId === memexId)).toBe(true);
+  });
+
+  it("under ANOTHER tenant's context the same rollup row is invisible — the policy is really on", async () => {
+    tagAc(AC_ROLLUP_RLS);
+    tagAc(AC_TENANT_CONTEXT);
+
+    // Guards against the two tests above passing for the wrong reason. If RLS were not
+    // actually enabled here (a migration that did not run, an ENABLE/FORCE mix-up), this
+    // read would return the row and the whole block would assert nothing about tenancy.
+    //
+    // Reads under a FOREIGN tenant rather than with no context at all, deliberately. The
+    // no-context version is not a clean assertion: with `app.memex_id` set to an empty
+    // string the policy's own `::uuid` cast can be evaluated before the guarding
+    // `IS NOT NULL` conjunct — SQL does not promise AND short-circuits — and the query
+    // fails with `invalid input syntax for type uuid: ""` instead of returning no rows.
+    // That failure still "proves" the policy is attached, but it proves it by erroring,
+    // which is indistinguishable from a dozen other faults. A foreign tenant exercises the
+    // predicate the way production does and can only come back empty.
+    const otherTenant = "00000000-0000-4000-8000-000000000001";
+    const leaked = await runWithMemexId(otherTenant, async () =>
+      db
+        .select({ subjectRef: testRunDaily.subjectRef })
+        .from(testRunDaily)
+        .where(eq(testRunDaily.subjectRef, acRef)),
+    );
+    expect(leaked).toEqual([]);
   });
 });

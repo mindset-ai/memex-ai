@@ -40,6 +40,16 @@ const transactionSpy = vi.fn();
 const selectSpy = vi.fn();
 
 vi.mock("../db/connection.js", () => ({
+  // spec-520 issue-8: the route now wraps its WRITE transaction in runWithMemexId, not
+  // just the auto-resolve read. Mocking db/connection.js means mocking this too — a
+  // pass-through, since these suites assert request/response shaping; the real tenant
+  // context is exercised under the restricted role in
+  // test-events-tenant-context.rls-restricted.test.ts.
+  //
+  // Its absence used to be survivable only because the single call site sat inside a
+  // try/catch that swallowed the TypeError. It no longer is: the wrap is now around the
+  // write, so a missing stub aborts the emission and every POST here returns 500.
+  runWithMemexId: (_memexId: string | null | undefined, fn: () => unknown) => fn(),
   db: {
     insert: () => insertSpy(),
     select: (...args: unknown[]) => selectSpy(...args),
@@ -57,6 +67,36 @@ vi.mock("../services/test-event-latest.js", () => ({
 vi.mock("../services/test-event-retention.js", () => ({
   trimTestEventsForPair: vi.fn().mockResolvedValue(undefined),
   recordFirstVerified: vi.fn().mockResolvedValue(undefined),
+}));
+
+// spec-520 t-9: the per-day rollup upsert runs inside the same transaction as
+// the log insert, so it needs the same no-op stub as the two mocks above — the
+// mocked tx here only stubs .insert, and the real upsert chain
+// (.values().onConflictDoUpdate()) would throw against it. That throw does NOT
+// present as a missing mock: it aborts the transaction and every POST in this
+// file returns 500, so the assertions fail on status codes and absent headers
+// instead. The upsert's real arithmetic is covered against a real DB in
+// services/test-run-daily.integration.test.ts.
+// spec-520 issue-8 — REQUIRED for this file's per-event cost assertions to mean anything.
+//
+// This file's ac-19 / ac-4 guards assert that spec-533's OWN code adds no SELECT and no
+// extra transaction per event. They were passing for an accidental reason: the route's
+// auto-resolve call is wrapped in runWithMemexId, this file mocks db/connection.js
+// WITHOUT that export, so the call threw a TypeError which the route's deliberate
+// best-effort try/catch swallowed — the auto-resolve chain never ran here at all.
+//
+// Stubbing runWithMemexId (above) made the mock honest and the chain started running,
+// at which point these guards correctly reported a per-event SELECT — the
+// `documents ⋈ memexes ⋈ namespaces` lookup at services/issues.js:554. That cost is
+// real in production and it belongs to spec-520 t-15, NOT to spec-533. Stub it here so
+// these assertions measure the thing they name, exactly as
+// test-events-namespace-guard.regression.test.ts already does.
+vi.mock("../services/issues.js", () => ({
+  maybeAutoResolveIssuesForAcUid: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("../services/test-run-daily.js", () => ({
+  applyEmissionToRollup: vi.fn().mockResolvedValue(undefined),
 }));
 
 // Literals are inlined below rather than referenced: vi.mock factories are
