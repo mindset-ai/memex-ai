@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { tagAc } from '@memex-ai-ac/vitest';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { TaskPanel } from './TaskPanel';
 import type { Task } from '../api/types';
 
@@ -278,5 +280,202 @@ describe('TaskPanel — completion metric (spec-188)', () => {
     tagAc(AC14);
     render(<TaskPanel docId="doc-1" tasks={[]} onUpdate={vi.fn()} />);
     expect(screen.queryByTestId('task-completion-header')).not.toBeInTheDocument();
+  });
+});
+
+// spec-543 — the bar shows work IN FLIGHT, not just work finished. A blue
+// segment sits immediately after the green one, so the grey tail means
+// not-started rather than merely not-finished.
+describe('TaskPanel — in-progress segment (spec-543)', () => {
+  const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-543/acs/ac-${n}`;
+
+  const bar = () => screen.getByTestId('metric-bar-complete');
+  const done = () => screen.queryByTestId('task-bar-segment-complete');
+  const wip = () => screen.queryByTestId('task-bar-segment-in-progress');
+
+  it('renders in-progress work as a blue segment', () => {
+    tagAc(AC(5));
+    render(
+      <TaskPanel
+        docId="doc-1"
+        tasks={[
+          makeTask({ id: 'a', seq: 1, status: 'complete' }),
+          makeTask({ id: 'b', seq: 2, status: 'in_progress' }),
+        ]}
+        onUpdate={vi.fn()}
+      />,
+    );
+    expect(wip()).toBeInTheDocument();
+    expect(wip()!.getAttribute('data-segment-colour')).toBe('blue');
+  });
+
+  it('places the blue segment immediately after the green one', () => {
+    tagAc(AC(7));
+    render(
+      <TaskPanel
+        docId="doc-1"
+        tasks={[
+          makeTask({ id: 'a', seq: 1, status: 'complete' }),
+          makeTask({ id: 'b', seq: 2, status: 'in_progress' }),
+          makeTask({ id: 'c', seq: 3, status: 'not_started' }),
+        ]}
+        onUpdate={vi.fn()}
+      />,
+    );
+    // Vacuity guard: both segments must exist before their order means anything.
+    expect(done()).toBeInTheDocument();
+    expect(wip()).toBeInTheDocument();
+    expect(bar().children[0]).toBe(done());
+    expect(bar().children[1]).toBe(wip());
+  });
+
+  it('sizes both segments as their share of every task on the Spec', () => {
+    tagAc(AC(8));
+    // The same render is what lets a reader read done / moving / untouched off
+    // the bar alone, without the counts above it.
+    tagAc(AC(1));
+    render(
+      <TaskPanel
+        docId="doc-1"
+        tasks={[
+          makeTask({ id: 'a', seq: 1, status: 'complete' }),
+          makeTask({ id: 'b', seq: 2, status: 'in_progress' }),
+          makeTask({ id: 'c', seq: 3, status: 'in_progress' }),
+          makeTask({ id: 'd', seq: 4, status: 'not_started' }),
+        ]}
+        onUpdate={vi.fn()}
+      />,
+    );
+    expect(done()!.style.width).toBe('25%');
+    expect(wip()!.style.width).toBe('50%');
+  });
+
+  it('never overflows the track when both shares would round up', () => {
+    // 1 of 8 complete (12.5%) beside 7 of 8 in progress (87.5%): rounding each
+    // gives 13 + 88 = 101%, and the track's overflow-hidden clips the blue.
+    tagAc(AC(8));
+    render(
+      <TaskPanel
+        docId="doc-1"
+        tasks={[
+          makeTask({ id: 'a', seq: 1, status: 'complete' }),
+          ...Array.from({ length: 7 }, (_, i) =>
+            makeTask({ id: `w${i}`, seq: i + 2, status: 'in_progress' }),
+          ),
+        ]}
+        onUpdate={vi.fn()}
+      />,
+    );
+    const total =
+      parseFloat(done()!.style.width) + parseFloat(wip()!.style.width);
+    expect(total).toBeCloseTo(100, 5);
+    expect(total).toBeLessThanOrEqual(100);
+  });
+
+  it('emits no segment for a status nothing is in', () => {
+    tagAc(AC(9));
+    tagAc(AC(3));
+    const { rerender } = render(
+      <TaskPanel
+        docId="doc-1"
+        tasks={[
+          makeTask({ id: 'a', seq: 1, status: 'complete' }),
+          makeTask({ id: 'b', seq: 2, status: 'not_started' }),
+        ]}
+        onUpdate={vi.fn()}
+      />,
+    );
+    // Nothing in progress → the bar is exactly the one that ships today.
+    expect(done()).toBeInTheDocument();
+    expect(wip()).not.toBeInTheDocument();
+
+    rerender(
+      <TaskPanel
+        docId="doc-1"
+        tasks={[
+          makeTask({ id: 'a', seq: 1, status: 'in_progress' }),
+          makeTask({ id: 'b', seq: 2, status: 'not_started' }),
+        ]}
+        onUpdate={vi.fn()}
+      />,
+    );
+    // Nothing complete → blue starts at the left edge, no empty green ahead.
+    expect(done()).not.toBeInTheDocument();
+    expect(wip()).toBeInTheDocument();
+    expect(bar().children[0]).toBe(wip());
+  });
+
+  it('keeps the shared MetricBar identity the AC and issues bars use', () => {
+    tagAc(AC(4));
+    render(
+      <TaskPanel
+        docId="doc-1"
+        tasks={[
+          makeTask({ id: 'a', seq: 1, status: 'complete' }),
+          makeTask({ id: 'b', seq: 2, status: 'in_progress' }),
+        ]}
+        onUpdate={vi.fn()}
+      />,
+    );
+    // The tile is the shared one, not a bespoke bar: same track geometry, same
+    // tabular-nums headline, same `metric-bar-<label>` hook AcPanel renders.
+    const track = bar();
+    expect(track.className).toContain('h-2');
+    expect(track.className).toContain('rounded-full');
+    expect(track.className).toContain('overflow-hidden');
+    const header = screen.getByTestId('task-completion-header');
+    expect(header.querySelector('.tabular-nums')).not.toBeNull();
+    // Both segments live INSIDE that shared track rather than beside it.
+    expect(done()!.parentElement).toBe(track);
+    expect(wip()!.parentElement).toBe(track);
+  });
+
+  it('ships inside the fair-code core — no file it touches carries the EE marker', () => {
+    tagAc(AC(12));
+    // The file path IS the licence marker in this repo: `.ee.` in a filename
+    // or `.ee` as a dirname re-licenses the file. dec-4 put this in the free
+    // core, so every file the change touches must stay unmarked.
+    const touched = [
+      'src/components/TaskPanel.tsx',
+      'src/components/MetricBar.tsx',
+      'src/components/TaskPanel.test.tsx',
+    ];
+    for (const rel of touched) {
+      // Vacuity guard: the assertion below is worthless if the path is wrong.
+      expect(existsSync(resolve(process.cwd(), rel))).toBe(true);
+      expect(rel).not.toMatch(/\.ee[./]/);
+    }
+  });
+
+  it('keeps the headline counting complete work only', () => {
+    tagAc(AC(10));
+    tagAc(AC(2));
+    const settled = [
+      makeTask({ id: 'a', seq: 1, status: 'complete' }),
+      makeTask({ id: 'b', seq: 2, status: 'not_started' }),
+      makeTask({ id: 'c', seq: 3, status: 'not_started' }),
+      makeTask({ id: 'd', seq: 4, status: 'not_started' }),
+    ];
+    const { rerender } = render(
+      <TaskPanel docId="doc-1" tasks={settled} onUpdate={vi.fn()} />,
+    );
+    const header = () => screen.getByTestId('task-completion-header');
+    expect(header().textContent).toContain('25%');
+    expect(header().textContent).toContain('1 of 4 tasks complete');
+
+    // Put the other three in flight: the bar moves, the number must not.
+    rerender(
+      <TaskPanel
+        docId="doc-1"
+        tasks={[
+          settled[0],
+          ...settled.slice(1).map((t) => ({ ...t, status: 'in_progress' as const })),
+        ]}
+        onUpdate={vi.fn()}
+      />,
+    );
+    expect(wip()!.style.width).toBe('75%');
+    expect(header().textContent).toContain('25%');
+    expect(header().textContent).toContain('1 of 4 tasks complete');
   });
 });

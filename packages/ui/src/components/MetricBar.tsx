@@ -16,17 +16,24 @@ const METRIC_NUMBER_CLASS: Record<MetricColour, string> = {
   amberWarm: 'text-amber-600 dark:text-amber-500',
 };
 
-// Bar segment colour key. Extends MetricColour with `rose` so a bar can
-// surface failing items as a red segment instead of hiding them in the empty
-// grey track, and `sky` (spec-188) for manually-accepted ACs — counted as
-// verified but never disguised as test-verified green.
-export type BarColour = 'green' | 'rose' | 'amber' | 'amberWarm' | 'sky';
+// Bar segment colour key. The palette is a vocabulary, not decoration — each
+// key means one thing wherever it appears, following the reserved hue
+// semantics of std-27:
+//   green      pass / complete
+//   rose       failure, and never anything else
+//   amber      needs attention (untested, stale)
+//   amberWarm  the same, one stop deeper for light surfaces
+//   sky        an AC accepted by hand rather than proven by a test (spec-188)
+//   blue       work in flight — std-27 reserves blue for build (spec-543)
+// A new key needs a meaning no existing key already carries.
+export type BarColour = 'green' | 'rose' | 'amber' | 'amberWarm' | 'sky' | 'blue';
 const BAR_COLOUR_CLASS: Record<BarColour, string> = {
   green: 'bg-green-500',
   rose: 'bg-rose-500',
   amber: 'bg-amber-400',
   amberWarm: 'bg-amber-500',
   sky: 'bg-sky-500',
+  blue: 'bg-blue-500',
 };
 
 export interface BarSegment {

@@ -28,6 +28,7 @@ import {
 import { seedOrgTenant, seedSpec } from "./helpers/retained.js";
 
 const SPEC188 = "mindset-prod/memex-building-itself/specs/spec-188";
+const SPEC543 = "mindset-prod/memex-building-itself/specs/spec-543";
 
 // Per-test AC emission map — every test emits on pass AND fail (the
 // ac-emission discipline); ac-12 (e2e coverage of all new functionality)
@@ -52,6 +53,9 @@ const ACS_BY_TEST: Record<string, string[]> = {
     `${SPEC188}/acs/ac-14`,
     `${SPEC188}/acs/ac-15`,
     `${SPEC188}/acs/ac-12`,
+    // spec-543: the same seeded fixture (2 complete, 1 in flight) proves the
+    // in-progress segment on the assembled page.
+    `${SPEC543}/acs/ac-11`,
   ],
 };
 
@@ -256,6 +260,22 @@ test("Task completion: Build-tab metric and Verify-tab echo", async ({
   await expect(metric.getByText("2 of 3 tasks complete")).toBeVisible();
   await expect(metric.getByTestId("metric-bar-complete")).toBeVisible();
 
+  // ── The in-progress segment (spec-543 ac-11) ───────────────────────────────
+  // One of the three tasks is in flight, so blue occupies a third of the track
+  // immediately after the green two-thirds. The headline above still reads 67%,
+  // which is the guard against the in-flight task inflating "complete".
+  const wip = metric.getByTestId("task-bar-segment-in-progress");
+  await expect(wip).toBeVisible();
+  // Measured, not string-compared: browsers renormalise a CSS percentage, so
+  // assert the rendered width really is a third of the track it sits in.
+  const share = await wip.evaluate((el) => {
+    const track = el.parentElement as HTMLElement;
+    return (el.getBoundingClientRect().width / track.getBoundingClientRect().width) * 100;
+  });
+  expect(share).toBeGreaterThan(30);
+  expect(share).toBeLessThan(37);
+  await expect(metric.getByText("67%")).toBeVisible();
+
   // ── Verify tab: the amber exception echo (ac-15) ───────────────────────────
   await page.locator('[data-tab="verify"]').click();
   // spec-282: the verify task echo rides the "Agent Tasks & Issues" sub-tab.
@@ -276,6 +296,18 @@ test("Task completion: Build-tab metric and Verify-tab echo", async ({
   await page.goto(
     tenantPath(tenant.namespaceSlug, tenant.memexSlug, `/specs/${done.handle}`)
   );
+
+  // spec-543 ac-11, the negative: nothing in flight → no blue segment at all,
+  // so the bar is exactly the one that shipped before this change.
+  await page.locator('[data-tab="build"]').click();
+  await page.getByRole("button", { name: /Agent Tasks?( \(\d+\))? & Issues?/ }).click();
+  const calmMetric = page.getByTestId("task-completion-header");
+  await expect(calmMetric).toBeVisible({ timeout: 15_000 });
+  await expect(calmMetric.getByTestId("task-bar-segment-complete")).toBeVisible();
+  await expect(
+    calmMetric.getByTestId("task-bar-segment-in-progress")
+  ).toHaveCount(0);
+
   await page.locator('[data-tab="verify"]').click();
   await page.getByRole("button", { name: /Agent Tasks?( \(\d+\))? & Issues?/ }).click();
   const calmEcho = page.getByTestId("verify-task-echo");

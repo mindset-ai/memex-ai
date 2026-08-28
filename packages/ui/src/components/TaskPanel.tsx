@@ -10,7 +10,7 @@ import {
 } from './ExecutionPlanModal';
 import { Badge } from './ui';
 import { FacetPills } from './FacetPills';
-import { Metric } from './MetricBar';
+import { Metric, type BarSegment } from './MetricBar';
 import { MarkdownText } from './chat/MarkdownText';
 
 interface TaskPanelProps {
@@ -87,6 +87,28 @@ export function TaskPanel({ docId: _docId, doc: _doc, tasks, onUpdate, canWrite:
   const inProgress = tasks.filter((t) => t.status === 'in_progress');
   const complete = tasks.filter((t) => t.status === 'complete');
 
+  // spec-543 dec-3: green (done) then blue (in flight), each a share of every
+  // task, so the grey tail means not-started rather than merely not-finished.
+  // Widths are RAW ratios, never rounded: rounding both reaches 101% at one
+  // complete of eight with seven in flight, and the track clips the overflow.
+  // Zero-count segments are dropped, so a Spec with nothing in progress
+  // renders the bar it renders today.
+  const barSegments: BarSegment[] = [];
+  if (complete.length > 0) {
+    barSegments.push({
+      percent: (complete.length / tasks.length) * 100,
+      colour: 'green',
+      testId: 'task-bar-segment-complete',
+    });
+  }
+  if (inProgress.length > 0) {
+    barSegments.push({
+      percent: (inProgress.length / tasks.length) * 100,
+      colour: 'blue',
+      testId: 'task-bar-segment-in-progress',
+    });
+  }
+
   const getDisplayStatus = (t: Task) => {
     if (t.blocked) return 'blocked';
     return t.status;
@@ -119,6 +141,7 @@ export function TaskPanel({ docId: _docId, doc: _doc, tasks, onUpdate, canWrite:
             label="complete"
             percent={Math.round((complete.length / tasks.length) * 100)}
             colourClass="green"
+            segments={barSegments}
             caption={`${complete.length} of ${tasks.length} task${
               tasks.length === 1 ? '' : 's'
             } complete`}
