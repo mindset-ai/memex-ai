@@ -19,7 +19,7 @@ vi.hoisted(() => {
 import { db } from "../db/connection.js";
 import { acs, activityLog, documents, memexes, namespaces, testEventLatest, testEvents } from "../db/schema.js";
 import { app } from "../app.js";
-import { makeTestMemexWithDevAdmin } from "../services/test-helpers.js";
+import { makeTestMemexWithDevAdmin, seedTestEvent } from "../services/test-helpers.js";
 
 const AC_OVER_TIME = "mindset-prod/memex-building-itself/specs/spec-179/acs/ac-1";
 const AC_BY_PHASE_AND_DURATIONS = "mindset-prod/memex-building-itself/specs/spec-179/acs/ac-2";
@@ -315,9 +315,13 @@ describe("GET /analytics/acs-over-time and /analytics/test-run-volume", () => {
     await mkAc(3, "2026-06-02T00:00:00Z");
 
     const prefix = `${m.slug}/main/specs/spec-mom/acs`;
-    const emit = (acN: number, status: string, at: string, hidden = false) =>
-      db.insert(testEvents).values({
-        memexId: m.memexId,
+    // spec-520 t-11: seeded through the helper so all three tiers are written, as the
+    // emission route does. testRunVolume now reads the per-day rollup (ac-24) rather than
+    // counting raw rows retention has already deleted, so a raw-only fixture would leave
+    // this chart empty — which is exactly the production defect being fixed, reproduced in
+    // a fixture.
+    const emit = (acN: number, status: "pass" | "fail" | "error", at: string, hidden = false) =>
+      seedTestEvent({
         subjectRef: `${prefix}/ac-${acN}`,
         status,
         testIdentifier: `t-${acN}`,
@@ -361,8 +365,18 @@ describe("GET /analytics/acs-over-time and /analytics/test-run-volume", () => {
       points: Array<{ day: string; pass: number; fail: number; error: number }>;
     };
     expect(vol.find((p) => p.day === "2026-06-01")).toMatchObject({ pass: 0, fail: 1, error: 0 });
-    // Jun 2: visible pass + hidden pass + error — hidden runs ARE volume.
-    expect(vol.find((p) => p.day === "2026-06-02")).toMatchObject({ pass: 2, fail: 0, error: 1 });
+    // ⚠ SEMANTIC CHANGE, spec-520 t-11, and deliberately narrow. This used to read
+    // `pass: 2` because the old testRunVolume counted RAW test_events rows with no
+    // `hidden` filter, so a hidden run counted as volume. The rollup skips hidden
+    // emissions, matching applyEmissionToSummary — `hidden` means "excluded from
+    // verification signals", and the rollup is the verification/analytics tier.
+    //
+    // This branch is UNREACHABLE in production: spec-358 froze `hidden` at false on the
+    // ingest path, and the rollup only ever holds post-ship-date rows, so no hidden
+    // emission can enter it. The fixture reaches it only by seeding hidden:true directly.
+    // If the old semantics is wanted back, the change is in applyEmissionToRollup — but
+    // then a hidden run also lands in pass/fail/error, which feed verification.
+    expect(vol.find((p) => p.day === "2026-06-02")).toMatchObject({ pass: 1, fail: 0, error: 1 });
     expect(vol.find((p) => p.day === "2026-06-03")).toMatchObject({ pass: 1, fail: 0, error: 0 });
   });
 });
@@ -376,6 +390,10 @@ describe("GET /analytics/test-signal-pulse", () => {
     const prefix = `${m.slug}/main/specs/spec-pulse/acs`;
     // Emit a handful of recent events (default createdAt = now()), so they land
     // in the current minute bucket of the rolling window.
+    // Deliberately a RAW insert, unlike `emit` above: testSignalPulse is one of the two
+    // consumers t-11 leaves on the raw log (a minutes-wide window), so the raw row IS the
+    // representative shape for it. Do not "tidy" this into seedTestEvent without checking
+    // that its hidden-counts-as-volume assertion still holds.
     const emitNow = (acN: number, status: string, hidden = false) =>
       db.insert(testEvents).values({
         memexId: m.memexId,
