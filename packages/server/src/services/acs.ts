@@ -460,7 +460,31 @@ export async function listAcsForBriefWithVerification(
       runCount: testEventLatest.runCount,
     })
     .from(testEventLatest)
-    .where(inArray(testEventLatest.subjectRef, allRefs));
+    // spec-520 t-4 (ac-11): ONE bind parameter for the whole ref list.
+    //
+    // `IN (…)` binds one parameter PER REF, and each distinct COUNT is its own prepared
+    // statement, plan-cache entry and pg_stat_statements row. That fragmentation is what
+    // put 1,223 fingerprints — ~24.5% of the instance's 5,000 cap, which is 98.6% full and
+    // already evicting — behind one logical read (issue-10).
+    //
+    // `= ANY($1::text[])` is one parameter however many refs there are, so ONE fingerprint.
+    // Deliberately NOT rewritten to `memex_id = $1` alone like aggregateAcHealthForBriefs:
+    // that read already touched every row of the tenant, so scoping it tenant-wide cost
+    // nothing. This one serves a SINGLE Spec — tens of refs — and a tenant-wide read would
+    // fetch ~148k rows for the largest Memex to filter down to a handful.
+    //
+    // memex_id is added alongside so tenancy is an explicit predicate rather than an
+    // inference from ref-string uniqueness — the spec-396 posture, and what makes the
+    // (memex_id, subject_ref) index usable here.
+    .where(
+      and(
+        eq(testEventLatest.memexId, memexId),
+        // sql.param() is load-bearing: a bare `${allRefs}` makes drizzle interpolate the
+        // array as a LIST of parameters — the very fragmentation this is removing, and it
+        // fails outright against `= ANY(…)`. sql.param binds it as ONE array parameter.
+        sql`${testEventLatest.subjectRef} = ANY(${sql.param(allRefs)}::text[])`,
+      ),
+    );
 
   // Pull every parent link for our AC set in one query. The Decisions tab
   // uses these to find "the ACs hanging off this resolved decision" without
@@ -1071,11 +1095,38 @@ export async function aggregateAcHealthForBriefs(
   const allRefs = Array.from(refsByAcId.values());
   if (allRefs.length === 0) return result;
 
-  // Q2 — spec-162: the latest-per-pair summary for the AC universe, read
-  // directly from test_event_latest. Bounded by active AC×test pairs, not by
-  // history depth — this is the whole point of the change (ac-1). Hidden events
-  // were excluded at write time so there's no hidden filter here; '' is the
-  // stored key for null test_identifier (dec-2).
+  // Q2 — spec-162: the latest-per-pair summary for the AC universe, read directly from
+  // test_event_latest.
+  //
+  // spec-520 t-4 (dec-1, ac-7): ONE tenant parameter, not one per AC ref.
+  //
+  // This used to bind `subject_ref IN (…)` with every active ref — up to 3,745 values,
+  // 25KB of SQL. The cost that buys is not what the old comment ("bounded by active AC×test
+  // pairs, not by history depth") suggests:
+  //
+  //   • Each distinct bind-parameter COUNT is its own prepared statement, its own plan-cache
+  //     entry and its own pg_stat_statements row. Measured on prod: 1,098 fingerprints on
+  //     2026-08-18, 1,223 on 2026-08-28 — ~12/day, and ~24.5% of the instance's entire
+  //     5,000-entry cap, which is 98.6% full and already evicting (issue-10). One logical
+  //     read presenting as a thousand also makes that table illegible to anyone reading it
+  //     for top costs.
+  //   • Planning time 7.564 ms for the 1,800-literal form versus 0.037 ms for the simple
+  //     one — 200×, paid on every call before a row is touched.
+  //
+  // ⚠ DO NOT SIZE THIS AS A LATENCY FIX. s-4 §3 EXPLAINed both forms at ~48 ms with
+  // everything in shared_hit on a quiet connection, while pg_stat_statements puts the same
+  // read at a 642 ms mean in production. That 13× gap is contention and cache state, not
+  // plan shape, so a rewrite that only changes the plan will not deliver 642 → 48.
+  //
+  // ⚠ AND THE PLAN WILL PROBABLY STAY A SEQ SCAN for the tenant that matters, which is
+  // correct: one Memex holds 81.0% of this table (147,989 of 182,634 rows), so
+  // `memex_id = $1` selects four rows in five and an index scan would be slower. ac-8
+  // expects an index scan and is wrong for that tenant — see c-4.
+  //
+  // Over-fetching rows for ACs outside the requested Spec set is the accepted trade-off
+  // (dec-1): they are all read today anyway, since the seq scan touches every row. The
+  // bucketing below drops them, so the map stays bounded by the requested universe and
+  // parity is exact by construction rather than by argument.
   const summaryRows = await db
     .select({
       subjectRef: testEventLatest.subjectRef,
@@ -1085,13 +1136,18 @@ export async function aggregateAcHealthForBriefs(
       runCount: testEventLatest.runCount,
     })
     .from(testEventLatest)
-    .where(inArray(testEventLatest.subjectRef, allRefs));
+    .where(eq(testEventLatest.memexId, memexId));
 
   // Bucket the summary rows into per-AC snapshots in the same shape the AC tab
   // consumes, so deriveVerificationState gets identical input — card colour and
   // tab agree by construction (ac-2 parity). '' maps back to null.
   const snapshotsByRef = new Map<string, AcTestSnapshot[]>();
+  // spec-520 t-4: the read is now tenant-wide, so skip refs outside the requested universe.
+  // The tally below looks refs UP rather than iterating this map, so extra entries would be
+  // inert either way — this keeps the map bounded by the ACs actually asked about.
+  const wantedRefs = new Set(allRefs);
   for (const row of summaryRows) {
+    if (!wantedRefs.has(row.subjectRef)) continue;
     const list = snapshotsByRef.get(row.subjectRef) ?? [];
     list.push({
       testIdentifier: row.testIdentifier === "" ? null : row.testIdentifier,

@@ -1,0 +1,50 @@
+-- spec-520 t-4 (ac-9) — the (memex_id, subject_ref) index on test_event_latest.
+--
+-- ⚠ THIS FILE IS NOT APPLIED BY `pnpm db:migrate`, AND THAT IS THE POINT.
+--
+-- `scripts/apply-hand-migrations.mjs` wraps EVERY migration in `sql.begin()`, and
+-- `CREATE INDEX CONCURRENTLY` cannot run inside a transaction block — Postgres refuses it
+-- outright. The runner reads `drizzle/` with a NON-recursive readdirSync, so this
+-- subdirectory is invisible to it by construction rather than by anyone remembering.
+-- `out-of-band-migrations.regression.test.ts` pins both halves of that.
+--
+-- 0131 hit the same wall and chose a plain inline CREATE INDEX, correctly: `documents` is
+-- in the low hundreds of rows per Memex, a build measured in milliseconds. It also wrote
+-- down when that stops being the right call — "if it ever grows to the point where this
+-- stops being true, a future index on it belongs out-of-band". test_event_latest is that
+-- case: 182,634 rows and 64MB of heap on prod, continuously written by the emission path.
+--
+-- HOW TO APPLY (prod, and int first):
+--   1. PAM grant `memex-prod-deploy-server`, then cloud-sql-proxy — the
+--      `prod-analytics-readonly-access` recipe, minus the read-only transaction setting.
+--   2. Run the statement below. CONCURRENTLY takes no ACCESS EXCLUSIVE lock, so emissions
+--      keep writing throughout; it is slower and can fail leaving an INVALID index.
+--   3. Verify: the query at the bottom must report indisvalid = true. If it is false, DROP
+--      the index and re-run — an invalid index is never used but is still maintained on
+--      every write, which is the worst of both.
+--
+-- ⚠ DO NOT EXPECT THIS TO FIX THE 642 ms READ, and do not let anyone size it that way.
+-- s-4 §3 EXPLAINed the tenant that generates the load: ONE Memex holds 81.0% of this table
+-- (147,989 of 182,634 rows). For it, `memex_id = $1` selects four rows in five, and Postgres
+-- will correctly prefer a SEQUENTIAL SCAN — an index scan touching four rows in five is
+-- slower. This index helps the many small tenants and will be declined for the big one.
+-- spec-520 ac-8 expects an index scan and is wrong for exactly that reason (see c-4).
+--
+-- The win t-4 actually delivers is in the code, not here: 1,223 statement fingerprints
+-- collapse to 1, and planning time goes 7.564 ms -> 0.037 ms.
+--
+-- WRITE COST (cl-19): low, and worth checking rather than assuming. test_event_latest's PK
+-- is (subject_ref, test_identifier); every emission UPDATEs latest_status / latest_run_at /
+-- run_count / latest_run_id / latest_metadata. None of those is in this index, and neither
+-- memex_id nor subject_ref changes on update — so HOT updates still apply and the ~23.5M
+-- lifetime updates pay nothing for it. The cost falls on INSERTs only (~195k lifetime).
+
+CREATE INDEX CONCURRENTLY IF NOT EXISTS test_event_latest_memex_subject_idx
+  ON test_event_latest (memex_id, subject_ref);
+
+-- Verify the build actually completed. An interrupted CONCURRENTLY build leaves the index
+-- present but INVALID: never used by the planner, still maintained on every write.
+--
+--   SELECT c.relname, i.indisvalid
+--     FROM pg_class c JOIN pg_index i ON i.indexrelid = c.oid
+--    WHERE c.relname = 'test_event_latest_memex_subject_idx';
