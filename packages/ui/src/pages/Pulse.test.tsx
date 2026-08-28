@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {
@@ -467,3 +467,111 @@ describe('Pulse page', () => {
 
 // Placate the unused-import linter if `within` ends up unused in some refactors.
 void within;
+
+// ── spec-520 t-6 (ac-16 / ac-17 / ac-18): the poll pauses while the tab is hidden ──
+//
+// Pulse polls fetchDocs('spec', { include: ['acHealth'] }) every 15s. Leaving the route
+// already stopped it; being merely HIDDEN did not — a Pulse tab on a second monitor kept
+// firing for nobody, and each tick is the AC-health aggregate, 640–790 ms server-side on
+// prod. AcPanel, DecisionPanel and HomeValue all already gate on document.visibilityState;
+// this pins Pulse to the same behaviour.
+//
+// ⚠ FAKE TIMERS MUST BE INSTALLED BEFORE render(). Installing them afterwards does not
+// adopt the interval the mount already scheduled on the real clock, so advancing fake time
+// does nothing and the assertion reads as "the poll never fired" — which is exactly what a
+// correctly-paused poll looks like. Two of these three tests passed for that wrong reason
+// on the first draft.
+//
+// jsdom's document.visibilityState is a readonly getter, so it is redefined per test and
+// deleted after [per std-37 cl-5] — leaving it patched would silently change every later
+// test in this file.
+describe('Pulse — the AC-health poll pauses while the tab is hidden (spec-520 t-6)', () => {
+  const AC520 = (n: number) =>
+    `mindset-prod/memex-building-itself/specs/spec-520/acs/ac-${n}`;
+
+  function setVisibility(state: 'visible' | 'hidden') {
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => state,
+    });
+    document.dispatchEvent(new Event('visibilitychange'));
+  }
+
+  afterEach(() => {
+    // Restore jsdom's own getter rather than pinning 'visible' — a pinned value is
+    // indistinguishable from the real one until something depends on it changing.
+    delete (document as unknown as Record<string, unknown>).visibilityState;
+    vi.useRealTimers();
+  });
+
+  /** Mount with fake timers already running, and flush the mount's own fetch. */
+  async function mountWithFakeTimers() {
+    vi.useFakeTimers();
+    const view = renderPulse();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchDocsMock).toHaveBeenCalled();
+    fetchDocsMock.mockClear();
+    return view;
+  }
+
+  it('polls on a 15s interval while visible, and issues nothing while hidden [ac-16][ac-18]', async () => {
+    tagAc(AC520(16));
+    tagAc(AC520(18));
+
+    await mountWithFakeTimers();
+
+    // Visible: the interval is unchanged at 15s (ac-18). Asserted BEFORE hiding, so a
+    // paused-from-the-start poll cannot pass this test by never firing at all.
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(fetchDocsMock).toHaveBeenCalledTimes(1);
+
+    setVisibility('hidden');
+    fetchDocsMock.mockClear();
+
+    // Three full intervals with the tab hidden must produce nothing (ac-16).
+    await vi.advanceTimersByTimeAsync(45_000);
+    expect(fetchDocsMock).not.toHaveBeenCalled();
+  });
+
+  it('refreshes once immediately on becoming visible rather than waiting out the interval [ac-17]', async () => {
+    tagAc(AC520(17));
+
+    await mountWithFakeTimers();
+
+    setVisibility('hidden');
+    await vi.advanceTimersByTimeAsync(30_000);
+    fetchDocsMock.mockClear();
+
+    // The point of ac-17: a returning user must not read AC health that is up to 15s
+    // stale while the resumed interval counts down. The refresh is immediate — asserted
+    // with the clock advanced by ZERO.
+    setVisibility('visible');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchDocsMock).toHaveBeenCalledTimes(1);
+
+    // …and the interval genuinely resumed, rather than the tab-show refresh being the
+    // only thing left alive.
+    fetchDocsMock.mockClear();
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(fetchDocsMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('still stops on unmount, so leaving the route ends the poll [ac-18]', async () => {
+    tagAc(AC520(18));
+
+    const view = await mountWithFakeTimers();
+
+    // Prove the poll was actually running first — otherwise the assertion below is
+    // vacuous and would hold against a component that never polled.
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(fetchDocsMock).toHaveBeenCalledTimes(1);
+
+    view.unmount();
+    fetchDocsMock.mockClear();
+
+    // The pre-existing guarantee. The visibility gate adds a second stop condition; it
+    // must not have replaced this one.
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetchDocsMock).not.toHaveBeenCalled();
+  });
+});

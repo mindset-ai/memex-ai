@@ -126,10 +126,51 @@ export function Pulse() {
       .catch(() => {})
       .finally(() => setSpecsLoading(false));
   }, []);
+  // Initial fetch + polling, paused while the tab is hidden (spec-520 t-6,
+  // ac-16/17/18).
+  //
+  // Leaving the route already stopped this — the interval clears on unmount and
+  // refreshSpecs is a stable useCallback([]). What it did NOT do is stop when the tab is
+  // merely hidden, so a Pulse tab on a second monitor or behind another window kept
+  // firing every 15 seconds for nobody. Each tick is the AC-health aggregate, measured at
+  // 640–790 ms server-side on prod, so an idle backgrounded tab was not free.
+  //
+  // This is the established local pattern, not a new one: AcPanel, DecisionPanel and
+  // HomeValue all start/stop on document.visibilityState. Pulse was the outlier — copied
+  // from AcPanel deliberately so the four read the same.
+  //
+  // The interval stays 15s. Whether Pulse should poll AT ALL is spec-408 dec-4's
+  // question (the same one for the presence band on this page) and is not settled here;
+  // the bus does not currently carry AC-health changes, which SpecList.tsx documents.
   useEffect(() => {
+    let timer: ReturnType<typeof setInterval> | null = null;
     refreshSpecs();
-    const id = setInterval(refreshSpecs, 15_000);
-    return () => clearInterval(id);
+    const start = () => {
+      if (timer !== null) return;
+      timer = setInterval(refreshSpecs, 15_000);
+    };
+    const stop = () => {
+      if (timer !== null) {
+        clearInterval(timer);
+        timer = null;
+      }
+    };
+    const onVisChange = () => {
+      if (document.visibilityState === 'visible') {
+        // Refresh once on tab-show rather than waiting out the remainder of the
+        // interval, so a returning user never reads stale AC health (ac-17).
+        refreshSpecs();
+        start();
+      } else {
+        stop();
+      }
+    };
+    if (document.visibilityState === 'visible') start();
+    document.addEventListener('visibilitychange', onVisChange);
+    return () => {
+      stop();
+      document.removeEventListener('visibilitychange', onVisChange);
+    };
   }, [refreshSpecs]);
 
   const pickerSpecs: SpecPickerSpec[] = useMemo(
