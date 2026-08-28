@@ -551,36 +551,49 @@ export async function maybeAutoResolveIssuesForAcUid(subjectRef: string): Promis
   const specHandle = m[3];
   const acSeq = Number(m[4]);
 
-  const [doc] = await db
-    .select({ id: documents.id, memexId: documents.memexId })
+  // spec-520 t-15 (ac-33): ONE query, not three. This used to walk the reverse lookup in
+  // three awaited round trips — documents ⋈ memexes ⋈ namespaces, then `acs`, then
+  // `task_satisfies_ac` — and every one of its early returns was a NOT-FOUND return, never
+  // a cheap-path return. So an event whose AC has no converted Issue still paid all three
+  // to discover there was nothing to do, and that is the overwhelming majority of events.
+  //
+  // Measured on prod as a 600s delta 2026-08-28 (spec-520 c-9), AFTER t-7 made the chain
+  // actually run: the documents join ran at 30.970 calls/s against an event rate of 30.973
+  // — on essentially every event — and the two measurable statements cost 0.1084 ms/event,
+  // about 18% of the whole emission path, with this join the third most expensive statement
+  // per call on it.
+  //
+  // ⚠ THE PRE-t-7 COUNTERS SAY THE OPPOSITE, and they are not evidence. Lifetime
+  // pg_stat_statements showed 221 calls against 21.2M — but only because `documents` RLS
+  // filtered this first statement to zero rows while the ingest path had no tenant context,
+  // so the chain returned at statement 1 every time. That is a measurement of the chain not
+  // RUNNING, not of it being cheap. Do not re-derive this cost from cumulative counters;
+  // take a delta.
+  //
+  // The scoping conjuncts are the part to guard when touching this. `documents.handle`
+  // (e.g. `spec-1`) is per-memex, NOT globally unique, so namespace AND memex must both
+  // match or a bare handle resolves across tenants [per std-7].
+  const satisfying = await db
+    .select({ taskId: taskSatisfiesAc.taskId, memexId: documents.memexId })
     .from(documents)
     .innerJoin(memexes, eq(documents.memexId, memexes.id))
     .innerJoin(namespaces, eq(memexes.namespaceId, namespaces.id))
+    .innerJoin(acs, and(eq(acs.briefId, documents.id), eq(acs.seq, acSeq)))
+    .innerJoin(taskSatisfiesAc, eq(taskSatisfiesAc.acId, acs.id))
     .where(
       and(
         eq(documents.handle, specHandle),
         eq(memexes.slug, memexSlug),
         eq(namespaces.slug, namespaceSlug),
       ),
-    )
-    .limit(1);
-  if (!doc) return [];
+    );
 
-  const [ac] = await db
-    .select({ id: acs.id })
-    .from(acs)
-    .where(and(eq(acs.briefId, doc.id), eq(acs.seq, acSeq)))
-    .limit(1);
-  if (!ac) return [];
-
-  const satisfying = await db
-    .select({ taskId: taskSatisfiesAc.taskId })
-    .from(taskSatisfiesAc)
-    .where(eq(taskSatisfiesAc.acId, ac.id));
-
+  // Every not-found case the three statements returned early on now simply yields no rows:
+  // no such doc, no such AC, or no task satisfying it. All three meant `[]` before and mean
+  // `[]` now, so the behaviour is unchanged — only the round trips are gone.
   const resolved: string[] = [];
   for (const s of satisfying) {
-    const ids = await maybeAutoResolveIssuesForTask(doc.memexId, s.taskId);
+    const ids = await maybeAutoResolveIssuesForTask(s.memexId, s.taskId);
     resolved.push(...ids);
   }
   return resolved;
