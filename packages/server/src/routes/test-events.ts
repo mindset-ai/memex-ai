@@ -528,6 +528,10 @@ async function processOneEvent(
           status: insertValues.status as "pass" | "fail" | "error",
           latestRunAt: inserted.createdAt,
           hidden: insertValues.hidden,
+          // spec-520 dec-8: the same values written to the log row, so the CI-origin audit
+          // can read provenance from the summary once retention stops keeping the log row.
+          runId: insertValues.runId,
+          metadata: insertValues.metadata,
         });
         // spec-520 t-9 (dec-5): the ANALYTICAL tier, in the same transaction as
         // the log write and the operational summary — so the counts can never
