@@ -7,6 +7,9 @@
 // internal (spec-453), then nine more surfaced in 2026-08. The sharpest instance:
 // `/api/test-events/batch` 404'd, so the CI AC-emitter fell back from one batch request
 // to unbounded per-event POSTs (emitBatch: 404 → Promise.all(single)) — ~11.6M
+// (⚠ that figure is the whole emission path's statement volume, and restoring /batch
+//  removes the REQUEST amplification, not those statements — six of seven are per-event
+//  either way. Corrected in routes/api-roots.ts; spec-520 issue-2.)
 // INSERT/DELETE/upsert calls that drove prod Cloud SQL to ~100% CPU.
 //
 // This scan derives the flat roots from app.ts SOURCE (never hardcoded) and fails if any

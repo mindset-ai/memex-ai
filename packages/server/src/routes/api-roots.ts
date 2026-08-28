@@ -17,14 +17,37 @@
 // the coupling is required in both directions — a word that is both an API root and
 // a namespace slug makes one of the two unreachable.
 
-// MEASURED IMPACT (from a colleague's independent reconstruction of this fix on
-// origin/develop, commit 00394743 — better quantified than the original diagnosis and
-// preserved here because that inline list was folded into this module):
-// `pg_stat_statements` showed **~11.6M INSERT/DELETE/upsert calls** across the
-// test_events emission path — about **31% of prod Cloud SQL CPU**, saturating the
-// 1-vCPU instance and slowing every DB-backed endpoint. Reserving `test-events` makes
-// /batch reachable, so the already-published emitter batches and the write volume
-// collapses.
+// MEASURED IMPACT — and ⚠ CORRECTED 2026-08-28 (spec-520 issue-2), because the original
+// wording attributed a cost to this fix that this fix does not remove, in the direction
+// that stops someone looking further.
+//
+// The observation was real: `pg_stat_statements` showed **~11.6M INSERT/DELETE/upsert
+// calls** across the test_events emission path, about **31% of prod Cloud SQL CPU** on a
+// 1-vCPU instance. Reserving `test-events` makes /batch reachable, and that IS a real fix.
+//
+// WHAT IT FIXED: the REQUEST count. Before, the emitter's batch POST 404'd and it fell back
+// to one POST per test — so a suite tagging 500 criteria opened 500 requests, each taking a
+// DB-pool slot. Restoring /batch collapses that to roughly one request per test FILE, and
+// amortises the ONE statement that is per-request: the emission-key verify.
+//
+// WHAT IT DID NOT FIX: the per-EVENT statement cost, which is most of that 31%. The batch
+// route authenticates once and then loops `processOneEvent` per event, so six of the seven
+// statements run exactly as often as before. Restoring the route removed approximately none
+// of them.
+//
+// Measured on prod as a 600s delta, 2026-08-28 (spec-520 c-9) — the batching is visible in
+// exactly one row and absent from the rest:
+//
+//   30.973 calls/s  INSERT test_events          <- per EVENT
+//   30.973 calls/s  DELETE test_events (trim)   <- per EVENT
+//   30.973 calls/s  INSERT test_run_daily       <- per EVENT
+//   30.972 calls/s  INSERT ac_first_verified    <- per EVENT
+//   30.972 calls/s  UPDATE memex_emission_keys  <- per EVENT
+//    3.947 calls/s  SELECT memex_emission_keys  <- per BATCH: ~1 auth per 8 events
+//
+// So: spec-515 fixed request amplification; spec-520 is the Spec that attacks the write
+// amplification, and its t-6 / t-12 / dec-7 work is what actually removes those rows. Do not
+// read this paragraph as "the 31% was solved here".
 
 /**
  * Every top-level segment under which a NON-TENANT router is mounted flat at
