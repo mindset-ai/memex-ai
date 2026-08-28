@@ -15,7 +15,7 @@
 // The denominator is TESTABLE OBLIGATIONS only (dec-5): non-obligations / untestable
 // clauses are shown but excluded from the coverage counts.
 
-import { and, asc, eq, inArray, ne } from "drizzle-orm";
+import { and, asc, eq, ne, sql } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import {
   documents,
@@ -142,7 +142,22 @@ export async function listClausesForStandardWithVerification(
       runCount: testEventLatest.runCount,
     })
     .from(testEventLatest)
-    .where(inArray(testEventLatest.subjectRef, allRefs));
+    // spec-520 t-4 (ac-11): one bind parameter for the whole ref list, not one per ref.
+    // Each distinct IN-count is its own prepared statement and pg_stat_statements row —
+    // the fragmentation that put ~24.5% of the instance's fingerprint cap behind a single
+    // logical read (issue-10). Same shape as listAcsForBriefWithVerification, and NOT
+    // `memex_id = $1` alone: this serves one standard's clauses, so a tenant-wide read
+    // would fetch far more than it filters.
+    //
+    // sql.param() is load-bearing — a bare `${allRefs}` makes drizzle interpolate the array
+    // as a LIST of parameters, which is the fragmentation being removed and fails against
+    // `= ANY(…)` outright.
+    .where(
+      and(
+        eq(testEventLatest.memexId, memexId),
+        sql`${testEventLatest.subjectRef} = ANY(${sql.param(allRefs)}::text[])`,
+      ),
+    );
 
   const testsByRef = new Map<string, AcTestSnapshot[]>();
   for (const row of summaryRows) {
