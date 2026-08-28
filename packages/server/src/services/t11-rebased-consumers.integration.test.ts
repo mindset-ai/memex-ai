@@ -14,7 +14,7 @@
 // too would let a still-broken implementation pass.
 
 import { describe, it, expect, afterAll, beforeAll } from "vitest";
-import { and, eq, inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { db, runWithMemexId } from "../db/connection.js";
 import {
