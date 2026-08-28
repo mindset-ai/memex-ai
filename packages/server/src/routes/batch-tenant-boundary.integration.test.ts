@@ -183,7 +183,12 @@ describe("spec-520 ac-29: the scoped-agent-key gate also holds PER EVENT in a ba
     // for both — only the scope gate separates them.
     const scoped = await mintEphemeralEmissionKey(memexA, "spec-1", userA);
 
-    const own = `${refA(20).replace(/\/specs\/spec-1\//, "/specs/spec-1/")}`;
+    // refA() already builds spec-1 refs, so `own` needs no rewriting — an earlier draft
+    // replaced "/specs/spec-1/" with itself here, a no-op that READ as if the two refs were
+    // being derived symmetrically. CodeQL flagged it. In a test whose entire point is that
+    // the two refs differ, a line that looks like it transforms one and does not is worse
+    // than useless.
+    const own = refA(20);
     const other = refA(21).replace("/specs/spec-1/", "/specs/spec-2/");
     createdRefs.push(other);
 
