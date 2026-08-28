@@ -1217,6 +1217,15 @@ export interface AlignmentDay {
   total: number;
   /** Same as listAcsForBriefWithVerification, broken down by kind. */
   kind: "scope" | "implementation";
+  /**
+   * False for days that predate the per-day rollup's first row for this Memex — days we
+   * CANNOT measure, because the per-day past was destroyed by retention and cannot be
+   * reconstructed. Their `verified: 0` is an absence of measurement, not a measured
+   * absence, and ac-5 requires the chart say so rather than let a truncated past read as
+   * data. Callers must render an unmeasured span distinctly; the span shrinks on its own
+   * as history accumulates and eventually disappears.
+   */
+  measured: boolean;
 }
 
 /**
@@ -1225,7 +1234,8 @@ export interface AlignmentDay {
  *   - total  = ACs active on that day (created on or before; status='active'
  *              today — V0.0.1 simplification, we don't reconstruct historical
  *              status transitions, which would require an audit table)
- *   - verified = ACs whose latest test_event AS OF END-OF-DAY is 'pass'
+ *   - verified = ACs that were GREEN as of end-of-day: on the most recent day the AC ran
+ *                at all (≤ this day), every one of its tests passed
  *
  * V0.0.1 caveat: status reconstruction is not historical. An AC currently
  * `rejected` or `superseded` is excluded from the total even on days when it
@@ -1233,10 +1243,9 @@ export interface AlignmentDay {
  * what we care about TODAY; backfilling true historical status would need a
  * status-event log we don't have.
  *
- * SQL is a window-function pair per day, fanned out via generate_series. The
- * heavy lifting is the LATERAL join that finds the latest test event per
- * (subject_ref, day) ≤ end-of-day. Bounded by the AC set in the Spec, which is
- * small (rarely >100), so this is cheap even at 90 days.
+ * SQL fans days out via generate_series and, per (day × AC), reads the per-day ROLLUP —
+ * not the raw log. Bounded by the AC set in the Spec, which is small (rarely >100), so
+ * this stays cheap even at 90 days.
  */
 export async function listAcAlignmentOverTime(
   memexId: string,
@@ -1269,8 +1278,33 @@ export async function listAcAlignmentOverTime(
     sql`, `,
   );
 
-  // For each (day × ac), find the latest event ≤ end-of-day for that subject_ref;
-  // 'verified' iff that latest is 'pass'. Total = ACs that existed by then.
+  // spec-520 t-11 (ac-24): per (day × AC), read the per-day ROLLUP — not the raw log.
+  //
+  // THE DEFECT THIS CLOSES. This carried a correlated
+  //   SELECT te.status FROM test_events te
+  //   WHERE te.subject_ref = a.subject_ref AND te.created_at < day+1
+  //   ORDER BY te.created_at DESC LIMIT 1
+  // against a table the retention trim caps at RETENTION_KEEP=10 rows per (subject_ref,
+  // test_identifier). For a BUSY AC those ten rows are all from the last few hours, so
+  // every older day found nothing and read as "never verified". Same bias as testRunVolume
+  // and it runs the same direction: the more an AC is tested, the less of its history the
+  // chart could see (prod 2026-08-18 — 65,708 pairs sitting at exactly the cap).
+  //
+  // AND THE DERIVATION IS NOW HONEST. "Latest single event" answered with whichever row
+  // happened to write last, so one passing test masked a sibling that went red in the same
+  // minute. The rollup keeps per-test counts, so green is what it should always have
+  // meant: on the most recent day the AC ran at all, EVERY one of its tests passed. That
+  // is the property t-11 names, and it was not answerable before this table existed.
+  //
+  // SCOPED BY memex_id. The old read filtered on subject_ref alone — tenancy carried by a
+  // string, the spec-396 leak pattern (a real cross-org bleed of ~1.5M rows across 137
+  // memexes) this Spec closes elsewhere.
+  //
+  // ⚠ HISTORY STARTS AT THE ROLLUP'S FIRST ROW. Unlike testRunVolume — which begins its
+  // series at min(day) and so cannot show a fabricated past — this query generates a FIXED
+  // `days`-long window, so it necessarily emits days it cannot measure. `measured` marks
+  // them (ac-5); rendering them as a plain zero would let a deleted past read as measured
+  // absence, which is the specific misreading ac-5 forbids.
   const rows = (await db.execute(sql`
     WITH ac_set(subject_ref, kind, created_at, accepted_at) AS (
       VALUES ${acSetValues}
@@ -1282,6 +1316,9 @@ export async function listAcAlignmentOverTime(
         '1 day'::interval
       )::date AS day
     ),
+    coverage AS (
+      SELECT min(day) AS first_day FROM test_run_daily WHERE memex_id = ${memexId}
+    ),
     daily AS (
       SELECT
         s.day,
@@ -1290,13 +1327,20 @@ export async function listAcAlignmentOverTime(
         a.created_at,
         a.accepted_at,
         (
-          SELECT te.status
-          FROM test_events te
-          WHERE te.subject_ref = a.subject_ref
-            AND te.created_at < (s.day + INTERVAL '1 day')
-          ORDER BY te.created_at DESC
+          -- The most recent day this AC ran at or before s.day, collapsed across all of
+          -- its tests. NULL when it had not run by then — distinct from FALSE (ran, and
+          -- something was red), and the two are treated differently below.
+          SELECT sum(r.fail_count) = 0
+             AND sum(r.error_count) = 0
+             AND sum(r.pass_count) > 0
+          FROM test_run_daily r
+          WHERE r.memex_id = ${memexId}
+            AND r.subject_ref = a.subject_ref
+            AND r.day <= s.day
+          GROUP BY r.day
+          ORDER BY r.day DESC
           LIMIT 1
-        ) AS latest_status
+        ) AS green
       FROM series s
       CROSS JOIN ac_set a
     )
@@ -1304,26 +1348,34 @@ export async function listAcAlignmentOverTime(
       day::text AS date,
       kind,
       COUNT(*) FILTER (WHERE created_at <= day + INTERVAL '1 day') AS total,
-      -- Gate verified on AC existence too — otherwise a test_event predating
-      -- the AC's createdAt (only possible with synthetic seed data, but the
-      -- contract should hold) yields verified > total, which is nonsense.
+      -- Gate verified on AC existence too — otherwise history predating the AC's
+      -- createdAt yields verified > total, which is nonsense.
       --
-      -- spec-188 dec-1/dec-2: a manual acceptance counts as verified from the
-      -- day it was recorded, with the same evidence-wins precedence as
-      -- deriveVerificationState — a failing/erroring latest status suppresses
-      -- it. (V0.0.1 caveat, same as status above: accepted_at is TODAY's
-      -- value, not historically reconstructed across un-accept cycles.)
+      -- spec-188 dec-1/dec-2: a manual acceptance counts as verified from the day it was
+      -- recorded, with the same evidence-wins precedence as deriveVerificationState — a
+      -- red latest day suppresses it. green IS NOT FALSE is the precise form: an AC that
+      -- has never run (NULL) keeps its acceptance, one whose tests are red loses it.
+      -- (V0.0.1 caveat: accepted_at is TODAY's value, not reconstructed across un-accept
+      -- cycles.)
       COUNT(*) FILTER (
         WHERE created_at <= day + INTERVAL '1 day'
           AND (
-            latest_status = 'pass'
+            green
             OR (
               accepted_at IS NOT NULL
               AND accepted_at < day + INTERVAL '1 day'
-              AND (latest_status IS NULL OR latest_status = 'pass')
+              AND green IS NOT FALSE
             )
           )
-      ) AS verified
+      ) AS verified,
+      -- An expression on day, which is already grouped. A Memex with no rollup rows at
+      -- all has first_day NULL, so every day is unmeasured — the strongest form of the
+      -- same statement, and the one a naive "is there a row for this day" flag would miss
+      -- by having nothing to report.
+      (
+        (SELECT first_day FROM coverage) IS NOT NULL
+        AND day >= (SELECT first_day FROM coverage)
+      ) AS measured
     FROM daily
     GROUP BY day, kind
     ORDER BY day ASC, kind ASC
@@ -1332,6 +1384,7 @@ export async function listAcAlignmentOverTime(
     kind: "scope" | "implementation";
     total: string | number;
     verified: string | number;
+    measured: boolean;
   }>;
 
   return rows.map((r) => ({
@@ -1339,6 +1392,7 @@ export async function listAcAlignmentOverTime(
     kind: r.kind,
     total: Number(r.total),
     verified: Number(r.verified),
+    measured: r.measured === true,
   }));
 }
 

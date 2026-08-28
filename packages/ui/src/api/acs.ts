@@ -60,6 +60,16 @@ export interface AcAlignmentDay {
   kind: AcKind;
   verified: number;
   total: number;
+  /**
+   * spec-520 ac-5. False for days that predate the per-day rollup's first row for this
+   * Memex — days the server CANNOT measure, because the per-day past was destroyed by
+   * retention and cannot be reconstructed. Their `verified: 0` is an absence of
+   * measurement, not a measured absence, and must never be drawn as a flat zero line.
+   *
+   * Optional so a response from a server predating the flag still renders: absent is
+   * treated as measured, which is exactly the pre-flag behaviour.
+   */
+  measured?: boolean;
 }
 
 export async function fetchAcsForBrief(

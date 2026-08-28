@@ -11,6 +11,13 @@
 //
 // Behaviour:
 //   - Empty data        → renders the baseline + a "no history yet" hint.
+//   - Unmeasured days   → NOT drawn (spec-520 ac-5). Days before the per-day rollup's
+//                         first row cannot be measured — the past was deleted by
+//                         retention — so a flat 0% line there would read as "this Spec
+//                         was red for a month" when the truth is "we were not counting
+//                         yet". The span is shaded, excluded from the path, and named
+//                         below the chart. It shrinks on its own and eventually goes
+//                         away, so it is a treatment that retires itself.
 //   - One data point    → renders as a tiny dot, no path.
 //   - All-100% data     → flat green line at the top. Looks like a flat
 //                         green line, which is exactly the message.
@@ -39,6 +46,11 @@ export interface AcSparklineProps {
 function percent(d: AcAlignmentDay): number {
   if (d.total === 0) return 0;
   return (d.verified / d.total) * 100;
+}
+
+// Absent means "server predates the flag" — treat as measured so nothing regresses.
+function isMeasured(d: AcAlignmentDay): boolean {
+  return d.measured !== false;
 }
 
 export function AcSparkline({
@@ -81,16 +93,32 @@ export function AcSparkline({
         : padX + (i / (data.length - 1)) * usableW;
     const pct = percent(d);
     const y = padY + (1 - pct / 100) * usableH;
-    return { x, y, pct, date: d.date, verified: d.verified, total: d.total };
+    return {
+      x, y, pct,
+      date: d.date,
+      verified: d.verified,
+      total: d.total,
+      measured: isMeasured(d),
+    };
   });
 
-  const path =
-    points.length >= 2
-      ? `M ${points[0].x} ${points[0].y} ` +
-        points.slice(1).map((p) => `L ${p.x} ${p.y}`).join(' ')
-      : '';
+  // The unmeasured span is always a PREFIX — coverage is "every day at or after the
+  // rollup's first row", so it cannot have holes. Taking the first measured index rather
+  // than filtering keeps that assumption visible: if the server ever sends a gap, the
+  // chart draws through it instead of silently stitching two eras into one line.
+  const firstMeasured = points.findIndex((p) => p.measured);
+  const drawn = firstMeasured === -1 ? [] : points.slice(firstMeasured);
+  const unmeasuredCount = firstMeasured === -1 ? points.length : firstMeasured;
 
-  const lastPoint = points[points.length - 1];
+  const path =
+    drawn.length >= 2
+      ? `M ${drawn[0].x} ${drawn[0].y} ` +
+        drawn.slice(1).map((p) => `L ${p.x} ${p.y}`).join(' ')
+      : drawn.length === 1
+        ? `M ${drawn[0].x} ${drawn[0].y}`
+        : '';
+
+  const lastPoint = drawn[drawn.length - 1];
   const hovered = hoverIndex !== null ? points[hoverIndex] : null;
 
   function handleMove(e: React.MouseEvent<SVGSVGElement>) {
@@ -112,7 +140,7 @@ export function AcSparkline({
 
   return (
     <div ref={containerRef} className={`relative ${className ?? ''}`}>
-      {data.length === 0 ? (
+      {drawn.length === 0 ? (
         <div className="text-xs text-muted italic py-2">
           No alignment history yet.
         </div>
@@ -123,13 +151,24 @@ export function AcSparkline({
             height={height}
             viewBox={`0 0 ${width} ${height}`}
             role="img"
-            aria-label={`Alignment over ${data.length} days, currently ${
+            aria-label={`Alignment over ${drawn.length} measured days, currently ${
               lastPoint ? Math.round(lastPoint.pct) : 0
             }% verified`}
             onMouseMove={handleMove}
             onMouseLeave={() => setHoverIndex(null)}
             style={{ display: 'block' }}
           >
+            {/* The span we cannot vouch for — drawn FIRST so the chart sits on top. */}
+            {unmeasuredCount > 0 && drawn.length > 0 && (
+              <rect
+                x={padX}
+                y={padY}
+                width={Math.max(0, drawn[0].x - padX)}
+                height={usableH}
+                fill="currentColor"
+                fillOpacity={0.05}
+              />
+            )}
             {/* Baseline + top dashed line so the band reads as a chart. */}
             <line
               x1={padX}
@@ -180,6 +219,12 @@ export function AcSparkline({
               <circle cx={lastPoint.x} cy={lastPoint.y} r={3} fill={stroke} />
             )}
           </svg>
+          {/* Says on the chart's face where its history begins (spec-520 ac-5). */}
+          {unmeasuredCount > 0 && drawn.length > 0 && (
+            <div className="text-[11px] text-muted italic mt-1">
+              No history before {drawn[0].date} — per-day counts start there.
+            </div>
+          )}
           {/* Tooltip — positioned in CSS so it can extend outside the SVG. */}
           {hovered && (
             <div
