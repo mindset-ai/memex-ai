@@ -1,11 +1,17 @@
 // spec-520 t-11 — the two consumers that could be re-based cleanly.
 //
-// ac-24 (testRunVolume) and ac-25 (verifyingAcIsGreen). The other two named by t-11 are
-// NOT here and not attempted:
+// ac-24 (testRunVolume) and ac-25 (verifyingAcIsGreen). Of the other two named by t-11:
 //   • auditCiEmissionForBrief needs run_id + metadata, which test_event_latest does not
 //     carry — dec-8.
-//   • listAcAlignmentOverTime's first-verified half reads ac_first_verified, which dec-7
-//     deliberately left in place.
+//   • listAcAlignmentOverTime moved in a follow-up, and now lives in
+//     alignment-over-time-rollup.integration.test.ts.
+//
+// ⚠ AN EARLIER VERSION OF THIS NOTE WAS WRONG and is corrected here rather than deleted,
+// because it is the kind of error that costs the next reader a wasted afternoon. It said
+// listAcAlignmentOverTime "reads ac_first_verified, which dec-7 deliberately left in
+// place". It never did: its accepted_at comes from the `acs` table via the inlined
+// ac_set VALUES list. The only reader of ac_first_verified is analytics.acsOverTime
+// (analytics.ts:383) — a THIRD chart, and the one dec-7's note is actually about.
 //
 // THE PROOF SHAPE ac-24 ASKS FOR is "results no longer change when raw events age out".
 // So these tests seed the DERIVED tier and leave the raw log EMPTY. Under the old

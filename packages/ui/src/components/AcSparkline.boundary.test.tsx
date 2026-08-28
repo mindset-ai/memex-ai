@@ -14,7 +14,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { tagAc } from '@memex-ai-ac/vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { AcSparkline } from './AcSparkline';
 import type { AcAlignmentDay } from '../api/client';
 
@@ -82,6 +82,35 @@ describe('AcSparkline · unmeasured history', () => {
     // The note must retire itself once history covers the window, or it becomes furniture
     // that everyone learns to ignore.
     expect(screen.queryByText(/no history before/i)).not.toBeInTheDocument();
+  });
+
+  it('explains the boundary on hover instead of reporting a measured zero', () => {
+    tagAc(AC_BOUNDARY);
+    // The interaction a reader trusts most. Excluding unmeasured days from the LINE while
+    // the tooltip still says "0/2 verified · 0%" over them puts the forbidden statement
+    // back on screen in the one place someone went looking for detail. Hover is where the
+    // boundary should get explained, not where it leaks.
+    const { container } = render(
+      <AcSparkline
+        data={[
+          day('2026-08-24', 0, 2, false),
+          day('2026-08-27', 2, 2, true),
+          day('2026-08-28', 2, 2, true),
+        ]}
+      />,
+    );
+    const svg = container.querySelector('svg')!;
+    svg.getBoundingClientRect = () =>
+      ({ left: 0, top: 0, width: 320, height: 48 }) as DOMRect;
+
+    fireEvent.mouseMove(svg, { clientX: 0 });
+    expect(screen.queryByText(/0%/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/verified/)).not.toBeInTheDocument();
+    expect(screen.getByText(/not measured/i)).toBeInTheDocument();
+
+    // …and a measured day still reports its numbers.
+    fireEvent.mouseMove(svg, { clientX: 320 });
+    expect(screen.getByText(/2\/2 verified/)).toBeInTheDocument();
   });
 
   it('treats a response with no `measured` field as measured', () => {

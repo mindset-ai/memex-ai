@@ -23,7 +23,12 @@
 //                         green line, which is exactly the message.
 //   - Hover             → vertical guide line + a small tooltip showing
 //                         date + verified/total + percentage for the point
-//                         under the cursor. Snaps to the nearest x.
+//                         under the cursor. Snaps to the nearest x. Over an
+//                         UNMEASURED day it says so instead of reporting a
+//                         percentage: the guide still tracks (so the shaded
+//                         span is explorable rather than dead) but there is no
+//                         dot on the baseline and no "0%" — that number would
+//                         be the exact claim the shading exists to deny.
 //
 // Y-axis is fixed 0..100 (absolute %, not stretched to data range).
 // X-axis is index-based (day count). Coordinates: SVG y grows downward, so
@@ -199,7 +204,8 @@ export function AcSparkline({
                 strokeLinecap="round"
               />
             )}
-            {/* Hover guide line + dot. */}
+            {/* Hover guide line + dot. No dot on an unmeasured day: it would sit on
+                the 0% baseline and read as a measured zero. */}
             {hovered && (
               <>
                 <line
@@ -211,7 +217,9 @@ export function AcSparkline({
                   strokeOpacity={0.3}
                   strokeWidth={1}
                 />
-                <circle cx={hovered.x} cy={hovered.y} r={4} fill={stroke} />
+                {hovered.measured && (
+                  <circle cx={hovered.x} cy={hovered.y} r={4} fill={stroke} />
+                )}
               </>
             )}
             {/* The persistent "where are we now" dot at the last point. */}
@@ -235,10 +243,16 @@ export function AcSparkline({
               }}
             >
               <div className="font-medium">{hovered.date}</div>
-              <div>
-                {hovered.verified}/{hovered.total} verified ·{' '}
-                {hovered.total === 0 ? '—' : `${Math.round(hovered.pct)}%`}
-              </div>
+              {hovered.measured ? (
+                <div>
+                  {hovered.verified}/{hovered.total} verified ·{' '}
+                  {hovered.total === 0 ? '—' : `${Math.round(hovered.pct)}%`}
+                </div>
+              ) : (
+                <div>
+                  Not measured — counts start {drawn[0]?.date ?? 'later'}
+                </div>
+              )}
             </div>
           )}
         </>

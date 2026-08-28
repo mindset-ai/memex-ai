@@ -68,6 +68,7 @@ import { createAc, buildAcRef } from "../services/acs.js";
 import { createIssue } from "../services/issues.js";
 import { testEvents } from "../db/schema.js";
 import { applyEmissionToSummary } from "../services/test-event-latest.js";
+import { applyEmissionToRollup } from "../services/test-run-daily.js";
 import { createExecutionPlan } from "../services/execution_plans.js";
 import { addTaskComment, addComment, addDecisionComment, addAnchoredComment } from "../services/comments.js";
 // spec-320 t-5: seed comment @-mentions + assignment through the real services so
@@ -1256,6 +1257,19 @@ testOnlyRouter.post("/seed-test-event", async (c) => {
       testIdentifier,
       status,
       latestRunAt: row.createdAt,
+      hidden: false,
+    });
+    // spec-520 t-11: the per-day rollup is the THIRD tier, and it is what both history
+    // charts now read. Omitting it here would make this fixture write a shape production
+    // never produces — a journey could seed a green emission and still find the alignment
+    // sparkline saying "No alignment history yet", with nothing in the diff to explain it.
+    // Same defect class as the unit fixtures that were root-fixed in seedTestEvent.
+    await applyEmissionToRollup(tx, {
+      subjectRef,
+      memexId,
+      testIdentifier,
+      status,
+      runAt: row.createdAt,
       hidden: false,
     });
   });
