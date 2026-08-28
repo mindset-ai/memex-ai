@@ -5,7 +5,7 @@
 
 import { Hono } from "hono";
 import { z } from "zod/v4";
-import { eq, and, isNull } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import {
   clearFakeQueue,
   enqueueFakeResponse,
