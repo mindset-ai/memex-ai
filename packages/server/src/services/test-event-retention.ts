@@ -53,10 +53,33 @@ export async function recordFirstVerified(
 ): Promise<void> {
   // Pass the timestamp as an ISO string + explicit cast: a raw drizzle `sql`
   // template has no column-type context, so postgres.js can't bind a bare Date.
+  // spec-520 dec-7 option D (ac-34): the DO UPDATE is now predicated, so it stops
+  // rewriting a row it is not changing.
+  //
+  // Without the WHERE, LEAST returns the value ALREADY STORED on every pass after the
+  // first — so the statement wrote an identical date into a brand-new row version, every
+  // time. Measured on prod 2026-08-28 as a 600s delta: 30.972 calls/s at 0.0496 ms, one
+  // per passing event, ~21.3M lifetime updates that changed nothing. The statement still
+  // runs; it now finds no row, so there is no new row version and no dead tuple.
+  //
+  // ⚠ THE WHERE MUST COMPARE, NOT JUST SUPPRESS. LEAST-wins exists for OUT-OF-ORDER
+  // arrival — a replay or backfill carrying an EARLIER first pass must still win, or
+  // "earliest pass" quietly becomes "first pass SEEN". `stored > EXCLUDED` fires exactly
+  // when LEAST would actually change the value and never otherwise. A blanket
+  // `DO NOTHING` would have been cheaper to write and would have broken that silently.
+  //
+  // LEAST is kept in the SET even though the WHERE already implies it: it states the
+  // intent at the point of the write, and it keeps the statement correct if the predicate
+  // is ever loosened.
+  //
+  // Note this is the COST half only. `ac_first_verified` still exists, is still read, and
+  // still has no memex_id — see dec-7 for why the retirement (ac-23) was separated from
+  // this and deliberately left open.
   await conn.execute(sql`
     INSERT INTO ac_first_verified (subject_ref, first_verified_at)
     VALUES (${subjectRef}, ${at.toISOString()}::timestamptz)
     ON CONFLICT (subject_ref) DO UPDATE
       SET first_verified_at = LEAST(ac_first_verified.first_verified_at, EXCLUDED.first_verified_at)
+      WHERE ac_first_verified.first_verified_at > EXCLUDED.first_verified_at
   `);
 }
