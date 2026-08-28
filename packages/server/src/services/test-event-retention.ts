@@ -50,6 +50,7 @@ export async function recordFirstVerified(
   conn: Db,
   subjectRef: string,
   at: Date,
+  memexId: string,
 ): Promise<void> {
   // Pass the timestamp as an ISO string + explicit cast: a raw drizzle `sql`
   // template has no column-type context, so postgres.js can't bind a bare Date.
@@ -76,10 +77,17 @@ export async function recordFirstVerified(
   // still has no memex_id — see dec-7 for why the retirement (ac-23) was separated from
   // this and deliberately left open.
   await conn.execute(sql`
-    INSERT INTO ac_first_verified (subject_ref, first_verified_at)
-    VALUES (${subjectRef}, ${at.toISOString()}::timestamptz)
+    INSERT INTO ac_first_verified (subject_ref, first_verified_at, memex_id)
+    VALUES (${subjectRef}, ${at.toISOString()}::timestamptz, ${memexId}::uuid)
     ON CONFLICT (subject_ref) DO UPDATE
-      SET first_verified_at = LEAST(ac_first_verified.first_verified_at, EXCLUDED.first_verified_at)
+      SET first_verified_at = LEAST(ac_first_verified.first_verified_at, EXCLUDED.first_verified_at),
+          -- spec-520 dec-7 option C: heal a NULL left by the 0136 backfill. A row whose ref
+          -- had no surviving test_event_latest match could not be resolved at migration time;
+          -- the next emission for it knows the memex and fills it in. Never OVERWRITES a
+          -- resolved value — a ref cannot change tenant, so a differing value would be a bug
+          -- worth keeping visible rather than silently reconciling.
+          memex_id = COALESCE(ac_first_verified.memex_id, EXCLUDED.memex_id)
       WHERE ac_first_verified.first_verified_at > EXCLUDED.first_verified_at
+         OR ac_first_verified.memex_id IS NULL
   `);
 }

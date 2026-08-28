@@ -28,10 +28,16 @@ import { tagAc } from "@memex-ai-ac/vitest";
 import { db } from "../db/connection.js";
 import { acFirstVerified } from "../db/schema.js";
 import { recordFirstVerified } from "./test-event-retention.js";
+import { makeTestMemex } from "./test-helpers.js";
 
 const AC_THROTTLE = "mindset-prod/memex-building-itself/specs/spec-520/acs/ac-34";
 
 const RUN = `spec520-d-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
+// spec-520 dec-7 option C: ac_first_verified now carries memex_id, so the writer needs a
+// real tenant. Under the default OWNER connection RLS is bypassed (std-36: ENABLE, never
+// FORCE), so this file still exercises the throttle rather than the policy — the policy is
+// proven separately under the restricted role.
+let memexId: string;
 const refs: string[] = [];
 
 function refFor(name: string): string {
@@ -51,6 +57,7 @@ async function readRow(subjectRef: string): Promise<{ at: string; xmin: string }
 }
 
 beforeAll(async () => {
+  memexId = await makeTestMemex("d");
   await db.delete(acFirstVerified).where(inArray(acFirstVerified.subjectRef, refs)).catch(() => {});
 });
 
@@ -69,7 +76,7 @@ describe("spec-520 ac-34: first-verified is written once, not on every passing e
     const ref = refFor("first");
     expect(await readRow(ref)).toBeNull();
 
-    await recordFirstVerified(db, ref, new Date("2026-08-20T10:00:00.000Z"));
+    await recordFirstVerified(db, ref, new Date("2026-08-20T10:00:00.000Z"), memexId);
     const row = await readRow(ref);
     expect(row).not.toBeNull();
     expect(new Date(row!.at).toISOString()).toBe("2026-08-20T10:00:00.000Z");
@@ -78,11 +85,11 @@ describe("spec-520 ac-34: first-verified is written once, not on every passing e
   it("does NOT rewrite the row for a LATER pass — same value AND same row version", async () => {
     tagAc(AC_THROTTLE);
     const ref = refFor("later");
-    await recordFirstVerified(db, ref, new Date("2026-08-20T10:00:00.000Z"));
+    await recordFirstVerified(db, ref, new Date("2026-08-20T10:00:00.000Z"), memexId);
     const before = await readRow(ref);
 
     // The ~31/s case: an AC that is already green keeps emitting.
-    await recordFirstVerified(db, ref, new Date("2026-08-21T10:00:00.000Z"));
+    await recordFirstVerified(db, ref, new Date("2026-08-21T10:00:00.000Z"), memexId);
     const after = await readRow(ref);
 
     expect(after!.at).toBe(before!.at);
@@ -95,10 +102,10 @@ describe("spec-520 ac-34: first-verified is written once, not on every passing e
     tagAc(AC_THROTTLE);
     const ref = refFor("equal");
     const at = new Date("2026-08-20T10:00:00.000Z");
-    await recordFirstVerified(db, ref, at);
+    await recordFirstVerified(db, ref, at, memexId);
     const before = await readRow(ref);
 
-    await recordFirstVerified(db, ref, at);
+    await recordFirstVerified(db, ref, at, memexId);
     const after = await readRow(ref);
     expect(after!.xmin).toBe(before!.xmin);
   });
@@ -106,12 +113,12 @@ describe("spec-520 ac-34: first-verified is written once, not on every passing e
   it("STILL writes for a genuinely EARLIER pass — LEAST-wins survives the throttle", async () => {
     tagAc(AC_THROTTLE);
     const ref = refFor("earlier");
-    await recordFirstVerified(db, ref, new Date("2026-08-20T10:00:00.000Z"));
+    await recordFirstVerified(db, ref, new Date("2026-08-20T10:00:00.000Z"), memexId);
     const before = await readRow(ref);
 
     // Out-of-order arrival: a replay or backfill carrying an earlier first pass. This is
     // the arm a careless predicate breaks, turning "earliest" into "first seen".
-    await recordFirstVerified(db, ref, new Date("2026-08-01T09:00:00.000Z"));
+    await recordFirstVerified(db, ref, new Date("2026-08-01T09:00:00.000Z"), memexId);
     const after = await readRow(ref);
 
     expect(new Date(after!.at).toISOString()).toBe("2026-08-01T09:00:00.000Z");
@@ -122,10 +129,10 @@ describe("spec-520 ac-34: first-verified is written once, not on every passing e
     tagAc(AC_THROTTLE);
     const target = refFor("target");
     const bystander = refFor("bystander");
-    await recordFirstVerified(db, bystander, new Date("2026-08-20T10:00:00.000Z"));
+    await recordFirstVerified(db, bystander, new Date("2026-08-20T10:00:00.000Z"), memexId);
     const bystanderBefore = await readRow(bystander);
 
-    await recordFirstVerified(db, target, new Date("2026-08-22T10:00:00.000Z"));
+    await recordFirstVerified(db, target, new Date("2026-08-22T10:00:00.000Z"), memexId);
 
     // A predicate written without the id/ref conjunct in the right place could suppress or
     // rewrite unrelated rows; a single-ref assertion would never see it.

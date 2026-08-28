@@ -193,11 +193,15 @@ describe("spec-398 retention + tenancy", () => {
       .limit(1);
     expect(tel.memexId).toBe(memexId);
     // first-verified snapshot recorded too.
-    await recordFirstVerified(db, subjectRef, new Date(Date.UTC(2026, 0, 1)));
+    // spec-520 dec-7 option C: the snapshot now carries the tenant too, so the writer takes
+    // the memexId. The assertion below gains a tenancy check for the same reason the row
+    // gained the column — this table used to be scoped purely by ref string.
+    await recordFirstVerified(db, subjectRef, new Date(Date.UTC(2026, 0, 1)), memexId);
     const [fv] = await db
-      .select({ at: acFirstVerified.firstVerifiedAt })
+      .select({ at: acFirstVerified.firstVerifiedAt, memexId: acFirstVerified.memexId })
       .from(acFirstVerified)
       .where(eq(acFirstVerified.subjectRef, subjectRef));
+    expect(fv!.memexId).toBe(memexId);
     expect(fv).toBeDefined();
   });
 

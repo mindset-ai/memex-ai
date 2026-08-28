@@ -341,13 +341,21 @@ describe("GET /analytics/acs-over-time and /analytics/test-run-volume", () => {
     // snapshot (retention deletes the oldest pass from test_events), not
     // min(created_at) over the log. Seed it the way migration 0110 backfills:
     // earliest NON-hidden pass per subject_ref.
+    // spec-520 dec-7 option C: ac_first_verified now carries memex_id, and the read scopes
+    // by it instead of by a subject_ref prefix. A fixture that inserts the row WITHOUT the
+    // tenant writes a shape production no longer produces — the row exists and is invisible,
+    // which is indistinguishable from "this AC never went green".
+    //
+    // Seeded through the real writer rather than hand-rolled SQL, for the same reason
+    // seedTestEvent exists: the fixture then cannot drift from the path it stands in for.
     await db.execute(sql`
-      INSERT INTO ac_first_verified (subject_ref, first_verified_at)
-      SELECT subject_ref, min(created_at) FROM test_events
+      INSERT INTO ac_first_verified (subject_ref, first_verified_at, memex_id)
+      SELECT subject_ref, min(created_at), ${m.memexId}::uuid FROM test_events
       WHERE subject_ref LIKE ${prefix + "/%"} AND status = 'pass' AND hidden = false
       GROUP BY subject_ref
       ON CONFLICT (subject_ref) DO UPDATE
-        SET first_verified_at = LEAST(ac_first_verified.first_verified_at, EXCLUDED.first_verified_at)
+        SET first_verified_at = LEAST(ac_first_verified.first_verified_at, EXCLUDED.first_verified_at),
+            memex_id = COALESCE(ac_first_verified.memex_id, EXCLUDED.memex_id)
     `);
 
     const otRes = await app.request(`${path}/analytics/acs-over-time`, withApexHost());
