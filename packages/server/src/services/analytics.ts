@@ -355,14 +355,10 @@ export interface AcsOverTimePoint {
  * emissions for since-deleted ACs are a tolerable over-count noted here.
  */
 export async function acsOverTime(memexId: string): Promise<AcsOverTimePoint[]> {
-  const [slugs] = (await db.execute(sql`
-    SELECT n.slug AS ns, m.slug AS mx
-    FROM memexes m JOIN namespaces n ON n.id = m.namespace_id
-    WHERE m.id = ${memexId}
-  `)) as unknown as Array<{ ns: string; mx: string }>;
-  if (!slugs) return [];
-  const prefix = `${slugs.ns}/${slugs.mx}/`;
-
+  // spec-520 dec-7 option C: the slug lookup that used to run here is gone with the
+  // prefix it fed. Both CTEs now scope by memex_id, so this function no longer needs to
+  // know its own namespace/memex slugs — one fewer query per Insights page load, and one
+  // fewer place where tenancy is reconstructed from strings.
   const rows = (await db.execute(sql`
     WITH created_per_day AS (
       SELECT created_at::date AS day, count(*)::int AS n
@@ -375,9 +371,17 @@ export async function acsOverTime(memexId: string): Promise<AcsOverTimePoint[]> 
     -- deletes the oldest passing row, so the operational log can no longer answer
     -- "when did this AC first go green". One row per subject_ref already, so no min().
     first_pass AS (
+      -- spec-520 dec-7 option C: scoped by memex_id, not by a subject_ref STRING PREFIX.
+      -- The old LIKE 'ns/mx/%' predicate carried tenancy in a string — the spec-396 leak pattern
+      -- (a real cross-org bleed of ~1.5M rows across 137 memexes), whose whole fix was to
+      -- stop parsing tenancy out of refs at read time. This table never adopted it; 0136
+      -- gives it the column and this is the read catching up.
+      --
+      -- Rows the 0136 backfill could not resolve carry a NULL memex_id and so match no
+      -- tenant here. They are preserved, not deleted — see the migration.
       SELECT subject_ref, first_verified_at::date AS day
       FROM ac_first_verified
-      WHERE subject_ref LIKE ${prefix + "%"}
+      WHERE memex_id = ${memexId}
     ),
     verified_per_day AS (
       SELECT day, count(*)::int AS n FROM first_pass GROUP BY 1

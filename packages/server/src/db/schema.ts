@@ -1138,6 +1138,19 @@ export const acFirstVerified = pgTable("ac_first_verified", {
   // spec-151 dec-3: renamed ac_uid → subject_ref (AC ref OR clause ref).
   subjectRef: text("subject_ref").primaryKey(),
   firstVerifiedAt: timestamp("first_verified_at", { withTimezone: true }).notNull(),
+  // spec-520 dec-7 option C (migration 0136): the tenancy column this table never had.
+  //
+  // Without it the table could not carry an RLS policy at all, and its only reader scoped
+  // by `subject_ref LIKE 'ns/mx/%'` — tenancy carried by a STRING, the spec-396 leak
+  // pattern this Spec closes elsewhere. That, not the storage cost, was what was actually
+  // wrong with this table.
+  //
+  // NULLABLE on purpose. Backfilled from test_event_latest; a subject_ref with no surviving
+  // summary row (a discontinued AC, a deleted Spec) cannot be resolved, and dec-7's rule is
+  // that such a row is ENUMERATED, never discarded — this table exists because first-green
+  // dates were lost once already. Under RLS a NULL memex_id matches no tenant, so the row is
+  // invisible to the product and fully visible to the owner role for inspection.
+  memexId: uuid("memex_id"),
 });
 
 // ══════════════════════════════════════

@@ -567,7 +567,7 @@ async function processOneEvent(
         // spec-398 t-6: durably snapshot the earliest pass BEFORE retention can
         // trim it away, so analytics keeps a true "first went green" date.
         if (insertValues.status === "pass" && !insertValues.hidden) {
-          await recordFirstVerified(tx, insertValues.subjectRef, inserted.createdAt);
+          await recordFirstVerified(tx, insertValues.subjectRef, inserted.createdAt, targetMemexId);
         }
         return inserted;
       });
