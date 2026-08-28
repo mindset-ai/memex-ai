@@ -1,0 +1,43 @@
+-- spec-520 dec-8 option A — carry the emission's PROVENANCE on the summary row, so the
+-- CI-origin audit survives t-12's retention window.
+--
+-- WHAT BREAKS WITHOUT THIS. `auditCiEmissionForBrief` answers "which of your GREEN criteria
+-- were last verified by something other than CI". It reads run_id and metadata from the RAW
+-- log, and it reads them for an AC that is ALREADY verified — so the row can be arbitrarily
+-- old. Today retention keeps 10 rows per pair, which for a rarely-run test spans months.
+-- t-12 replaces that with a short TIME window, and then the row is gone and the code's
+-- `if (!latest) continue` reports "no local-only ACs" — telling the reader the evidence is
+-- STRONGER than it is.
+--
+-- That output is not decorative. It reaches the `assess_spec` MCP tool, which every agent is
+-- instructed to call before every forward phase move, and renders as: "N verified acceptance
+-- criteria's latest emission came from a laptop, not CI ... 'Verified' here rests on a
+-- local-only run the deploy signal can't trust." An audit that quietly starts saying "all
+-- clear" at a phase decision is worse than no audit.
+--
+-- WHY THE RAW COLUMNS AND NOT A BOOLEAN. "CI-originated" is whatever
+-- emissionIsCiOriginated({run_id, metadata}) currently decides — a run_id, or a run_id /
+-- run_url inside metadata. Storing the VERDICT would freeze today's rule into the row and
+-- make any later change unappliable to the past. Storing the inputs keeps it derivable.
+--
+-- ⚠ NULL METADATA MEANS "NEVER OBSERVED", NOT "NOT CI". Rows written before this migration
+-- have no provenance to recover, and there is nothing to backfill from — the raw rows that
+-- knew are the ones retention deletes. Read naively, emissionIsCiOriginated({null, null})
+-- returns FALSE, which would report every pre-existing AC as laptop-verified: a false
+-- POSITIVE, the mirror of the false negative this migration exists to prevent.
+--
+-- The discriminator costs nothing extra: applyEmissionToSummary writes metadata as `{}` when
+-- an emission carries none, so from here on the column is always non-NULL. NULL therefore
+-- means exactly one thing — this row predates provenance being recorded — and the audit
+-- treats it as UNKNOWN and skips it, which is what it does today for a missing row.
+--
+-- NEITHER COLUMN IS INDEXED [per std-39 cl-7]. This row is updated on every emission for its
+-- pair; an indexed jsonb column would defeat HOT updates and hand autovacuum the difference.
+-- The audit reads by subject_ref, which the primary key already covers.
+
+ALTER TABLE test_event_latest ADD COLUMN IF NOT EXISTS latest_run_id text;
+ALTER TABLE test_event_latest ADD COLUMN IF NOT EXISTS latest_metadata jsonb;
+
+-- No backfill, deliberately. See the NULL-means-unknown note above: inventing a value here
+-- would be inventing provenance, and provenance is the one thing this column exists to be
+-- honest about.

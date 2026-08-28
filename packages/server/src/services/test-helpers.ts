@@ -25,6 +25,14 @@ export interface SeedTestEventInput {
   /** Defaults to server now(). Pass a past date to exercise stale / out-of-order paths. */
   createdAt?: Date;
   hidden?: boolean;
+  /**
+   * spec-520 dec-8: the emission's CI provenance. The route writes these to BOTH the log row
+   * and the summary, so a fixture that patches them onto the raw row afterwards produces a
+   * shape production never writes — and any consumer reading the summary then sees a
+   * local-only run where a CI one happened.
+   */
+  runId?: string | null;
+  metadata?: Record<string, string> | null;
 }
 
 /**
@@ -63,6 +71,8 @@ export async function seedTestEvent(input: SeedTestEventInput): Promise<void> {
         status: input.status,
         testIdentifier,
         hidden,
+        runId: input.runId ?? null,
+        metadata: input.metadata ?? null,
         ...(input.createdAt ? { createdAt: input.createdAt } : {}),
       })
       .returning({ createdAt: testEvents.createdAt });
@@ -73,6 +83,8 @@ export async function seedTestEvent(input: SeedTestEventInput): Promise<void> {
       status: input.status,
       latestRunAt: row.createdAt,
       hidden,
+      runId: input.runId ?? null,
+      metadata: input.metadata ?? null,
     });
     // spec-520 t-9: the third tier. Keep this in step with routes/test-events.ts —
     // a fixture that maintains only some of the tiers is the shape production

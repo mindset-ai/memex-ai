@@ -8,7 +8,7 @@
 
 import { describe, it, expect, afterAll, beforeAll } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
-import { eq, inArray, desc } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { documents, acs, testEvents, testEventLatest, memexes, namespaces } from "../db/schema.js";
 import { createDocDraft } from "./documents.js";
@@ -71,19 +71,18 @@ async function passAc(
 ): Promise<void> {
   const ref = refOf(briefHandle, seq);
   createdAcUids.push(ref);
-  await seedTestEvent({ subjectRef: ref, status: "pass", createdAt: new Date(), testIdentifier: "t::ci" });
-  if (provenance) {
-    const [latest] = await db
-      .select({ id: testEvents.id })
-      .from(testEvents)
-      .where(eq(testEvents.subjectRef, ref))
-      .orderBy(desc(testEvents.createdAt))
-      .limit(1);
-    await db
-      .update(testEvents)
-      .set({ runId: provenance.runId ?? null, metadata: provenance.metadata ?? null })
-      .where(eq(testEvents.id, latest.id));
-  }
+  // spec-520 dec-8: provenance goes through the seeder, not patched onto the raw row
+  // afterwards. The route writes run_id / metadata to BOTH the log and the summary, and the
+  // audit now reads the summary — so patching only the log produced a shape production never
+  // writes, and this test failed the moment the audit moved. Sixth fixture of that class.
+  await seedTestEvent({
+    subjectRef: ref,
+    status: "pass",
+    createdAt: new Date(),
+    testIdentifier: "t::ci",
+    runId: provenance?.runId ?? null,
+    metadata: provenance?.metadata ?? null,
+  });
 }
 
 describe("emissionIsCiOriginated (spec-391 ac-10, pure)", () => {

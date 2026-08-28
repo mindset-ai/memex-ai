@@ -1113,6 +1113,16 @@ export const testEventLatest = pgTable(
     // spec-398 dec-4 (ac-8): tenancy column mirroring test_events [per std-32],
     // backfilled in the rewrite-and-swap migration. RLS is spec-399's (ac-9).
     memexId: uuid("memex_id").notNull(),
+    // spec-520 dec-8 option A (migration 0137): the latest emission's PROVENANCE, so the
+    // CI-origin audit survives t-12's retention window. The raw inputs rather than a
+    // computed boolean, so the "is this CI" rule stays derivable if it ever changes.
+    //
+    // ⚠ latestMetadata NULL means "never observed", NOT "not CI". Rows predating 0137 have
+    // no provenance to recover. From 0137 on, applyEmissionToSummary writes `{}` when an
+    // emission carries no metadata, so NULL is unambiguous — and the audit must treat it as
+    // UNKNOWN and skip, or every pre-existing AC reads as laptop-verified.
+    latestRunId: text("latest_run_id"),
+    latestMetadata: jsonb("latest_metadata").$type<Record<string, string> | null>(),
   },
   (table) => [
     primaryKey({ columns: [table.subjectRef, table.testIdentifier] }),

@@ -1343,19 +1343,38 @@ export async function auditCiEmissionForBrief(
 
   const out: CiEmissionAuditRow[] = [];
   for (const r of verified) {
-    // The latest non-hidden emission for this AC across all its test_identifiers.
+    // spec-520 dec-8 option A: provenance now comes from the SUMMARY, not the raw log.
+    //
+    // This reads the latest emission of an AC that is ALREADY verified, so the row can be
+    // arbitrarily old. Retention keeps 10 rows per pair today, which for a rarely-run test
+    // spans months — but t-12 replaces that with a short TIME window, at which point the raw
+    // row is gone and `if (!latest) continue` would report "no local-only ACs". That is a
+    // FALSE NEGATIVE on a provenance audit, and it reaches assess_spec's phase rubric, so it
+    // would tell a reader the evidence is stronger than it is at a phase decision.
+    //
+    // test_event_latest holds one row per (subject_ref, test_identifier); the newest overall
+    // is the greatest latest_run_at, and 0137 carries that emission's run id and metadata
+    // beside it.
     const [latest] = await db
       .select({
-        runId: testEvents.runId,
-        metadata: testEvents.metadata,
-        createdAt: testEvents.createdAt,
+        runId: testEventLatest.latestRunId,
+        metadata: testEventLatest.latestMetadata,
+        runAt: testEventLatest.latestRunAt,
       })
-      .from(testEvents)
-      .where(and(eq(testEvents.subjectRef, r.canonicalRef), eq(testEvents.hidden, false)))
-      .orderBy(desc(testEvents.createdAt))
+      .from(testEventLatest)
+      .where(eq(testEventLatest.subjectRef, r.canonicalRef))
+      .orderBy(desc(testEventLatest.latestRunAt))
       .limit(1);
     // A verified AC always has ≥1 passing emission; defensively skip if none.
     if (!latest) continue;
+    // ⚠ NULL metadata means "never observed", NOT "not CI". Rows written before 0137 carry
+    // no provenance and nothing can recover it — the raw rows that knew are exactly the ones
+    // retention deletes. Judging them would report every pre-existing AC as laptop-verified:
+    // a FALSE POSITIVE, the mirror of the false negative above, and just as misleading at a
+    // phase decision. From 0137 on the writer stores `{}` rather than null when an emission
+    // carries no metadata, so NULL here means one thing only, and UNKNOWN skips — exactly
+    // what a missing row does today.
+    if (latest.metadata == null) continue;
     if (!emissionIsCiOriginated({ runId: latest.runId, metadata: latest.metadata })) {
       out.push({ handle: `ac-${r.ac.seq}` });
     }
