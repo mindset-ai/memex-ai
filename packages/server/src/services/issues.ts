@@ -34,7 +34,7 @@ import {
   acs,
   acParentLinks,
   taskSatisfiesAc,
-  testEvents,
+  testEventLatest,
   memexes,
   namespaces,
 } from "../db/schema.js";
@@ -471,11 +471,24 @@ async function verifyingAcIsGreen(satisfyingTaskId: string, docId: string): Prom
   // the general case so multi-AC tasks don't resolve prematurely.
   for (const link of links) {
     const subjectRef = buildAcRef(slugs, link.seq);
+    // spec-520 t-11 (ac-25): read the verdict from the SUMMARY, not by scanning the raw
+    // log. test_event_latest already holds the newest emission per (subject_ref,
+    // test_identifier), so the newest overall is the row with the greatest latest_run_at —
+    // the same answer, without depending on a row the raw log may no longer have.
+    //
+    // That dependency is why this had to move: t-12 replaces count-based retention with a
+    // short TIME window, at which point the newest emission for a long-since-verified AC
+    // ages out and this gate would start answering "not green" for ACs that are.
+    //
+    // One deliberate semantic gain: the summary EXCLUDES hidden emissions (spec-115), which
+    // this raw scan did not. Hidden means "excluded from verification signals", so reading
+    // the summary is the more correct behaviour, not merely the cheaper one. Only historical
+    // rows can be hidden — spec-358 froze the column at false.
     const [latest] = await db
-      .select({ status: testEvents.status })
-      .from(testEvents)
-      .where(eq(testEvents.subjectRef, subjectRef))
-      .orderBy(desc(testEvents.createdAt))
+      .select({ status: testEventLatest.latestStatus })
+      .from(testEventLatest)
+      .where(eq(testEventLatest.subjectRef, subjectRef))
+      .orderBy(desc(testEventLatest.latestRunAt))
       .limit(1);
     if (!latest || latest.status !== "pass") return false;
   }

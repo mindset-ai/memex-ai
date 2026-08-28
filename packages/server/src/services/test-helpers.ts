@@ -8,6 +8,7 @@ import { namespaces, orgs, memexes, orgMemberships, testEvents, users } from "..
 import { upsertUserByEmail } from "./users.js";
 import { ensureUserNamespace } from "./user-namespaces.js";
 import { applyEmissionToSummary } from "./test-event-latest.js";
+import { applyEmissionToRollup } from "./test-run-daily.js";
 import { resolveMemexId } from "./emission-keys.js";
 
 function uniqueSlug(prefix: string): string {
@@ -27,12 +28,17 @@ export interface SeedTestEventInput {
 }
 
 /**
- * Seed a test_events row the way the real emission route does (spec-162):
- * insert the log row AND maintain the test_event_latest summary in ONE
- * transaction. Integration tests that assert on the badge read paths
- * (aggregateAcHealthForBriefs / listAcsForBriefWithVerification) must seed via
- * this helper — a bare db.insert(testEvents) leaves the summary the reads
- * consume empty, so the AC would read as untested.
+ * Seed a test_events row the way the real emission route does: insert the log row
+ * AND maintain every derived tier, in ONE transaction — test_event_latest
+ * (spec-162) and, since spec-520 t-9, the per-day test_run_daily rollup.
+ *
+ * ALWAYS seed through this helper. A bare `db.insert(testEvents)` writes a shape
+ * PRODUCTION NEVER PRODUCES: the emission route maintains all three tiers
+ * together, so a raw-only row is not a smaller version of a real emission, it is
+ * an impossible one. Fixtures that did it worked only for as long as the consumer
+ * under test happened to read the raw log — spec-520 t-11 moved two consumers to
+ * the derived tiers and two such fixtures failed immediately, which is the test
+ * suite noticing a defect in itself rather than a regression in the code.
  */
 export async function seedTestEvent(input: SeedTestEventInput): Promise<void> {
   const hidden = input.hidden ?? false;
@@ -66,6 +72,18 @@ export async function seedTestEvent(input: SeedTestEventInput): Promise<void> {
       testIdentifier,
       status: input.status,
       latestRunAt: row.createdAt,
+      hidden,
+    });
+    // spec-520 t-9: the third tier. Keep this in step with routes/test-events.ts —
+    // a fixture that maintains only some of the tiers is the shape production
+    // never writes, and it silently invalidates any test whose consumer reads the
+    // tier the fixture skipped.
+    await applyEmissionToRollup(tx, {
+      subjectRef: input.subjectRef,
+      memexId,
+      testIdentifier,
+      status: input.status,
+      runAt: row.createdAt,
       hidden,
     });
   });

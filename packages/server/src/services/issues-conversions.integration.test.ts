@@ -33,7 +33,7 @@ import {
 } from "./issues.js";
 import { buildAcRef } from "./acs.js";
 import { searchMemex } from "./memex-search.js";
-import { makeTestMemex } from "./test-helpers.js";
+import { makeTestMemex, seedTestEvent } from "./test-helpers.js";
 import { tagAc } from "@memex-ai-ac/vitest";
 
 const AC = (n: number) =>
@@ -97,8 +97,13 @@ async function emitEvent(
   at: Date = new Date(),
 ): Promise<void> {
   createdAcUids.push(subjectRef);
-  await db.insert(testEvents).values({
-    memexId,
+  // spec-520 t-11: seed through the helper, not a bare insert. The emission route
+  // maintains test_events, test_event_latest AND the per-day rollup in one
+  // transaction, so a raw-only row is a shape production never writes. This fixture
+  // used to insert raw only and passed purely because verifyingAcIsGreen scanned the
+  // raw log; the moment that gate moved to the summary (ac-25) it went red — the
+  // fixture had been unrepresentative all along.
+  await seedTestEvent({
     subjectRef,
     status,
     testIdentifier: "tests/example.test.ts::it",
