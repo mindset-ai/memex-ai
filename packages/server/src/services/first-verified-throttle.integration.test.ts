@@ -23,7 +23,7 @@
 // catch it.
 
 import { describe, it, expect, afterAll, beforeAll } from "vitest";
-import { eq, inArray, sql } from "drizzle-orm";
+import { inArray, sql } from "drizzle-orm";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { db } from "../db/connection.js";
 import { acFirstVerified } from "../db/schema.js";
