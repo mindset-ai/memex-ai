@@ -788,13 +788,32 @@ describe("POST /api/test-events — run_id / commit_sha filled from metadata (sp
     });
     expect(filled.status).toBe(201);
 
-    // Asserted as a delta rather than a magic number: the ingest path already
-    // performs one transaction, one insert and one read per PASSING event (the
-    // read is spec-112's issue auto-resolve at test-events.ts:497, unrelated to
-    // this Spec). What ac-7 protects is that the fill adds NONE of them. The two
-    // tempting implementations — resolving the run id via a lookup, or reading
-    // the inserted row back — would each show up right here as a delta, on a
-    // path peaking at 2 063 POST/min with one transaction per event.
+    // Asserted as a DELTA rather than a magic number, and that choice is what has
+    // kept this test correct while the number underneath it moved three times.
+    // What ac-7 protects is that the run_id fill adds no transaction, no insert and
+    // no read — the two tempting implementations (resolving the run id via a lookup,
+    // or reading the inserted row back) would each show up right here, on a path
+    // peaking at 2 063 POST/min.
+    //
+    // ⚠ THE READ COUNT: this comment used to say "one read", naming spec-112's issue
+    // auto-resolve. That was true of what this file OBSERVED and never of production.
+    // Corrected 2026-08-28 (spec-520 t-15) — three regimes, one number each:
+    //
+    //   1. Pre-t-7 (until 2026-08-18): the chain's first statement was a
+    //      `documents ⋈ memexes ⋈ namespaces` lookup, `documents` carries RLS on
+    //      app.memex_id, and the ingest path had no tenant context — so it was
+    //      filtered to zero rows and the chain returned at statement 1. ONE read, and
+    //      the reason was a defect, not a design.
+    //   2. Post-t-7, pre-t-15: with context established the chain ran to completion on
+    //      essentially every passing event. THREE reads (documents join, `acs`,
+    //      `task_satisfies_ac`) — measured on prod at 30.970 calls/s against an event
+    //      rate of 30.973 (spec-520 c-9).
+    //   3. Now (t-15 / ac-33): those three are collapsed into ONE join returning the
+    //      satisfying task ids directly. Back to one read, this time by design.
+    //
+    // So do NOT pin `selects` to a literal here. It is not this Spec's number, it has
+    // moved for reasons that had nothing to do with spec-528, and a literal would have
+    // made this test fail three times while asserting nothing about the fill.
     expect(counts()).toEqual(before);
     expect(before.transactions).toBe(1);
     expect(before.inserts).toBe(1);
