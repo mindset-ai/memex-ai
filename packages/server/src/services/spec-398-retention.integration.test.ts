@@ -298,7 +298,24 @@ describe("spec-398 retention + tenancy", () => {
       `)) as unknown as Array<Record<string, string>>;
       return plan.map((r) => Object.values(r)[0]).join("\n");
     });
-    expect(planText).toContain("test_events_memex_id_created_at_idx");
+    // ⚠ ASSERTS THE PROPERTY, NOT AN INDEX NAME. ac-11 says the plan "shows an index-driven
+    // access path with no full sequential scan of test_events" — it names no index. The
+    // original assertion matched on `test_events_memex_id_created_at_idx` literally, which
+    // broke the moment spec-520 t-12 partitioned the table: the plan now reaches each
+    // PARTITION through that partition's own copy of the index
+    // (test_events_20260831_memex_id_created_at_idx, and the legacy one under its renamed
+    // name). Nothing regressed; the assertion was over-specified.
+    const testEventScans = planText
+      .split("\n")
+      .filter((line) => /test_events/.test(line));
+    expect(testEventScans.length).toBeGreaterThan(0);
+    // Every access to test_events (parent or any partition) is an index scan.
+    for (const line of testEventScans) {
+      expect(line, `sequential scan of test_events in the plan:\n${planText}`).not.toMatch(
+        /Seq Scan on test_events/,
+      );
+    }
+    expect(planText).toMatch(/Index (Only )?Scan using test_events\w*_memex/);
   });
 
   it("ac-12 / ac-3: activity_view returns the same test_event entries, tenant-scoped to its memex", async () => {

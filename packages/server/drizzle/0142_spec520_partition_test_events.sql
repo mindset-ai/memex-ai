@@ -150,10 +150,24 @@ BEGIN
     part_start := part_start + interval '1 day';
   END LOOP;
 
-  -- Creating an index on the parent REUSES a matching index that already exists on a
-  -- partition rather than rebuilding it — verified on pg16: the legacy table's existing
-  -- indexes became children of the parent's. So this costs nothing on the 1.4M legacy rows
-  -- and only builds on the (empty) forward partitions.
+  -- ⚠ THE LEGACY PARTITION'S INDEXES ARE RENAMED FIRST, AND THAT IS LOAD-BEARING.
+  --
+  -- After the table rename its indexes keep their original names, so they still occupy
+  -- `test_events_retention_idx` and friends. The first version of this migration used
+  -- CREATE INDEX **IF NOT EXISTS** with those same names — which found the names taken and
+  -- silently created NOTHING on the parent. The rehearsal under load caught it: the parent
+  -- ended up with only its primary key, so every FORWARD partition had only a PK too, and
+  -- from the first daily partition onward the matrix, the digest, the Pulse and the
+  -- activity feed would all have sequential-scanned ~2.7M rows a day. A NOTICE is the only
+  -- thing that would have said so, and it scrolled past.
+  --
+  -- Renaming frees the canonical names, and IF NOT EXISTS is gone: at this point in the
+  -- migration a name collision is a bug, and it must stop the deploy rather than disarm the
+  -- statement.
+  --
+  -- Creating an index on the parent then REUSES the (renamed) matching index on the legacy
+  -- partition rather than rebuilding it — verified on pg16 — so the 1.4M legacy rows cost
+  -- nothing and only the empty forward partitions are built.
   --
   -- Index inventory, checked with EXPLAIN against every surviving reader on develop
   -- 2026-08-30 rather than assumed from the names:
@@ -171,11 +185,17 @@ BEGIN
   -- on prod settles it. Carried forward unchanged; retiring them is a separate, evidenced
   -- change. Every index carried costs a tuple per insert on every partition (cl-7), so
   -- this is a real cost being consciously deferred, not overlooked.
-  CREATE INDEX IF NOT EXISTS test_events_retention_idx        ON test_events (subject_ref, test_identifier, created_at);
-  CREATE INDEX IF NOT EXISTS test_events_memex_id_created_at_idx ON test_events (memex_id, created_at);
-  CREATE INDEX IF NOT EXISTS test_events_created_at_idx       ON test_events (created_at);
-  CREATE INDEX IF NOT EXISTS test_events_ac_uid_created_at_idx ON test_events (subject_ref, created_at);
-  CREATE INDEX IF NOT EXISTS test_events_test_identifier_idx  ON test_events (test_identifier, created_at);
+  ALTER INDEX test_events_retention_idx           RENAME TO test_events_legacy_retention_idx;
+  ALTER INDEX test_events_memex_id_created_at_idx RENAME TO test_events_legacy_memex_created_idx;
+  ALTER INDEX test_events_created_at_idx          RENAME TO test_events_legacy_created_at_idx;
+  ALTER INDEX test_events_ac_uid_created_at_idx   RENAME TO test_events_legacy_subject_created_idx;
+  ALTER INDEX test_events_test_identifier_idx     RENAME TO test_events_legacy_test_ident_idx;
+
+  CREATE INDEX test_events_retention_idx           ON test_events (subject_ref, test_identifier, created_at);
+  CREATE INDEX test_events_memex_id_created_at_idx ON test_events (memex_id, created_at);
+  CREATE INDEX test_events_created_at_idx          ON test_events (created_at);
+  CREATE INDEX test_events_ac_uid_created_at_idx   ON test_events (subject_ref, created_at);
+  CREATE INDEX test_events_test_identifier_idx     ON test_events (test_identifier, created_at);
 
   -- 0081's GRANT ... ON ALL TABLES was a one-time statement; it does not reach a table
   -- created today. Every table added since carries its own explicit grant, and omitting it

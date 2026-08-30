@@ -92,6 +92,43 @@ describe("spec-520 ac-13: the table is partitioned by time", () => {
     expect(n).toBeGreaterThan(PARTITION_HORIZON_DAYS);
   });
 
+  it("gives every FORWARD partition the parent's indexes, not just a primary key", async () => {
+    tagAc(AC_PARTITIONED);
+    // THE DEFECT THIS EXISTS FOR. The first version of 0142 created the parent indexes with
+    // CREATE INDEX **IF NOT EXISTS** using the same names the legacy partition still held
+    // after the rename. Every statement found its name taken and silently did nothing, so
+    // the parent ended up with only its primary key — and so did every partition created
+    // afterwards. Nothing failed. A NOTICE scrolled past in the migration output.
+    //
+    // In production that surfaces the day the first daily partition starts taking rows:
+    // the AC matrix, both digest CTEs, the Pulse and the activity feed all sequential-scan
+    // ~2.7M rows a day. The rehearsal under load caught it; this keeps it caught.
+    const parentIdx = (await db.execute(sql`
+      SELECT c.relname::text AS name
+      FROM pg_class c
+      WHERE c.oid IN (SELECT indexrelid FROM pg_index WHERE indrelid = 'test_events'::regclass)
+    `)) as unknown as Array<{ name: string }>;
+    const names = parentIdx.map((r) => r.name).sort();
+    expect(names).toContain("test_events_retention_idx");
+    expect(names).toContain("test_events_memex_id_created_at_idx");
+    expect(names).toContain("test_events_created_at_idx");
+    expect(names.length).toBeGreaterThanOrEqual(6); // 5 + the PK
+
+    // And they must have REACHED a partition — a parent index that failed to propagate
+    // looks identical from the parent's catalogue alone.
+    const [{ n }] = (await db.execute(sql`
+      SELECT count(*)::int AS n
+      FROM pg_indexes
+      WHERE tablename = (
+        SELECT c.relname FROM pg_class c
+        JOIN pg_inherits i ON i.inhrelid = c.oid
+        WHERE i.inhparent = 'test_events'::regclass AND c.relname <> 'test_events_legacy'
+        ORDER BY c.relname LIMIT 1
+      )
+    `)) as unknown as Array<{ n: number }>;
+    expect(n).toBeGreaterThanOrEqual(6);
+  });
+
   it("routes a row to the partition its created_at names", async () => {
     tagAc(AC_PARTITIONED);
     const ref = await seedAc("routing");

@@ -70,8 +70,20 @@ export const TEST_EVENTS_RETENTION_DAYS = resolveRetentionDays();
  * So a default would convert a quiet no-deploy gap into a migration that cannot apply
  * until someone drains it by hand — a worse failure than the one it was meant to prevent.
  *
- * Sixty days costs nothing: creating 61 daily partitions measured 122 ms, and the
+ * Sixty days costs nothing to CREATE: 61 daily partitions measured 122 ms, and the
  * idempotent re-run 2 ms (local pg16, 2026-08-30).
+ *
+ * ⚠ BUT THE HORIZON IS NOT FREE TO READ AGAINST, and this is the number to revisit first
+ * if the feed ever feels slow. A query with no `created_at` predicate cannot be pruned, so
+ * the planner walks EVERY partition — the activity feed's plan was observed touching all
+ * 61, of which 60 were empty future days. Each is a cheap index scan and the MergeAppend
+ * over them is correct, but it is 61 plan nodes to answer a LIMIT 8.
+ *
+ * Once retention settles (the legacy partition drops three days after the migration) the
+ * POPULATED set is `TEST_EVENTS_RETENTION_DAYS + 1` — about four. The rest of the fan-out
+ * is horizon. Shortening the horizon reduces it proportionally; the floor is "longer than
+ * any realistic gap between deploys", because running out is a hard insert failure rather
+ * than a slow query. Sixty is deliberately generous on that side of the trade.
  */
 export const PARTITION_HORIZON_DAYS = 60;
 
