@@ -1,11 +1,17 @@
 // spec-520 t-11 — the two consumers that could be re-based cleanly.
 //
-// ac-24 (testRunVolume) and ac-25 (verifyingAcIsGreen). The other two named by t-11 are
-// NOT here and not attempted:
+// ac-24 (testRunVolume) and ac-25 (verifyingAcIsGreen). Of the other two named by t-11:
 //   • auditCiEmissionForBrief needs run_id + metadata, which test_event_latest does not
 //     carry — dec-8.
-//   • listAcAlignmentOverTime's first-verified half reads ac_first_verified, which dec-7
-//     deliberately left in place.
+//   • listAcAlignmentOverTime moved in a follow-up, and now lives in
+//     alignment-over-time-rollup.integration.test.ts.
+//
+// ⚠ AN EARLIER VERSION OF THIS NOTE WAS WRONG and is corrected here rather than deleted,
+// because it is the kind of error that costs the next reader a wasted afternoon. It said
+// listAcAlignmentOverTime "reads ac_first_verified, which dec-7 deliberately left in
+// place". It never did: its accepted_at comes from the `acs` table via the inlined
+// ac_set VALUES list. The only reader of ac_first_verified is analytics.acsOverTime
+// (analytics.ts:383) — a THIRD chart, and the one dec-7's note is actually about.
 //
 // THE PROOF SHAPE ac-24 ASKS FOR is "results no longer change when raw events age out".
 // So these tests seed the DERIVED tier and leave the raw log EMPTY. Under the old
@@ -42,6 +48,12 @@ import { upsertUserByEmail } from "./users.js";
 // exactly why ac-22 and ac-32 were split. It briefly happened here before these existed;
 // the stale emissions on ac-24/ac-25 were retired with discontinue_test_events.
 const AC_CHARTS = "mindset-prod/memex-building-itself/specs/spec-520/acs/ac-35";
+// ac-24 names BOTH history consumers. Its second half — listAcAlignmentOverTime — landed
+// in alignment-over-time-rollup.integration.test.ts once dec-7 unblocked it, so the
+// criterion is now true as written and is tagged from both halves rather than either one
+// alone. That is the whole reason ac-35 exists: it held the half that could ship while the
+// other was blocked, and it stays as the narrower statement.
+const AC_BOTH_CHARTS = "mindset-prod/memex-building-itself/specs/spec-520/acs/ac-24";
 const AC_LATEST = "mindset-prod/memex-building-itself/specs/spec-520/acs/ac-36";
 
 let memexId: string;
@@ -79,6 +91,7 @@ afterAll(async () => {
 describe("spec-520 ac-24: testRunVolume reads the rollup, not the raw log", () => {
   it("reports the counts the rollup holds even with NO raw events at all", async () => {
     tagAc(AC_CHARTS);
+    tagAc(AC_BOTH_CHARTS);
 
     const ref = `${namespaceSlug}/${memexSlug}/specs/spec-1/acs/ac-1`;
     createdRefs.push(ref);
@@ -101,6 +114,7 @@ describe("spec-520 ac-24: testRunVolume reads the rollup, not the raw log", () =
 
   it("is scoped by memex_id, not by a subject_ref string prefix", async () => {
     tagAc(AC_CHARTS);
+    tagAc(AC_BOTH_CHARTS);
 
     // The old read matched `subject_ref LIKE 'ns/mx/%'` — tenancy carried by a string,
     // which is the spec-396 leak pattern this Spec closes elsewhere. A row belonging to
