@@ -76,7 +76,6 @@ import { testEvents } from "../db/schema.js";
 import { applyEmissionToSummary } from "../services/test-event-latest.js";
 import { applyEmissionToRollup } from "../services/test-run-daily.js";
 import {
-  trimTestEventsForPair,
   recordFirstVerified,
 } from "../services/test-event-retention.js";
 import { maybeAutoResolveIssuesForAcUid } from "../services/issues.js";
@@ -560,15 +559,11 @@ async function processOneEvent(
           runAt: inserted.createdAt,
           hidden: insertValues.hidden,
         });
-        // spec-398 (ac-1): keep this pair bounded to the latest RETENTION_KEEP
-        // runs — the steady-state trim-on-write, in the same transaction as the
-        // insert so the log never transiently exceeds the cap.
-        await trimTestEventsForPair(
-          tx,
-          insertValues.subjectRef,
-          insertValues.testIdentifier,
-        );
-        // spec-398 t-6: durably snapshot the earliest pass BEFORE retention can
+        // spec-520 t-12: NO DELETE HERE ANY MORE. The per-pair trim that used to run
+        // inside this transaction cost 13.4% of all database time and created 11.24M dead
+        // tuples for autovacuum to chase. Retention is now which PARTITION the row landed
+        // in; rows leave only when an aged-out partition is dropped, by the owning role,
+        // outside the request path.        // spec-398 t-6: durably snapshot the earliest pass BEFORE retention can
         // trim it away, so analytics keeps a true "first went green" date.
         if (insertValues.status === "pass" && !insertValues.hidden) {
           await recordFirstVerified(tx, insertValues.subjectRef, inserted.createdAt, targetMemexId);

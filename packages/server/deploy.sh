@@ -317,6 +317,23 @@ DATABASE_URL="${DB_URL}" pnpm db:migrate
 echo "  1b. hand-written migrations..."
 DATABASE_URL="${DB_URL}" bash "${PKG_DIR}/scripts/apply-hand-migrations.sh"
 
+# spec-520 t-12: create the days ahead, drop the days past the retention window.
+#
+# ⚠ HERE, AND NOT IN THE SERVER. DROP TABLE requires ownership, and the request path's role
+# must not have it [per std-36]. This runs on DB_URL — the owner connection already open for
+# migrations — never on RUNTIME_DB_*. It is deliberately not the in-process setInterval
+# shape used by activity-log-sweep, which runs inside the API server as the runtime role.
+#
+# Idempotent and safe on a schema that predates 0142: it exits quietly if test_events is not
+# partitioned yet. A failure here is NOT fatal to the deploy — 60 days of partitions are
+# created ahead, so a skipped run costs nothing until the horizon is nearly reached, and
+# aborting a deploy over housekeeping would be the wrong trade.
+echo "  1c. test_events partition maintenance..."
+if ! DATABASE_URL="${DB_URL}" node "${PKG_DIR}/scripts/maintain-test-events-partitions.mjs"; then
+  echo "  WARNING: partition maintenance failed — deploy continues (60-day horizon absorbs it)."
+  echo "           Investigate before the horizon runs out, or inserts will start failing."
+fi
+
 # NOTE (spec-417 dec-6): the data backfills/generation that used to run here (1c–1f)
 # now run in Step 5, AFTER the Cloud Run cutover. The cloud-sql-proxy started above
 # is deliberately LEFT RUNNING across the cutover (Step 4) and is torn down at the end
