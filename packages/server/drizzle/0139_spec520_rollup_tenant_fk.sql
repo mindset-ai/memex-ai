@@ -1,0 +1,80 @@
+-- spec-520 t-13 (ac-30) — give test_run_daily the cascading tenant FK that migration
+-- 0134 should have declared, so workspace deletion reaches it BY CONSTRUCTION.
+--
+-- THE DEFECT THIS CLOSES, AND WHOSE IT IS. 0134 declared `memex_id uuid NOT NULL` with no
+-- REFERENCES clause. Every other tenant table in this database is reached automatically
+-- when a memex row goes: 16 carry an ON DELETE CASCADE foreign key to `memexes`, and
+-- others (acs, issues) inherit it transitively through `documents`. The emission family —
+-- test_events, test_event_latest, ac_first_verified and, as shipped, test_run_daily —
+-- carries NO foreign key at all, direct or transitive. It sits outside the cascade graph.
+--
+-- WHY IT NEVER BIT BEFORE. Retention was the de facto eraser on this path: the trim capped
+-- test_events, so a deleted tenant's rows aged out on their own. test_run_daily is
+-- PERMANENT by design — it exists so history survives retention — and grows per tenant,
+-- per subject, per test, per day, forever. Nothing would ever remove it. And t-12 is about
+-- to stop retention erasing test_events too.
+--
+-- ⚠ THE LEAK IS LATENT, NOT LIVE. There is no production tenant-deletion path today: the
+-- only DELETE against memexes/orgs/namespaces in the entire server is the env-gated test
+-- surface, no route deletes a memex, and there is no soft-delete column. So nothing is
+-- orphaned yet. This constraint is what makes the guarantee true in advance of that path
+-- being built, rather than a line someone must remember to add to an enumeration — which
+-- is exactly the distinction t-13 draws. The three sibling tables are recorded as a
+-- separate finding; they predate this Spec and fixing them is not its scope.
+--
+-- LOCKS [per std-39 cl-2/cl-3]. Adding a foreign key normally takes ACCESS EXCLUSIVE and
+-- then scans the whole table to validate — on a continuously-written table that is the
+-- shape that deadlocked and rolled back a prod deploy during spec-398 (std-39 cl-9). So
+-- it is split in two:
+--
+--   * THIS FILE adds the constraint NOT VALID. That takes ACCESS EXCLUSIVE but performs NO
+--     scan, so the exclusive window is O(1) rather than O(rows). New writes are checked
+--     from this moment on.
+--   * 0140 validates it, under SHARE UPDATE EXCLUSIVE, which does not block reads OR
+--     writes.
+--
+-- The split is load-bearing because the migration runner wraps each FILE in its own
+-- transaction (scripts/apply-hand-migrations.mjs). Putting both statements here would hold
+-- the ACCESS EXCLUSIVE lock from the ADD until the VALIDATE finished, and the weaker lock
+-- would buy nothing.
+--
+-- lock_timeout is SET LOCAL so it dies with this transaction and cannot leak into the
+-- migrations that follow on the same connection. Failing fast is correct here: a deploy
+-- that cannot get the lock in three seconds should retry on the next one, not queue behind
+-- the emission path and stall it.
+--
+-- WRITE COST [per std-39 cl-7], MEASURED — not reasoned. The first draft of this comment
+-- claimed the referential check fires only on genuinely new rows, because the rollup's
+-- writes are `INSERT ... ON CONFLICT DO UPDATE` and the DO UPDATE branch never touches
+-- memex_id. THAT CLAIM IS WRONG, and the benchmark said so.
+--
+-- 20,000 all-conflicting upserts, arms interleaved with a VACUUM before each timing so
+-- accumulating dead tuples could not favour whichever arm ran first (local pg16,
+-- 2026-08-30):
+--
+--     with FK     272 ms   262 ms   244 ms      (mean ~259)
+--     without FK  216 ms   215 ms   222 ms      (mean ~218)
+--
+-- A consistent ~41 ms per 20k, i.e. **~2 µs per upsert**, ~19% on this microbenchmark.
+-- The RI trigger fires on the UPDATE path too and pays for the comparison even when the
+-- referencing column is unchanged. (EXPLAIN ANALYZE cannot settle this — it surfaced no
+-- "Trigger for constraint" line for RI checks on this version, which is what sent the
+-- first draft down the reasoning-instead-of-measuring path.)
+--
+-- WHY THAT IS STILL FINE. 2 µs sits against an emission transaction that already does an
+-- insert, two upserts and a first-verified write. At the measured production rate of
+-- ~31 events/s that is ~62 µs of CPU per second — 0.006% of one core — to buy a tenancy
+-- guarantee that holds without anyone maintaining a list. A 19% figure on a synthetic
+-- single-statement loop is not a 19% figure on the emission path.
+--
+-- NO NEW INDEX. A cascading delete needs to find the child rows by memex_id; the table's
+-- PRIMARY KEY is (memex_id, subject_ref, test_identifier, day), so its leading column
+-- already serves that. Adding one would put another index tuple on every increment for no
+-- gain (cl-7).
+
+SET LOCAL lock_timeout = '3s';
+
+ALTER TABLE test_run_daily
+  ADD CONSTRAINT test_run_daily_memex_id_fkey
+  FOREIGN KEY (memex_id) REFERENCES memexes(id) ON DELETE CASCADE
+  NOT VALID;
