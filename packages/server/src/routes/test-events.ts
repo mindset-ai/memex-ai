@@ -272,9 +272,24 @@ async function authenticateEmission(
 // across a Memex boundary (ac-5). A per-event failure is returned as data; the
 // batch caller keeps the good events (partial-failure) rather than discarding
 // the whole batch.
+/**
+ * spec-520 t-5 (ac-29): per-BATCH scratch space, threaded in by the /batch route.
+ *
+ * ⚠ `resolveMemo` is keyed on each event's OWN parsed `<namespace>/<memex>` pair, and that
+ * is the whole safety property — NOT a single resolved id reused for the batch. See the
+ * note at the resolve site below before changing anything here.
+ */
+interface BatchScope {
+  /** `${namespace}/${memexSlug}` -> resolved memex id (or null when it does not resolve). */
+  resolveMemo: Map<string, string | null>;
+  /** The /batch route bumps the key once for the whole request instead of per event. */
+  deferKeyBump: boolean;
+}
+
 async function processOneEvent(
   emissionKey: VerifiedEmissionKey,
   rawBody: unknown,
+  scope?: BatchScope,
 ): Promise<ProcessResult> {
   if (typeof rawBody !== "object" || rawBody === null || Array.isArray(rawBody)) {
     return { ok: false, code: 400, body: { error: "event must be a JSON object" } };
@@ -345,10 +360,34 @@ async function processOneEvent(
   // Resolve the memex named by the ref (<namespace>/<memex>/…) and confirm it matches the
   // authenticated key's memexId. This blocks cross-tenant tampering even with a valid key
   // for a different Memex.
-  const targetMemexId = await resolveMemexId(
-    refNamespace,
-    memexSlugFromAcUid(subjectRefValue),
-  );
+  //
+  // spec-520 t-5 (ac-29): MEMOISED PER EVENT, NEVER HOISTED. This is s-2 Trap 1, the
+  // sharpest hazard in the Spec, and the natural optimisation is the dangerous one.
+  //
+  // The memo key is THIS EVENT'S OWN parsed (namespace, memex) pair, so a batch naming two
+  // Memexes gets two entries and the comparison below still does real work. Hoisting the
+  // resolve out of the loop — resolving once and reusing it — silently turns the check into
+  // `emissionKey.memexId === emissionKey.memexId`, which is trivially true, and lets a valid
+  // key for Memex A write events into Memex B. The /batch endpoint accepts arbitrary
+  // per-event subject_refs and the CALLER controls every one of them.
+  //
+  // There is no database backstop behind this: test_events, test_event_latest and
+  // ac_first_verified carry no RLS on this path (spec-398 ac-10 asserted their absence;
+  // spec-399 is unbuilt). An application-layer mistake here IS the tenant-isolation failure.
+  //
+  // batch-tenant-boundary.integration.test.ts posts one batch naming two Memexes and was
+  // confirmed to FAIL against the hoisted form — 2 of its 3 cases. The third, a
+  // single-tenant batch, passes either way, which is exactly why the mixed case is the one
+  // that has to exist.
+  const memexSlug = memexSlugFromAcUid(subjectRefValue);
+  const memoKey = `${refNamespace}/${memexSlug}`;
+  let targetMemexId: string | null;
+  if (scope?.resolveMemo.has(memoKey)) {
+    targetMemexId = scope.resolveMemo.get(memoKey) ?? null;
+  } else {
+    targetMemexId = await resolveMemexId(refNamespace, memexSlug);
+    scope?.resolveMemo.set(memoKey, targetMemexId);
+  }
   if (!targetMemexId || targetMemexId !== emissionKey.memexId) {
     return {
       ok: false,
@@ -582,7 +621,10 @@ async function processOneEvent(
 
   // spec-129 ac-17: record that this key is live. Fire-and-forget (silent) so a missed
   // bump never blocks or fails the emission — it only leaves a slightly stale timestamp.
-  bumpLastUsed(emissionKey.id);
+  // spec-520 t-5: one key authenticates the WHOLE batch and is verified once, so bumping it
+  // per event is pure waste — the /batch route defers and bumps once after the loop. No
+  // tenant hazard here, unlike the resolve above: there is only ever one key in play.
+  if (!scope?.deferKeyBump) bumpLastUsed(emissionKey.id);
 
   // spec-342: a test_event NEVER changes a Spec's phase. It updates the AC
   // verdict (applyEmissionToSummary, above) and the audit trail only; phase is
@@ -737,8 +779,12 @@ testEventsRouter.post("/batch", async (c) => {
   }> = [];
   let accepted = 0;
   let rejected = 0;
+  // ONE memo for the whole request, keyed per event's own (namespace, memex) — see the note
+  // at the resolve site. A normal single-suite batch collapses ~500 identical lookups to 1;
+  // a batch naming two Memexes still resolves both and still rejects the foreign one.
+  const scope: BatchScope = { resolveMemo: new Map(), deferKeyBump: true };
   for (let index = 0; index < events.length; index++) {
-    const result = await processOneEvent(auth.key, events[index]);
+    const result = await processOneEvent(auth.key, events[index], scope);
     if (result.ok) {
       accepted++;
       results.push({
@@ -766,6 +812,12 @@ testEventsRouter.post("/batch", async (c) => {
   // rejected batch counts what landed, which understates batching slightly and
   // never overstates adoption (ac-19).
   recordEmissionAccepted(accepted, { route: "batch" });
+  // spec-520 t-5: ONE key bump for the whole batch, after the loop. Fire-and-forget, like
+  // the single-event path — a missed bump only leaves a slightly stale "last used" and must
+  // never delay or fail an emission. Bumped even when every event was rejected: the KEY was
+  // still presented and verified, which is what last_used_at records.
+  bumpLastUsed(auth.key.id);
+
   return c.json({ accepted, rejected, results }, 200);
 });
 
