@@ -738,8 +738,25 @@ export interface TestMatrixRow {
 }
 
 /**
- * Read the full test-event history for one AC, grouped by `test_identifier`,
- * each row's emissions newest-first by `created_at`.
+ * spec-520 t-12: the matrix shows at most this many emissions PER TEST.
+ *
+ * This is the bound spec-398's retention trim was providing by accident. Until now the
+ * matrix had no LIMIT of its own and was survivable only because the trim capped each
+ * (subject_ref, test_identifier) pair at RETENTION_KEEP=10 — a display bound nobody chose,
+ * enforced by a deletion policy. t-12 deletes that trim in favour of a time window, under
+ * which a busy pair keeps roughly an order of magnitude more rows (~2.68M emissions/day
+ * across the fleet, spec-520 c-12). Without this the AC tab degrades on the day that
+ * migration ships, with nothing in its diff to explain why.
+ *
+ * Ten preserves exactly what users see today. It is a display choice now, so changing it
+ * is a decision about the UI rather than a side effect of a retention policy.
+ */
+export const MATRIX_EMISSIONS_PER_TEST = 10;
+
+/**
+ * Read the recent test-event history for one AC, grouped by `test_identifier`,
+ * each row's emissions newest-first by `created_at` and capped at
+ * MATRIX_EMISSIONS_PER_TEST per test.
  *
  * No server-side run-batching, no `run_id`-aware grouping, no inferred
  * "didn't run" cells (b-96 dec-11). One column entry per `test_events` row.
@@ -755,20 +772,48 @@ export async function listTestMatrixForAc(
   // spec-115 v0.1.0: hidden events are excluded from the matrix view too —
   // the matrix is the per-AC verification timeline that drives the badge.
   // Hidden audit history is in the DB but not surfaced in v0.1.0.
-  const events = await db.query.testEvents.findMany({
-    where: and(eq(testEvents.subjectRef, subjectRef), eq(testEvents.hidden, false)),
-    orderBy: [desc(testEvents.createdAt)],
-  });
+  //
+  // The cap is PER TEST, via row_number() — not a plain LIMIT. A global limit would
+  // starve whichever test_identifier sorted later, dropping an entire matrix ROW rather
+  // than trimming a long one, and which row vanished would depend on how the AC's tests
+  // happened to be named. The window orders by (created_at DESC, id DESC), the same
+  // deterministic tiebreak the retention index uses, so a pair emitting several times
+  // within one timestamp still cuts at a stable point.
+  const events = (await db.execute(sql`
+    SELECT id, subject_ref, test_identifier, status, created_at, actor, metadata, commit_sha
+    FROM (
+      SELECT te.*,
+             row_number() OVER (
+               PARTITION BY COALESCE(te.test_identifier, '')
+               ORDER BY te.created_at DESC, te.id DESC
+             ) AS rn
+      FROM test_events te
+      WHERE te.subject_ref = ${subjectRef} AND te.hidden = false
+    ) ranked
+    WHERE rn <= ${MATRIX_EMISSIONS_PER_TEST}
+    ORDER BY created_at DESC, id DESC
+  `)) as unknown as Array<{
+    test_identifier: string | null;
+    status: string;
+    // ⚠ db.execute hands back RAW driver values, so a timestamptz arrives as a string
+    // here — unlike the query-builder reads elsewhere in this file, which map it to a
+    // Date. Typing it Date and trusting that is how a `.getTime is not a function`
+    // reaches production through a green suite.
+    created_at: Date | string;
+    actor: string | null;
+    metadata: Record<string, unknown> | null;
+    commit_sha: string | null;
+  }>;
 
   const byTestIdentifier = new Map<string, TestEventEmission[]>();
   for (const ev of events) {
-    const key = ev.testIdentifier ?? "";
+    const key = ev.test_identifier ?? "";
     const list = byTestIdentifier.get(key) ?? [];
     list.push({
       status: ev.status as "pass" | "fail" | "error",
-      emittedAt: ev.createdAt,
+      emittedAt: ev.created_at instanceof Date ? ev.created_at : new Date(ev.created_at),
       actor: ev.actor ?? null,
-      metadata: ev.metadata ?? null,
+      metadata: (ev.metadata as TestEventEmission["metadata"]) ?? null,
     });
     byTestIdentifier.set(key, list);
   }
@@ -819,39 +864,74 @@ export async function listTestEventDigestForAc(
   const slugs = await resolveBriefSlugsForRef(ac.briefId);
   const subjectRef = buildAcRef(slugs, ac.seq);
 
-  const events = await db.query.testEvents.findMany({
-    where: eq(testEvents.subjectRef, subjectRef),
-    orderBy: [desc(testEvents.createdAt)],
-  });
+  // spec-520 t-12: an AGGREGATE, not a full-history fetch.
+  //
+  // This used to read every test_events row for the AC into Node and derive the digest in
+  // JS — `count` was `evs.length`. It had no LIMIT and was survivable only because
+  // spec-398's trim capped each pair at 10; t-12 removes that trim, and a busy pair then
+  // carries roughly an order of magnitude more rows.
+  //
+  // ⚠ AND IT MUST NOT SIMPLY TAKE THE MATRIX'S BOUND. `count` is documented as the audit
+  // depth — hidden AND visible. Capping this read would quietly redefine a number the UI
+  // shows as "the last N", which is a subtler defect than the unbounded read it would be
+  // fixing. Counting in the database keeps the number exact at any table size and reads no
+  // row the digest does not use.
+  const rows = (await db.execute(sql`
+    WITH totals AS (
+      SELECT COALESCE(test_identifier, '') AS tid, count(*)::int AS n
+      FROM test_events
+      WHERE subject_ref = ${subjectRef}
+      GROUP BY 1
+    ),
+    -- The newest row of ANY visibility, for the commit-sha fallback the JS version had.
+    newest_any AS (
+      SELECT DISTINCT ON (COALESCE(test_identifier, ''))
+             COALESCE(test_identifier, '') AS tid, commit_sha
+      FROM test_events
+      WHERE subject_ref = ${subjectRef}
+      ORDER BY COALESCE(test_identifier, ''), created_at DESC, id DESC
+    ),
+    -- The verdict view: the latest NON-hidden emission. Absent for a fully retired pair,
+    -- which is exactly what the hidden flag reports.
+    latest_visible AS (
+      SELECT DISTINCT ON (COALESCE(test_identifier, ''))
+             COALESCE(test_identifier, '') AS tid, status, created_at, commit_sha
+      FROM test_events
+      WHERE subject_ref = ${subjectRef} AND hidden = false
+      ORDER BY COALESCE(test_identifier, ''), created_at DESC, id DESC
+    )
+    SELECT t.tid                AS test_identifier,
+           t.n                  AS count,
+           lv.status            AS latest_status,
+           lv.created_at        AS latest_run_at,
+           COALESCE(lv.commit_sha, na.commit_sha) AS last_commit
+    FROM totals t
+    LEFT JOIN latest_visible lv ON lv.tid = t.tid
+    LEFT JOIN newest_any     na ON na.tid = t.tid
+    ORDER BY t.tid ASC
+  `)) as unknown as Array<{
+    test_identifier: string;
+    count: number;
+    latest_status: "pass" | "fail" | "error" | null;
+    // Raw driver value — see the note on the matrix read above.
+    latest_run_at: Date | string | null;
+    last_commit: string | null;
+  }>;
 
-  const byId = new Map<string, typeof events>();
-  for (const ev of events) {
-    const key = ev.testIdentifier ?? "";
-    const list = byId.get(key) ?? [];
-    list.push(ev);
-    byId.set(key, list);
-  }
-
-  const rows: TestEventDigestRow[] = [];
-  for (const [testIdentifier, evs] of byId.entries()) {
-    // evs are newest-first; the latest non-hidden emission is the verdict view.
-    const latestVisible = evs.find((e) => !e.hidden) ?? null;
-    const latestStatus = (latestVisible?.status ?? null) as
-      | "pass"
-      | "fail"
-      | "error"
-      | null;
-    rows.push({
-      testIdentifier,
-      latestStatus,
-      latestRunAt: latestVisible?.createdAt ?? null,
-      lastCommit: latestVisible?.commitSha ?? evs[0]?.commitSha ?? null,
-      count: evs.length,
-      hidden: latestVisible === null,
-      pinning: latestStatus === "fail" || latestStatus === "error",
-    });
-  }
-  return rows.sort((a, b) => a.testIdentifier.localeCompare(b.testIdentifier));
+  return rows.map((r) => ({
+    testIdentifier: r.test_identifier,
+    latestStatus: r.latest_status,
+    latestRunAt:
+      r.latest_run_at == null
+        ? null
+        : r.latest_run_at instanceof Date
+          ? r.latest_run_at
+          : new Date(r.latest_run_at),
+    lastCommit: r.last_commit,
+    count: Number(r.count),
+    hidden: r.latest_status === null,
+    pinning: r.latest_status === "fail" || r.latest_status === "error",
+  }));
 }
 
 /**
