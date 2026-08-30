@@ -1209,7 +1209,12 @@ export const acFirstVerified = pgTable("ac_first_verified", {
 export const testRunDaily = pgTable(
   "test_run_daily",
   {
-    memexId: uuid("memex_id").notNull(),
+    // spec-520 t-13 (ac-30): the cascading tenant FK migration 0134 omitted. Workspace
+    // deletion reaches this table BY CONSTRUCTION, not by an enumeration someone
+    // maintains — see drizzle/0139.
+    memexId: uuid("memex_id")
+      .notNull()
+      .references(() => memexes.id, { onDelete: "cascade" }),
     subjectRef: text("subject_ref").notNull(),
     testIdentifier: text("test_identifier").notNull().default(""),
     // UTC calendar day the runs fall on. Derived from the event's own
