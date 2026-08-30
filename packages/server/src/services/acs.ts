@@ -733,8 +733,19 @@ export interface TestEventEmission {
 export interface TestMatrixRow {
   /** test_identifier as emitted by the helper, or empty string when null. */
   testIdentifier: string;
-  /** Every emission ever recorded for this (subject_ref, test_identifier), newest-first. */
+  /** Retained emissions for this (subject_ref, test_identifier), newest-first. */
   emissions: TestEventEmission[];
+  /**
+   * spec-520 dec-9 (ac-42): the pair's last known state, carried forward from
+   * test_event_latest when NO emission for it survives in the log. Null whenever
+   * `emissions` is non-empty.
+   *
+   * ⚠ DELIBERATELY NOT AN ENTRY IN `emissions`. It is not a run inside the retention
+   * window and must never be laid out on the matrix's shared time axis as though it were —
+   * it would be positioned months off the axis and would claim evidence the log no longer
+   * holds. Consumers render it as "last known", not as a cell.
+   */
+  carriedForward: { status: "pass" | "fail" | "error"; emittedAt: Date } | null;
 }
 
 /**
@@ -818,10 +829,42 @@ export async function listTestMatrixForAc(
     byTestIdentifier.set(key, list);
   }
 
+  // spec-520 dec-9 (ac-42): a pair whose emissions have all left the retention window is
+  // absent from the query above entirely — not an empty row, NO row. Under a time window
+  // that is the majority case: measured on prod 2026-08-30, 196,978 of 243,339 pairs had
+  // not run in three days. The badge would still read "Verified" (it comes from
+  // test_event_latest, which retention never touches) above a blank grid.
+  //
+  // So pairs are enumerated from the summary too, and a dark one carries its last known
+  // state. A second small indexed read rather than a wider join: this one is keyed on the
+  // test_event_latest PK's leading column, and merging two small maps in JS is far easier
+  // to follow than the four-CTE query that would fuse them.
+  const summary = await db
+    .select({
+      testIdentifier: testEventLatest.testIdentifier,
+      latestStatus: testEventLatest.latestStatus,
+      latestRunAt: testEventLatest.latestRunAt,
+    })
+    .from(testEventLatest)
+    .where(eq(testEventLatest.subjectRef, subjectRef));
+
+  const rows: TestMatrixRow[] = Array.from(byTestIdentifier.entries()).map(
+    ([testIdentifier, emissions]) => ({ testIdentifier, emissions, carriedForward: null }),
+  );
+  for (const pair of summary) {
+    if (byTestIdentifier.has(pair.testIdentifier)) continue;
+    rows.push({
+      testIdentifier: pair.testIdentifier,
+      emissions: [],
+      carriedForward: {
+        status: pair.latestStatus as "pass" | "fail" | "error",
+        emittedAt: pair.latestRunAt,
+      },
+    });
+  }
+
   // Stable row ordering across reads — emissions already DESC from the query.
-  return Array.from(byTestIdentifier.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([testIdentifier, emissions]) => ({ testIdentifier, emissions }));
+  return rows.sort((a, b) => a.testIdentifier.localeCompare(b.testIdentifier));
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -854,6 +897,12 @@ export interface TestEventDigestRow {
   hidden: boolean;
   /** Latest non-hidden emission is fail/error — this identifier pins the AC red. */
   pinning: boolean;
+  /**
+   * spec-520 dec-9 (ac-42): true when NO emission for this pair survives in the log and
+   * `latestStatus` therefore comes from test_event_latest rather than from a retained row.
+   * `count` is 0 in that case — an honest audit depth, not a missing verdict.
+   */
+  carriedForward: boolean;
 }
 
 export async function listTestEventDigestForAc(
@@ -883,6 +932,22 @@ export async function listTestEventDigestForAc(
       WHERE subject_ref = ${subjectRef}
       GROUP BY 1
     ),
+    -- spec-520 dec-9 (ac-42): the durable index of pairs. A pair whose rows have all left
+    -- the window has no entry in totals and would vanish from the digest entirely.
+    summary AS (
+      SELECT test_identifier AS tid, latest_status, latest_run_at
+      FROM test_event_latest
+      WHERE subject_ref = ${subjectRef}
+    ),
+    -- ⚠ UNION, NOT a switch to the summary alone. Hidden emissions never reach
+    -- test_event_latest (applyEmissionToSummary returns early on hidden), so a fully
+    -- retired pair has rows here and NO summary row. Reading only the summary would repair
+    -- dark pairs by silently dropping retired ones.
+    pairs AS (
+      SELECT tid FROM totals
+      UNION
+      SELECT tid FROM summary
+    ),
     -- The newest row of ANY visibility, for the commit-sha fallback the JS version had.
     newest_any AS (
       SELECT DISTINCT ON (COALESCE(test_identifier, ''))
@@ -900,21 +965,28 @@ export async function listTestEventDigestForAc(
       WHERE subject_ref = ${subjectRef} AND hidden = false
       ORDER BY COALESCE(test_identifier, ''), created_at DESC, id DESC
     )
-    SELECT t.tid                AS test_identifier,
-           t.n                  AS count,
-           lv.status            AS latest_status,
-           lv.created_at        AS latest_run_at,
-           COALESCE(lv.commit_sha, na.commit_sha) AS last_commit
-    FROM totals t
-    LEFT JOIN latest_visible lv ON lv.tid = t.tid
-    LEFT JOIN newest_any     na ON na.tid = t.tid
-    ORDER BY t.tid ASC
+    SELECT p.tid                                     AS test_identifier,
+           COALESCE(t.n, 0)                          AS count,
+           COALESCE(lv.status, s.latest_status)      AS latest_status,
+           COALESCE(lv.created_at, s.latest_run_at)  AS latest_run_at,
+           COALESCE(lv.commit_sha, na.commit_sha)    AS last_commit,
+           -- Carried forward exactly when the log holds no visible row for the pair but
+           -- the summary knows its state. A hidden-only pair satisfies neither side and
+           -- stays reported as retired, which is what it is.
+           (lv.status IS NULL AND s.latest_status IS NOT NULL) AS carried_forward
+    FROM pairs p
+    LEFT JOIN totals         t  ON t.tid  = p.tid
+    LEFT JOIN summary        s  ON s.tid  = p.tid
+    LEFT JOIN latest_visible lv ON lv.tid = p.tid
+    LEFT JOIN newest_any     na ON na.tid = p.tid
+    ORDER BY p.tid ASC
   `)) as unknown as Array<{
     test_identifier: string;
     count: number;
     latest_status: "pass" | "fail" | "error" | null;
     // Raw driver value — see the note on the matrix read above.
     latest_run_at: Date | string | null;
+    carried_forward: boolean;
     last_commit: string | null;
   }>;
 
@@ -931,6 +1003,7 @@ export async function listTestEventDigestForAc(
     count: Number(r.count),
     hidden: r.latest_status === null,
     pinning: r.latest_status === "fail" || r.latest_status === "error",
+    carriedForward: r.carried_forward === true,
   }));
 }
 

@@ -262,6 +262,7 @@ function EmissionSquare({
 
   return (
     <span
+      data-testid="emission-square"
       className="group/sq absolute inline-block"
       style={{ left: leftPx, top: 0 }}
     >
@@ -392,6 +393,23 @@ export function TestMatrix({
                     leftPx={em.leftPx}
                   />
                 ))}
+                {/* spec-520 dec-9 (ac-42): every emission for this pair has left the
+                    retention window. A blank strip asserts "no evidence"; the truth is
+                    "the evidence aged out, and this is what it last said". Rendered as
+                    TEXT, never as a square — the state is months older than the axis
+                    window, so positioning it would put it off the strip and claim a run
+                    inside a window it is not in. */}
+                {positioned.length === 0 && row.carriedForward && (
+                  <span
+                    className="absolute inset-y-0 left-0 flex items-center whitespace-nowrap text-[11px] italic text-zinc-500 dark:text-zinc-400"
+                    title={`No retained emissions — last known state, recorded ${new Date(
+                      row.carriedForward.emittedAt,
+                    ).toLocaleString()}`}
+                  >
+                    last known: {STATUS_LABEL[row.carriedForward.status]} ·{' '}
+                    {formatAxisDate(new Date(row.carriedForward.emittedAt).getTime())}
+                  </span>
+                )}
               </div>
               <span className="shrink-0">
                 {renderRowAction ? renderRowAction(row) : null}

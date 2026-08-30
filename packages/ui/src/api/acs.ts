@@ -134,9 +134,20 @@ export interface AcTestMatrixRow {
   /** test_identifier as emitted by the helper; empty string when the
    *  source row had a NULL test_identifier (legacy / hand-rolled emit). */
   testIdentifier: string;
-  /** Every emission ever recorded for this (acUid, testIdentifier),
-   *  newest-first. Per b-96 dec-11: one entry per emission, no run-batching. */
+  /** Every RETAINED emission for this (acUid, testIdentifier), newest-first.
+   *  Per b-96 dec-11: one entry per emission, no run-batching. */
   emissions: TestMatrixEmission[];
+  /**
+   * spec-520 dec-9 (ac-42): the pair's last known state, carried forward from the
+   * durable summary when no emission for it survives retention. Null whenever
+   * `emissions` is non-empty.
+   *
+   * Not an emission, and deliberately not in the list above: it is older than the
+   * matrix's axis window, so it must be rendered as text rather than positioned as a
+   * square claiming a run inside that window. Optional so a response from a server
+   * predating the field still renders.
+   */
+  carriedForward?: { status: TestEventStatus; emittedAt: string } | null;
 }
 
 export async function fetchAcTestMatrix(
