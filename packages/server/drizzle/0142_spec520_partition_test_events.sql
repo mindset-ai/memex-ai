@@ -61,8 +61,10 @@
 DO $$
 BEGIN
   SET LOCAL lock_timeout = '10s';
-  LOCK TABLE test_events IN ACCESS EXCLUSIVE MODE;
-  LOCK TABLE test_event_latest IN ACCESS EXCLUSIVE MODE;
+  -- ONE statement, listing them in the emission path's order — the same form 0111 settled
+  -- on after its deadlock, so the two migrations read identically and the discipline is
+  -- copyable rather than reconstructed each time.
+  LOCK TABLE test_events, test_event_latest IN ACCESS EXCLUSIVE MODE;
 END $$;
 
 -- ── 1. The whole swap, in one dynamic block ─────────────────────────────────────────────
