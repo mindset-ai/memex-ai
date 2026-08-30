@@ -14,7 +14,7 @@
 // criteria; that file is left alone until the amendment lands.
 
 import { describe, it, expect, afterAll, beforeAll } from "vitest";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { db } from "../db/connection.js";
 import { documents, memexes, namespaces, testEventLatest, testEvents } from "../db/schema.js";
