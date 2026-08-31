@@ -1,5 +1,5 @@
 import { randomBytes, createHash } from "node:crypto";
-import { eq, and, isNull, or, gt, desc, sql } from "drizzle-orm";
+import { eq, and, isNull, or, gt, lt, desc, sql } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import {
   memexEmissionKeys,
@@ -159,10 +159,36 @@ export function bumpLastUsed(keyId: string): void {
     {},
     { memexId: "", entity: "memex_emission_key", action: "updated" },
     async () => {
+      // spec-520 t-6 (ac-28): throttled to at most one write per key per window.
+      //
+      // Unpredicated, this fired one UPDATE per accepted emission against a table of
+      // roughly 1,100 rows. Measured on prod as a 600s delta 2026-08-28 (spec-520 c-9):
+      // 30.972 calls/s at 0.0426 ms — one per event, matching the event rate exactly —
+      // and 23.6M lifetime updates with 613 autovacuums chasing the dead tuples.
+      //
+      // The statement still runs on every emission; it just stops finding a row, so it
+      // writes no new row version and creates no dead tuple. That is the cheap half of
+      // this fix and it needs no call-site change: keeping the call unconditional means
+      // the throttle cannot be defeated by a caller that forgets it.
+      //
+      // Five minutes is chosen against the CONSUMER, not the cost: last_used_at answers
+      // "is this key live" in the settings UI. Nothing reads it at second-level
+      // freshness, so a value up to five minutes stale is still a true answer.
+      //
+      // The NULL arm is load-bearing — without it a brand-new key would never record a
+      // first use at all, and the throttle would have turned cheap into broken.
       await db
         .update(memexEmissionKeys)
         .set({ lastUsedAt: sql`now()` })
-        .where(eq(memexEmissionKeys.id, keyId));
+        .where(
+          and(
+            eq(memexEmissionKeys.id, keyId),
+            or(
+              isNull(memexEmissionKeys.lastUsedAt),
+              lt(memexEmissionKeys.lastUsedAt, sql`now() - interval '5 minutes'`),
+            ),
+          ),
+        );
     },
     { silent: true },
   ).catch((err) => {

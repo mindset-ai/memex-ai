@@ -44,6 +44,7 @@ import { upsertUserByEmail } from "../services/users.js";
 import { ensureUserNamespace } from "../services/user-namespaces.js";
 import { createDocDraft } from "../services/documents.js";
 import { mintEmissionKey } from "../services/emission-keys.js";
+import { seedTestEvent } from "../services/test-helpers.js";
 import { maybeAutoResolveIssuesForAcUid } from "../services/issues.js";
 import { app } from "../app.js";
 
@@ -183,14 +184,18 @@ describe("spec-520 ac-32: the DIAGNOSIS — tenant context is what the chain nee
   it("WITH tenant context the same call resolves the same Issue", async () => {
     tagAc(AC_TENANT_CONTEXT);
     // Give the AC a green event first: verifyingAcIsGreen gates the resolve.
+    //
+    // spec-520 t-11: seeded through the helper, not a bare insert. This used to insert a
+    // raw test_events row only, and passed because verifyingAcIsGreen scanned the raw log.
+    // ac-25 moved that gate to test_event_latest, and this went red immediately — the
+    // fixture had been writing a shape production never writes (the emission route
+    // maintains all three tiers in one transaction).
     await runWithMemexId(memexId, async () => {
-      await db.insert(testEvents).values({
-        memexId,
+      await seedTestEvent({
         subjectRef: acRef,
         status: "pass",
         testIdentifier: "spec520-t7::diagnosis",
-        durationMs: 1,
-      } as typeof testEvents.$inferInsert);
+      });
     });
 
     const resolved = await runWithMemexId(memexId, async () =>

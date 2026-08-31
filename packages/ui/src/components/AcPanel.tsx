@@ -132,24 +132,41 @@ function relativeTime(d: Date | null): string {
 // The alignment-history endpoint returns one row per (date, kind). The
 // unified header sums verified + total across kinds so the sparkline reflects
 // one health curve, not two stacked ones.
-function mergeAlignmentHistory(history: AcAlignmentDay[]): AcAlignmentDay[] {
-  const byDate = new Map<string, { verified: number; total: number }>();
+//
+// Exported for test only: it is the single path feeding the sparkline, so a regression
+// here is invisible in every chart-level assertion.
+export function mergeAlignmentHistory(history: AcAlignmentDay[]): AcAlignmentDay[] {
+  const byDate = new Map<
+    string,
+    { verified: number; total: number; measured: boolean }
+  >();
   for (const h of history) {
-    const entry = byDate.get(h.date) ?? { verified: 0, total: 0 };
+    const entry = byDate.get(h.date) ?? {
+      verified: 0,
+      total: 0,
+      measured: true,
+    };
     entry.verified += h.verified;
     entry.total += h.total;
+    // spec-520 ac-5: `measured` is a property of the DAY, so both kinds carry the same
+    // value and AND-ing is a no-op today. It is written as an AND rather than an
+    // overwrite so that if the two ever disagree the chart under-claims — the safe
+    // direction. Dropping the flag here would leave the sparkline's whole boundary
+    // treatment as dead code, since this is the only path that feeds it.
+    entry.measured = entry.measured && h.measured !== false;
     byDate.set(h.date, entry);
   }
   return Array.from(byDate.entries())
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([date, { verified, total }]) => ({
-      // `kind` is unused by the sparkline (it only reads date/verified/total)
+    .map(([date, { verified, total, measured }]) => ({
+      // `kind` is unused by the sparkline (it only reads date/verified/total/measured)
       // but the type requires the field, so we tag the merged rows as 'scope'
       // arbitrarily. Don't read this value downstream.
       date,
       kind: 'scope' as const,
       verified,
       total,
+      measured,
     }));
 }
 

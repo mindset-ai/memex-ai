@@ -20,6 +20,9 @@
 // is an identity-establishment table read BEFORE any tenant context exists, so
 // it must stay RLS-free (pinned by __regression__/emission-key-contextless-verify).
 export const RLS_TENANT_TABLES: ReadonlySet<string> = new Set([
+  // spec-520 dec-7 option C — gated by migration 0136. Registering it here also arms
+  // spec-440's context guard for it.
+  "ac_first_verified",
   "acs",
   "clause_refs",
   "comment_mentions",

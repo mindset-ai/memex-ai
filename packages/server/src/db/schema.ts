@@ -1113,6 +1113,16 @@ export const testEventLatest = pgTable(
     // spec-398 dec-4 (ac-8): tenancy column mirroring test_events [per std-32],
     // backfilled in the rewrite-and-swap migration. RLS is spec-399's (ac-9).
     memexId: uuid("memex_id").notNull(),
+    // spec-520 dec-8 option A (migration 0137): the latest emission's PROVENANCE, so the
+    // CI-origin audit survives t-12's retention window. The raw inputs rather than a
+    // computed boolean, so the "is this CI" rule stays derivable if it ever changes.
+    //
+    // ⚠ latestMetadata NULL means "never observed", NOT "not CI". Rows predating 0137 have
+    // no provenance to recover. From 0137 on, applyEmissionToSummary writes `{}` when an
+    // emission carries no metadata, so NULL is unambiguous — and the audit must treat it as
+    // UNKNOWN and skip, or every pre-existing AC reads as laptop-verified.
+    latestRunId: text("latest_run_id"),
+    latestMetadata: jsonb("latest_metadata").$type<Record<string, string> | null>(),
   },
   (table) => [
     primaryKey({ columns: [table.subjectRef, table.testIdentifier] }),
@@ -1138,6 +1148,19 @@ export const acFirstVerified = pgTable("ac_first_verified", {
   // spec-151 dec-3: renamed ac_uid → subject_ref (AC ref OR clause ref).
   subjectRef: text("subject_ref").primaryKey(),
   firstVerifiedAt: timestamp("first_verified_at", { withTimezone: true }).notNull(),
+  // spec-520 dec-7 option C (migration 0136): the tenancy column this table never had.
+  //
+  // Without it the table could not carry an RLS policy at all, and its only reader scoped
+  // by `subject_ref LIKE 'ns/mx/%'` — tenancy carried by a STRING, the spec-396 leak
+  // pattern this Spec closes elsewhere. That, not the storage cost, was what was actually
+  // wrong with this table.
+  //
+  // NULLABLE on purpose. Backfilled from test_event_latest; a subject_ref with no surviving
+  // summary row (a discontinued AC, a deleted Spec) cannot be resolved, and dec-7's rule is
+  // that such a row is ENUMERATED, never discarded — this table exists because first-green
+  // dates were lost once already. Under RLS a NULL memex_id matches no tenant, so the row is
+  // invisible to the product and fully visible to the owner role for inspection.
+  memexId: uuid("memex_id"),
 });
 
 // ══════════════════════════════════════
@@ -1186,7 +1209,12 @@ export const acFirstVerified = pgTable("ac_first_verified", {
 export const testRunDaily = pgTable(
   "test_run_daily",
   {
-    memexId: uuid("memex_id").notNull(),
+    // spec-520 t-13 (ac-30): the cascading tenant FK migration 0134 omitted. Workspace
+    // deletion reaches this table BY CONSTRUCTION, not by an enumeration someone
+    // maintains — see drizzle/0139.
+    memexId: uuid("memex_id")
+      .notNull()
+      .references(() => memexes.id, { onDelete: "cascade" }),
     subjectRef: text("subject_ref").notNull(),
     testIdentifier: text("test_identifier").notNull().default(""),
     // UTC calendar day the runs fall on. Derived from the event's own

@@ -60,6 +60,16 @@ export interface AcAlignmentDay {
   kind: AcKind;
   verified: number;
   total: number;
+  /**
+   * spec-520 ac-5. False for days that predate the per-day rollup's first row for this
+   * Memex — days the server CANNOT measure, because the per-day past was destroyed by
+   * retention and cannot be reconstructed. Their `verified: 0` is an absence of
+   * measurement, not a measured absence, and must never be drawn as a flat zero line.
+   *
+   * Optional so a response from a server predating the flag still renders: absent is
+   * treated as measured, which is exactly the pre-flag behaviour.
+   */
+  measured?: boolean;
 }
 
 export async function fetchAcsForBrief(
@@ -124,9 +134,20 @@ export interface AcTestMatrixRow {
   /** test_identifier as emitted by the helper; empty string when the
    *  source row had a NULL test_identifier (legacy / hand-rolled emit). */
   testIdentifier: string;
-  /** Every emission ever recorded for this (acUid, testIdentifier),
-   *  newest-first. Per b-96 dec-11: one entry per emission, no run-batching. */
+  /** Every RETAINED emission for this (acUid, testIdentifier), newest-first.
+   *  Per b-96 dec-11: one entry per emission, no run-batching. */
   emissions: TestMatrixEmission[];
+  /**
+   * spec-520 dec-9 (ac-42): the pair's last known state, carried forward from the
+   * durable summary when no emission for it survives retention. Null whenever
+   * `emissions` is non-empty.
+   *
+   * Not an emission, and deliberately not in the list above: it is older than the
+   * matrix's axis window, so it must be rendered as text rather than positioned as a
+   * square claiming a run inside that window. Optional so a response from a server
+   * predating the field still renders.
+   */
+  carriedForward?: { status: TestEventStatus; emittedAt: string } | null;
 }
 
 export async function fetchAcTestMatrix(

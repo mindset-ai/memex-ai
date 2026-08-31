@@ -355,14 +355,10 @@ export interface AcsOverTimePoint {
  * emissions for since-deleted ACs are a tolerable over-count noted here.
  */
 export async function acsOverTime(memexId: string): Promise<AcsOverTimePoint[]> {
-  const [slugs] = (await db.execute(sql`
-    SELECT n.slug AS ns, m.slug AS mx
-    FROM memexes m JOIN namespaces n ON n.id = m.namespace_id
-    WHERE m.id = ${memexId}
-  `)) as unknown as Array<{ ns: string; mx: string }>;
-  if (!slugs) return [];
-  const prefix = `${slugs.ns}/${slugs.mx}/`;
-
+  // spec-520 dec-7 option C: the slug lookup that used to run here is gone with the
+  // prefix it fed. Both CTEs now scope by memex_id, so this function no longer needs to
+  // know its own namespace/memex slugs — one fewer query per Insights page load, and one
+  // fewer place where tenancy is reconstructed from strings.
   const rows = (await db.execute(sql`
     WITH created_per_day AS (
       SELECT created_at::date AS day, count(*)::int AS n
@@ -375,9 +371,17 @@ export async function acsOverTime(memexId: string): Promise<AcsOverTimePoint[]> 
     -- deletes the oldest passing row, so the operational log can no longer answer
     -- "when did this AC first go green". One row per subject_ref already, so no min().
     first_pass AS (
+      -- spec-520 dec-7 option C: scoped by memex_id, not by a subject_ref STRING PREFIX.
+      -- The old LIKE 'ns/mx/%' predicate carried tenancy in a string — the spec-396 leak pattern
+      -- (a real cross-org bleed of ~1.5M rows across 137 memexes), whose whole fix was to
+      -- stop parsing tenancy out of refs at read time. This table never adopted it; 0136
+      -- gives it the column and this is the read catching up.
+      --
+      -- Rows the 0136 backfill could not resolve carry a NULL memex_id and so match no
+      -- tenant here. They are preserved, not deleted — see the migration.
       SELECT subject_ref, first_verified_at::date AS day
       FROM ac_first_verified
-      WHERE subject_ref LIKE ${prefix + "%"}
+      WHERE memex_id = ${memexId}
     ),
     verified_per_day AS (
       SELECT day, count(*)::int AS n FROM first_pass GROUP BY 1
@@ -421,20 +425,35 @@ export interface TestRunVolumePoint {
  * verification badge. Gapless from the first emission to today.
  */
 export async function testRunVolume(memexId: string): Promise<TestRunVolumePoint[]> {
-  const [slugs] = (await db.execute(sql`
-    SELECT n.slug AS ns, m.slug AS mx
-    FROM memexes m JOIN namespaces n ON n.id = m.namespace_id
-    WHERE m.id = ${memexId}
-  `)) as unknown as Array<{ ns: string; mx: string }>;
-  if (!slugs) return [];
-  const prefix = `${slugs.ns}/${slugs.mx}/`;
-
+  // spec-520 t-11 (ac-24): reads the per-day ROLLUP, not the raw log.
+  //
+  // THE DEFECT THIS CLOSES. This counted rows in `test_events` — a table the retention
+  // trim caps at RETENTION_KEEP per (subject_ref, test_identifier). So it counted rows
+  // that had already been deleted, and the chart sloped upward as an artefact of deletion
+  // rather than because activity grew. Measured on prod 2026-08-18: the summary tier
+  // declared 23,718,476 runs while 1,072,186 raw rows survived — the chart was showing
+  // 4.5% of what happened. And the loss is NOT uniform: 65,708 pairs sat at exactly the
+  // cap of 10, so the busier an AC, the shorter its visible history. A volume chart that
+  // under-counts hardest where there is most activity inverts the story it exists to tell.
+  //
+  // ⚠ HISTORY STARTS AT THE ROLLUP'S SHIP DATE (2026-08-27). The per-day past was already
+  // deleted and cannot be reconstructed, so this chart is now CORRECT but SHORT. That is
+  // the fix landing, not a regression — but a chart spanning the boundary must say so on
+  // its face (ac-5, ac-6), or a truncated past reads as measured absence.
+  //
+  // Scoped by memex_id, which also retires the `subject_ref LIKE 'ns/mx/%'` predicate this
+  // used to carry — tenancy by string prefix, the spec-396 leak pattern (a real cross-org
+  // bleed of ~1.5M rows across 137 memexes) that this Spec closes elsewhere. The slug
+  // lookup it needed is gone with it.
   const rows = (await db.execute(sql`
     WITH per_day AS (
-      SELECT created_at::date AS day, status, count(*)::int AS n
-      FROM test_events
-      WHERE subject_ref LIKE ${prefix + "%"}
-      GROUP BY 1, 2
+      SELECT day,
+             sum(pass_count)::int  AS pass,
+             sum(fail_count)::int  AS fail,
+             sum(error_count)::int AS error
+      FROM test_run_daily
+      WHERE memex_id = ${memexId}
+      GROUP BY day
     ),
     days AS (
       SELECT generate_series(
@@ -445,12 +464,11 @@ export async function testRunVolume(memexId: string): Promise<TestRunVolumePoint
     )
     SELECT
       to_char(days.day, 'YYYY-MM-DD') AS day,
-      COALESCE(sum(per_day.n) FILTER (WHERE per_day.status = 'pass'), 0)::int AS pass,
-      COALESCE(sum(per_day.n) FILTER (WHERE per_day.status = 'fail'), 0)::int AS fail,
-      COALESCE(sum(per_day.n) FILTER (WHERE per_day.status = 'error'), 0)::int AS error
+      COALESCE(per_day.pass, 0)::int  AS pass,
+      COALESCE(per_day.fail, 0)::int  AS fail,
+      COALESCE(per_day.error, 0)::int AS error
     FROM days
     LEFT JOIN per_day ON per_day.day = days.day
-    GROUP BY days.day
     ORDER BY days.day
   `)) as unknown as TestRunVolumePoint[];
   return rows;

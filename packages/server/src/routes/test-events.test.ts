@@ -107,7 +107,7 @@ import {
 // tests can override verifyEmissionKey to exercise the scoped-key / missing-key 401 paths.
 // spec-489: resolveMemexId is imported too so a batch test can force ONE event to resolve to a
 // different Memex than the key authorises (the in-batch auth-boundary case).
-import { verifyEmissionKey, resolveMemexId } from "../services/emission-keys.js";
+import { verifyEmissionKey, resolveMemexId, bumpLastUsed } from "../services/emission-keys.js";
 
 const AC = "mindset-prod/memex-building-itself/specs/spec-115/acs";
 const AC333 = "mindset-prod/memex-building-itself/specs/spec-333/acs";
@@ -585,10 +585,25 @@ describe("POST /api/test-events/batch — spec-489 G1 (batch the burst)", () => 
 
   it("preserves the Memex auth boundary — a cross-Memex event is rejected in-batch, neighbours unaffected (ac-5)", async () => {
     tagAc(`${AC489}/ac-5`);
-    // Force the FIRST event to resolve to a Memex the key does not authorise.
-    vi.mocked(resolveMemexId).mockResolvedValueOnce("some-other-memex");
+    // spec-520 t-5: the cross-Memex event now carries a DIFFERENT subject_ref, which is
+    // what a real cross-tenant batch looks like — the caller names another Memex in the ref.
+    //
+    // It used to reuse the SAME ref for all three and force the first resolve with
+    // mockResolvedValueOnce. That models one (namespace, memex) pair resolving to two
+    // different Memexes within one request, which resolveMemexId — a deterministic lookup
+    // keyed on exactly that pair — cannot do. The batch now memoises per parsed pair
+    // (ac-29), so the forced value applied to all three and the test failed. The fixture,
+    // not the memo, was describing something reality does not produce.
+    //
+    // Pinning the boundary with two DISTINCT refs is also strictly stronger: it exercises
+    // the per-event comparison against that event's OWN resolution, which is the property
+    // s-2 Trap 1 is about. Proven end to end against a real database in
+    // batch-tenant-boundary.integration.test.ts.
+    vi.mocked(resolveMemexId).mockImplementation(async (ns: string, mx: string) =>
+      mx === "foreign" ? "some-other-memex" : "memex-1",
+    );
     const res = await postBatch([
-      ev({ test_identifier: "cross" }),
+      ev({ subject_ref: "mindset-prod/foreign/specs/spec-1/acs/ac-1", test_identifier: "cross" }),
       ev({ test_identifier: "ok1" }),
       ev({ test_identifier: "ok2" }),
     ]);
@@ -604,6 +619,13 @@ describe("POST /api/test-events/batch — spec-489 G1 (batch the burst)", () => 
     expect(json.results[0]!.error).toContain("does not authorise");
     // Batching added no new cross-boundary write path: the rejected event never inserted.
     expect(insertSpy).toHaveBeenCalledTimes(2);
+
+    // [per std-37 cl-5] restore what this test replaced. mockImplementation PERSISTS, and
+    // this file's vi.mock sets a plain mockResolvedValue — leaving the ref-dependent
+    // implementation installed would silently change every later test that resolves a ref.
+    // Nothing broke when it was left in, which is the point: that would have been ordering
+    // luck, not safety.
+    vi.mocked(resolveMemexId).mockResolvedValue("memex-1");
   });
 
   it("rejects a non-array events body and an oversized batch with 400, inserting nothing (ac-5 boundary)", async () => {
@@ -788,13 +810,32 @@ describe("POST /api/test-events — run_id / commit_sha filled from metadata (sp
     });
     expect(filled.status).toBe(201);
 
-    // Asserted as a delta rather than a magic number: the ingest path already
-    // performs one transaction, one insert and one read per PASSING event (the
-    // read is spec-112's issue auto-resolve at test-events.ts:497, unrelated to
-    // this Spec). What ac-7 protects is that the fill adds NONE of them. The two
-    // tempting implementations — resolving the run id via a lookup, or reading
-    // the inserted row back — would each show up right here as a delta, on a
-    // path peaking at 2 063 POST/min with one transaction per event.
+    // Asserted as a DELTA rather than a magic number, and that choice is what has
+    // kept this test correct while the number underneath it moved three times.
+    // What ac-7 protects is that the run_id fill adds no transaction, no insert and
+    // no read — the two tempting implementations (resolving the run id via a lookup,
+    // or reading the inserted row back) would each show up right here, on a path
+    // peaking at 2 063 POST/min.
+    //
+    // ⚠ THE READ COUNT: this comment used to say "one read", naming spec-112's issue
+    // auto-resolve. That was true of what this file OBSERVED and never of production.
+    // Corrected 2026-08-28 (spec-520 t-15) — three regimes, one number each:
+    //
+    //   1. Pre-t-7 (until 2026-08-18): the chain's first statement was a
+    //      `documents ⋈ memexes ⋈ namespaces` lookup, `documents` carries RLS on
+    //      app.memex_id, and the ingest path had no tenant context — so it was
+    //      filtered to zero rows and the chain returned at statement 1. ONE read, and
+    //      the reason was a defect, not a design.
+    //   2. Post-t-7, pre-t-15: with context established the chain ran to completion on
+    //      essentially every passing event. THREE reads (documents join, `acs`,
+    //      `task_satisfies_ac`) — measured on prod at 30.970 calls/s against an event
+    //      rate of 30.973 (spec-520 c-9).
+    //   3. Now (t-15 / ac-33): those three are collapsed into ONE join returning the
+    //      satisfying task ids directly. Back to one read, this time by design.
+    //
+    // So do NOT pin `selects` to a literal here. It is not this Spec's number, it has
+    // moved for reasons that had nothing to do with spec-528, and a literal would have
+    // made this test fail three times while asserting nothing about the fill.
     expect(counts()).toEqual(before);
     expect(before.transactions).toBe(1);
     expect(before.inserts).toBe(1);
@@ -849,5 +890,78 @@ describe("POST /api/test-events — promotion does not move the metadata keys (s
     // And the promotion happened alongside, not instead of.
     expect(row.runId).toBe("31589392781");
     expect(row.commitSha).toBe("112ad9ab");
+  });
+});
+
+// ── spec-520 t-5 (ac-29): the batch collapses lookups without collapsing the CHECK ──
+//
+// Two separate claims, and conflating them is the whole hazard (s-2 Trap 1):
+//   • the RESOLVE is memoised per each event's OWN parsed (namespace, memex) — so a
+//     single-suite batch does one lookup, and a two-tenant batch does two;
+//   • the AUTHORIZATION comparison still runs per event, against that event's own result.
+//
+// The tenant-boundary behaviour is proven against a REAL database in
+// batch-tenant-boundary.integration.test.ts, which was confirmed to fail against the
+// hoisted form. What is asserted HERE is the count — observable only because this file
+// mocks the resolver — i.e. that the win is actually being taken.
+describe("POST /api/test-events/batch — one resolve per distinct Memex, one key bump per batch (spec-520 ac-29)", () => {
+  const AC520 = "mindset-prod/memex-building-itself/specs/spec-520/acs/ac-29";
+
+  const batchOf = (refs: string[]) =>
+    new Request("http://localhost/api/test-events/batch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer mxk_x" },
+      body: JSON.stringify({
+        events: refs.map((r, i) => ({
+          subject_ref: r,
+          status: "pass",
+          test_identifier: `t::${i}`,
+          duration_ms: 1,
+        })),
+      }),
+    });
+
+  it("resolves ONCE for a batch that names one Memex, however many events it carries", async () => {
+    tagAc(AC520);
+    vi.mocked(resolveMemexId).mockClear();
+    vi.mocked(bumpLastUsed).mockClear();
+
+    const ref = "mindset-prod/foo/specs/spec-1/acs/ac-1";
+    const res = await app.request(batchOf([ref, ref, ref, ref, ref]));
+    expect(res.status).toBe(200);
+
+    // The win: ~500 identical lookups in a real suite collapse to 1.
+    expect(vi.mocked(resolveMemexId)).toHaveBeenCalledTimes(1);
+    // And the key is bumped once for the request, not once per event.
+    expect(vi.mocked(bumpLastUsed)).toHaveBeenCalledTimes(1);
+  });
+
+  it("resolves ONCE PER DISTINCT (namespace, memex) — not once for the batch", async () => {
+    tagAc(AC520);
+    vi.mocked(resolveMemexId).mockClear();
+
+    // THE assertion that separates memoisation from hoisting. A hoisted resolve would show
+    // 1 here — and would have skipped resolving the second Memex at all, which is exactly
+    // how the authorization check degenerates into comparing a value with itself.
+    await app.request(
+      batchOf([
+        "mindset-prod/foo/specs/spec-1/acs/ac-1",
+        "mindset-prod/other/specs/spec-1/acs/ac-1",
+        "mindset-prod/foo/specs/spec-1/acs/ac-2",
+      ]),
+    );
+    expect(vi.mocked(resolveMemexId)).toHaveBeenCalledTimes(2);
+  });
+
+  it("still bumps the key once when every event in the batch is rejected", async () => {
+    tagAc(AC520);
+    vi.mocked(bumpLastUsed).mockClear();
+    // A rejected batch still PRESENTED and verified the key, which is what last_used_at
+    // records. Skipping the bump here would make a key that only ever emits rejected events
+    // look unused.
+    vi.mocked(resolveMemexId).mockResolvedValueOnce("some-other-memex");
+    const res = await app.request(batchOf(["mindset-prod/foo/specs/spec-1/acs/ac-1"]));
+    expect(res.status).toBe(200);
+    expect(vi.mocked(bumpLastUsed)).toHaveBeenCalledTimes(1);
   });
 });

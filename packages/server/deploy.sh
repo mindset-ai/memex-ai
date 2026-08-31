@@ -277,8 +277,19 @@ DB_URL="postgresql://${DB_USER}:${DB_PASS_ENC}@localhost:${PROXY_PORT}/${DB_NAME
 
 # Runtime credentials for Cloud Run (spec-199 t-14). Migrations ALWAYS use the
 # superuser path (DB_USER/DB_PASS) — RUNTIME_DB_* is the restricted memex_app
-# role that RLS enforces on. Defaults to DB_USER/DB_PASS until t-14 is rolled
-# out per environment via RUNTIME_DB_USER/RUNTIME_DB_PASS in the deploy-env secret.
+# role that RLS enforces on.
+#
+# ⚠ THE ROLLOUT HAS HAPPENED. This comment used to end "Defaults to DB_USER/DB_PASS until
+# t-14 is rolled out per environment", which read as if the cutover were still pending.
+# Verified 2026-08-31: BOTH memex-int-deploy-env and memex-prod-deploy-env set
+# RUNTIME_DB_USER=memex_app, so the fallback below never fires in either environment and
+# spec-199 t-14's acceptance criteria hold.
+#
+# The stale wording cost real time: it was read as evidence that the request path still ran
+# as the owner, and that conclusion was repeated into a migration comment, a test, and a
+# Spec record before anyone checked the secret. The fallback stays as a safety net for a
+# NEW environment whose secret has not been populated yet — not as a description of int or
+# prod.
 RUNTIME_DB_USER="${RUNTIME_DB_USER:-$DB_USER}"
 RUNTIME_DB_PASS="${RUNTIME_DB_PASS:-$DB_PASS}"
 RUNTIME_DB_PASS_ENC=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "${RUNTIME_DB_PASS}")
@@ -316,6 +327,23 @@ DATABASE_URL="${DB_URL}" pnpm db:migrate
 
 echo "  1b. hand-written migrations..."
 DATABASE_URL="${DB_URL}" bash "${PKG_DIR}/scripts/apply-hand-migrations.sh"
+
+# spec-520 t-12: create the days ahead, drop the days past the retention window.
+#
+# ⚠ HERE, AND NOT IN THE SERVER. DROP TABLE requires ownership, and the request path's role
+# must not have it [per std-36]. This runs on DB_URL — the owner connection already open for
+# migrations — never on RUNTIME_DB_*. It is deliberately not the in-process setInterval
+# shape used by activity-log-sweep, which runs inside the API server as the runtime role.
+#
+# Idempotent and safe on a schema that predates 0142: it exits quietly if test_events is not
+# partitioned yet. A failure here is NOT fatal to the deploy — 60 days of partitions are
+# created ahead, so a skipped run costs nothing until the horizon is nearly reached, and
+# aborting a deploy over housekeeping would be the wrong trade.
+echo "  1c. test_events partition maintenance..."
+if ! DATABASE_URL="${DB_URL}" node "${PKG_DIR}/scripts/maintain-test-events-partitions.mjs"; then
+  echo "  WARNING: partition maintenance failed — deploy continues (60-day horizon absorbs it)."
+  echo "           Investigate before the horizon runs out, or inserts will start failing."
+fi
 
 # NOTE (spec-417 dec-6): the data backfills/generation that used to run here (1c–1f)
 # now run in Step 5, AFTER the Cloud Run cutover. The cloud-sql-proxy started above

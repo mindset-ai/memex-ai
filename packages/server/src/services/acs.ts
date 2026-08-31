@@ -460,7 +460,31 @@ export async function listAcsForBriefWithVerification(
       runCount: testEventLatest.runCount,
     })
     .from(testEventLatest)
-    .where(inArray(testEventLatest.subjectRef, allRefs));
+    // spec-520 t-4 (ac-11): ONE bind parameter for the whole ref list.
+    //
+    // `IN (…)` binds one parameter PER REF, and each distinct COUNT is its own prepared
+    // statement, plan-cache entry and pg_stat_statements row. That fragmentation is what
+    // put 1,223 fingerprints — ~24.5% of the instance's 5,000 cap, which is 98.6% full and
+    // already evicting — behind one logical read (issue-10).
+    //
+    // `= ANY($1::text[])` is one parameter however many refs there are, so ONE fingerprint.
+    // Deliberately NOT rewritten to `memex_id = $1` alone like aggregateAcHealthForBriefs:
+    // that read already touched every row of the tenant, so scoping it tenant-wide cost
+    // nothing. This one serves a SINGLE Spec — tens of refs — and a tenant-wide read would
+    // fetch ~148k rows for the largest Memex to filter down to a handful.
+    //
+    // memex_id is added alongside so tenancy is an explicit predicate rather than an
+    // inference from ref-string uniqueness — the spec-396 posture, and what makes the
+    // (memex_id, subject_ref) index usable here.
+    .where(
+      and(
+        eq(testEventLatest.memexId, memexId),
+        // sql.param() is load-bearing: a bare `${allRefs}` makes drizzle interpolate the
+        // array as a LIST of parameters — the very fragmentation this is removing, and it
+        // fails outright against `= ANY(…)`. sql.param binds it as ONE array parameter.
+        sql`${testEventLatest.subjectRef} = ANY(${sql.param(allRefs)}::text[])`,
+      ),
+    );
 
   // Pull every parent link for our AC set in one query. The Decisions tab
   // uses these to find "the ACs hanging off this resolved decision" without
@@ -709,13 +733,41 @@ export interface TestEventEmission {
 export interface TestMatrixRow {
   /** test_identifier as emitted by the helper, or empty string when null. */
   testIdentifier: string;
-  /** Every emission ever recorded for this (subject_ref, test_identifier), newest-first. */
+  /** Retained emissions for this (subject_ref, test_identifier), newest-first. */
   emissions: TestEventEmission[];
+  /**
+   * spec-520 dec-9 (ac-42): the pair's last known state, carried forward from
+   * test_event_latest when NO emission for it survives in the log. Null whenever
+   * `emissions` is non-empty.
+   *
+   * ⚠ DELIBERATELY NOT AN ENTRY IN `emissions`. It is not a run inside the retention
+   * window and must never be laid out on the matrix's shared time axis as though it were —
+   * it would be positioned months off the axis and would claim evidence the log no longer
+   * holds. Consumers render it as "last known", not as a cell.
+   */
+  carriedForward: { status: "pass" | "fail" | "error"; emittedAt: Date } | null;
 }
 
 /**
- * Read the full test-event history for one AC, grouped by `test_identifier`,
- * each row's emissions newest-first by `created_at`.
+ * spec-520 t-12: the matrix shows at most this many emissions PER TEST.
+ *
+ * This is the bound spec-398's retention trim was providing by accident. Until now the
+ * matrix had no LIMIT of its own and was survivable only because the trim capped each
+ * (subject_ref, test_identifier) pair at RETENTION_KEEP=10 — a display bound nobody chose,
+ * enforced by a deletion policy. t-12 deletes that trim in favour of a time window, under
+ * which a busy pair keeps roughly an order of magnitude more rows (~2.68M emissions/day
+ * across the fleet, spec-520 c-12). Without this the AC tab degrades on the day that
+ * migration ships, with nothing in its diff to explain why.
+ *
+ * Ten preserves exactly what users see today. It is a display choice now, so changing it
+ * is a decision about the UI rather than a side effect of a retention policy.
+ */
+export const MATRIX_EMISSIONS_PER_TEST = 10;
+
+/**
+ * Read the recent test-event history for one AC, grouped by `test_identifier`,
+ * each row's emissions newest-first by `created_at` and capped at
+ * MATRIX_EMISSIONS_PER_TEST per test.
  *
  * No server-side run-batching, no `run_id`-aware grouping, no inferred
  * "didn't run" cells (b-96 dec-11). One column entry per `test_events` row.
@@ -731,28 +783,88 @@ export async function listTestMatrixForAc(
   // spec-115 v0.1.0: hidden events are excluded from the matrix view too —
   // the matrix is the per-AC verification timeline that drives the badge.
   // Hidden audit history is in the DB but not surfaced in v0.1.0.
-  const events = await db.query.testEvents.findMany({
-    where: and(eq(testEvents.subjectRef, subjectRef), eq(testEvents.hidden, false)),
-    orderBy: [desc(testEvents.createdAt)],
-  });
+  //
+  // The cap is PER TEST, via row_number() — not a plain LIMIT. A global limit would
+  // starve whichever test_identifier sorted later, dropping an entire matrix ROW rather
+  // than trimming a long one, and which row vanished would depend on how the AC's tests
+  // happened to be named. The window orders by (created_at DESC, id DESC), the same
+  // deterministic tiebreak the retention index uses, so a pair emitting several times
+  // within one timestamp still cuts at a stable point.
+  const events = (await db.execute(sql`
+    SELECT id, subject_ref, test_identifier, status, created_at, actor, metadata, commit_sha
+    FROM (
+      SELECT te.*,
+             row_number() OVER (
+               PARTITION BY COALESCE(te.test_identifier, '')
+               ORDER BY te.created_at DESC, te.id DESC
+             ) AS rn
+      FROM test_events te
+      WHERE te.subject_ref = ${subjectRef} AND te.hidden = false
+    ) ranked
+    WHERE rn <= ${MATRIX_EMISSIONS_PER_TEST}
+    ORDER BY created_at DESC, id DESC
+  `)) as unknown as Array<{
+    test_identifier: string | null;
+    status: string;
+    // ⚠ db.execute hands back RAW driver values, so a timestamptz arrives as a string
+    // here — unlike the query-builder reads elsewhere in this file, which map it to a
+    // Date. Typing it Date and trusting that is how a `.getTime is not a function`
+    // reaches production through a green suite.
+    created_at: Date | string;
+    actor: string | null;
+    metadata: Record<string, unknown> | null;
+    commit_sha: string | null;
+  }>;
 
   const byTestIdentifier = new Map<string, TestEventEmission[]>();
   for (const ev of events) {
-    const key = ev.testIdentifier ?? "";
+    const key = ev.test_identifier ?? "";
     const list = byTestIdentifier.get(key) ?? [];
     list.push({
       status: ev.status as "pass" | "fail" | "error",
-      emittedAt: ev.createdAt,
+      emittedAt: ev.created_at instanceof Date ? ev.created_at : new Date(ev.created_at),
       actor: ev.actor ?? null,
-      metadata: ev.metadata ?? null,
+      metadata: (ev.metadata as TestEventEmission["metadata"]) ?? null,
     });
     byTestIdentifier.set(key, list);
   }
 
+  // spec-520 dec-9 (ac-42): a pair whose emissions have all left the retention window is
+  // absent from the query above entirely — not an empty row, NO row. Under a time window
+  // that is the majority case: measured on prod 2026-08-30, 196,978 of 243,339 pairs had
+  // not run in three days. The badge would still read "Verified" (it comes from
+  // test_event_latest, which retention never touches) above a blank grid.
+  //
+  // So pairs are enumerated from the summary too, and a dark one carries its last known
+  // state. A second small indexed read rather than a wider join: this one is keyed on the
+  // test_event_latest PK's leading column, and merging two small maps in JS is far easier
+  // to follow than the four-CTE query that would fuse them.
+  const summary = await db
+    .select({
+      testIdentifier: testEventLatest.testIdentifier,
+      latestStatus: testEventLatest.latestStatus,
+      latestRunAt: testEventLatest.latestRunAt,
+    })
+    .from(testEventLatest)
+    .where(eq(testEventLatest.subjectRef, subjectRef));
+
+  const rows: TestMatrixRow[] = Array.from(byTestIdentifier.entries()).map(
+    ([testIdentifier, emissions]) => ({ testIdentifier, emissions, carriedForward: null }),
+  );
+  for (const pair of summary) {
+    if (byTestIdentifier.has(pair.testIdentifier)) continue;
+    rows.push({
+      testIdentifier: pair.testIdentifier,
+      emissions: [],
+      carriedForward: {
+        status: pair.latestStatus as "pass" | "fail" | "error",
+        emittedAt: pair.latestRunAt,
+      },
+    });
+  }
+
   // Stable row ordering across reads — emissions already DESC from the query.
-  return Array.from(byTestIdentifier.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([testIdentifier, emissions]) => ({ testIdentifier, emissions }));
+  return rows.sort((a, b) => a.testIdentifier.localeCompare(b.testIdentifier));
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -785,6 +897,12 @@ export interface TestEventDigestRow {
   hidden: boolean;
   /** Latest non-hidden emission is fail/error — this identifier pins the AC red. */
   pinning: boolean;
+  /**
+   * spec-520 dec-9 (ac-42): true when NO emission for this pair survives in the log and
+   * `latestStatus` therefore comes from test_event_latest rather than from a retained row.
+   * `count` is 0 in that case — an honest audit depth, not a missing verdict.
+   */
+  carriedForward: boolean;
 }
 
 export async function listTestEventDigestForAc(
@@ -795,39 +913,98 @@ export async function listTestEventDigestForAc(
   const slugs = await resolveBriefSlugsForRef(ac.briefId);
   const subjectRef = buildAcRef(slugs, ac.seq);
 
-  const events = await db.query.testEvents.findMany({
-    where: eq(testEvents.subjectRef, subjectRef),
-    orderBy: [desc(testEvents.createdAt)],
-  });
+  // spec-520 t-12: an AGGREGATE, not a full-history fetch.
+  //
+  // This used to read every test_events row for the AC into Node and derive the digest in
+  // JS — `count` was `evs.length`. It had no LIMIT and was survivable only because
+  // spec-398's trim capped each pair at 10; t-12 removes that trim, and a busy pair then
+  // carries roughly an order of magnitude more rows.
+  //
+  // ⚠ AND IT MUST NOT SIMPLY TAKE THE MATRIX'S BOUND. `count` is documented as the audit
+  // depth — hidden AND visible. Capping this read would quietly redefine a number the UI
+  // shows as "the last N", which is a subtler defect than the unbounded read it would be
+  // fixing. Counting in the database keeps the number exact at any table size and reads no
+  // row the digest does not use.
+  const rows = (await db.execute(sql`
+    WITH totals AS (
+      SELECT COALESCE(test_identifier, '') AS tid, count(*)::int AS n
+      FROM test_events
+      WHERE subject_ref = ${subjectRef}
+      GROUP BY 1
+    ),
+    -- spec-520 dec-9 (ac-42): the durable index of pairs. A pair whose rows have all left
+    -- the window has no entry in totals and would vanish from the digest entirely.
+    summary AS (
+      SELECT test_identifier AS tid, latest_status, latest_run_at
+      FROM test_event_latest
+      WHERE subject_ref = ${subjectRef}
+    ),
+    -- ⚠ UNION, NOT a switch to the summary alone. Hidden emissions never reach
+    -- test_event_latest (applyEmissionToSummary returns early on hidden), so a fully
+    -- retired pair has rows here and NO summary row. Reading only the summary would repair
+    -- dark pairs by silently dropping retired ones.
+    pairs AS (
+      SELECT tid FROM totals
+      UNION
+      SELECT tid FROM summary
+    ),
+    -- The newest row of ANY visibility, for the commit-sha fallback the JS version had.
+    newest_any AS (
+      SELECT DISTINCT ON (COALESCE(test_identifier, ''))
+             COALESCE(test_identifier, '') AS tid, commit_sha
+      FROM test_events
+      WHERE subject_ref = ${subjectRef}
+      ORDER BY COALESCE(test_identifier, ''), created_at DESC, id DESC
+    ),
+    -- The verdict view: the latest NON-hidden emission. Absent for a fully retired pair,
+    -- which is exactly what the hidden flag reports.
+    latest_visible AS (
+      SELECT DISTINCT ON (COALESCE(test_identifier, ''))
+             COALESCE(test_identifier, '') AS tid, status, created_at, commit_sha
+      FROM test_events
+      WHERE subject_ref = ${subjectRef} AND hidden = false
+      ORDER BY COALESCE(test_identifier, ''), created_at DESC, id DESC
+    )
+    SELECT p.tid                                     AS test_identifier,
+           COALESCE(t.n, 0)                          AS count,
+           COALESCE(lv.status, s.latest_status)      AS latest_status,
+           COALESCE(lv.created_at, s.latest_run_at)  AS latest_run_at,
+           COALESCE(lv.commit_sha, na.commit_sha)    AS last_commit,
+           -- Carried forward exactly when the log holds no visible row for the pair but
+           -- the summary knows its state. A hidden-only pair satisfies neither side and
+           -- stays reported as retired, which is what it is.
+           (lv.status IS NULL AND s.latest_status IS NOT NULL) AS carried_forward
+    FROM pairs p
+    LEFT JOIN totals         t  ON t.tid  = p.tid
+    LEFT JOIN summary        s  ON s.tid  = p.tid
+    LEFT JOIN latest_visible lv ON lv.tid = p.tid
+    LEFT JOIN newest_any     na ON na.tid = p.tid
+    ORDER BY p.tid ASC
+  `)) as unknown as Array<{
+    test_identifier: string;
+    count: number;
+    latest_status: "pass" | "fail" | "error" | null;
+    // Raw driver value — see the note on the matrix read above.
+    latest_run_at: Date | string | null;
+    carried_forward: boolean;
+    last_commit: string | null;
+  }>;
 
-  const byId = new Map<string, typeof events>();
-  for (const ev of events) {
-    const key = ev.testIdentifier ?? "";
-    const list = byId.get(key) ?? [];
-    list.push(ev);
-    byId.set(key, list);
-  }
-
-  const rows: TestEventDigestRow[] = [];
-  for (const [testIdentifier, evs] of byId.entries()) {
-    // evs are newest-first; the latest non-hidden emission is the verdict view.
-    const latestVisible = evs.find((e) => !e.hidden) ?? null;
-    const latestStatus = (latestVisible?.status ?? null) as
-      | "pass"
-      | "fail"
-      | "error"
-      | null;
-    rows.push({
-      testIdentifier,
-      latestStatus,
-      latestRunAt: latestVisible?.createdAt ?? null,
-      lastCommit: latestVisible?.commitSha ?? evs[0]?.commitSha ?? null,
-      count: evs.length,
-      hidden: latestVisible === null,
-      pinning: latestStatus === "fail" || latestStatus === "error",
-    });
-  }
-  return rows.sort((a, b) => a.testIdentifier.localeCompare(b.testIdentifier));
+  return rows.map((r) => ({
+    testIdentifier: r.test_identifier,
+    latestStatus: r.latest_status,
+    latestRunAt:
+      r.latest_run_at == null
+        ? null
+        : r.latest_run_at instanceof Date
+          ? r.latest_run_at
+          : new Date(r.latest_run_at),
+    lastCommit: r.last_commit,
+    count: Number(r.count),
+    hidden: r.latest_status === null,
+    pinning: r.latest_status === "fail" || r.latest_status === "error",
+    carriedForward: r.carried_forward === true,
+  }));
 }
 
 /**
@@ -1071,11 +1248,38 @@ export async function aggregateAcHealthForBriefs(
   const allRefs = Array.from(refsByAcId.values());
   if (allRefs.length === 0) return result;
 
-  // Q2 — spec-162: the latest-per-pair summary for the AC universe, read
-  // directly from test_event_latest. Bounded by active AC×test pairs, not by
-  // history depth — this is the whole point of the change (ac-1). Hidden events
-  // were excluded at write time so there's no hidden filter here; '' is the
-  // stored key for null test_identifier (dec-2).
+  // Q2 — spec-162: the latest-per-pair summary for the AC universe, read directly from
+  // test_event_latest.
+  //
+  // spec-520 t-4 (dec-1, ac-7): ONE tenant parameter, not one per AC ref.
+  //
+  // This used to bind `subject_ref IN (…)` with every active ref — up to 3,745 values,
+  // 25KB of SQL. The cost that buys is not what the old comment ("bounded by active AC×test
+  // pairs, not by history depth") suggests:
+  //
+  //   • Each distinct bind-parameter COUNT is its own prepared statement, its own plan-cache
+  //     entry and its own pg_stat_statements row. Measured on prod: 1,098 fingerprints on
+  //     2026-08-18, 1,223 on 2026-08-28 — ~12/day, and ~24.5% of the instance's entire
+  //     5,000-entry cap, which is 98.6% full and already evicting (issue-10). One logical
+  //     read presenting as a thousand also makes that table illegible to anyone reading it
+  //     for top costs.
+  //   • Planning time 7.564 ms for the 1,800-literal form versus 0.037 ms for the simple
+  //     one — 200×, paid on every call before a row is touched.
+  //
+  // ⚠ DO NOT SIZE THIS AS A LATENCY FIX. s-4 §3 EXPLAINed both forms at ~48 ms with
+  // everything in shared_hit on a quiet connection, while pg_stat_statements puts the same
+  // read at a 642 ms mean in production. That 13× gap is contention and cache state, not
+  // plan shape, so a rewrite that only changes the plan will not deliver 642 → 48.
+  //
+  // ⚠ AND THE PLAN WILL PROBABLY STAY A SEQ SCAN for the tenant that matters, which is
+  // correct: one Memex holds 81.0% of this table (147,989 of 182,634 rows), so
+  // `memex_id = $1` selects four rows in five and an index scan would be slower. ac-8
+  // expects an index scan and is wrong for that tenant — see c-4.
+  //
+  // Over-fetching rows for ACs outside the requested Spec set is the accepted trade-off
+  // (dec-1): they are all read today anyway, since the seq scan touches every row. The
+  // bucketing below drops them, so the map stays bounded by the requested universe and
+  // parity is exact by construction rather than by argument.
   const summaryRows = await db
     .select({
       subjectRef: testEventLatest.subjectRef,
@@ -1085,13 +1289,18 @@ export async function aggregateAcHealthForBriefs(
       runCount: testEventLatest.runCount,
     })
     .from(testEventLatest)
-    .where(inArray(testEventLatest.subjectRef, allRefs));
+    .where(eq(testEventLatest.memexId, memexId));
 
   // Bucket the summary rows into per-AC snapshots in the same shape the AC tab
   // consumes, so deriveVerificationState gets identical input — card colour and
   // tab agree by construction (ac-2 parity). '' maps back to null.
   const snapshotsByRef = new Map<string, AcTestSnapshot[]>();
+  // spec-520 t-4: the read is now tenant-wide, so skip refs outside the requested universe.
+  // The tally below looks refs UP rather than iterating this map, so extra entries would be
+  // inert either way — this keeps the map bounded by the ACs actually asked about.
+  const wantedRefs = new Set(allRefs);
   for (const row of summaryRows) {
+    if (!wantedRefs.has(row.subjectRef)) continue;
     const list = snapshotsByRef.get(row.subjectRef) ?? [];
     list.push({
       testIdentifier: row.testIdentifier === "" ? null : row.testIdentifier,
@@ -1161,6 +1370,15 @@ export interface AlignmentDay {
   total: number;
   /** Same as listAcsForBriefWithVerification, broken down by kind. */
   kind: "scope" | "implementation";
+  /**
+   * False for days that predate the per-day rollup's first row for this Memex — days we
+   * CANNOT measure, because the per-day past was destroyed by retention and cannot be
+   * reconstructed. Their `verified: 0` is an absence of measurement, not a measured
+   * absence, and ac-5 requires the chart say so rather than let a truncated past read as
+   * data. Callers must render an unmeasured span distinctly; the span shrinks on its own
+   * as history accumulates and eventually disappears.
+   */
+  measured: boolean;
 }
 
 /**
@@ -1169,7 +1387,8 @@ export interface AlignmentDay {
  *   - total  = ACs active on that day (created on or before; status='active'
  *              today — V0.0.1 simplification, we don't reconstruct historical
  *              status transitions, which would require an audit table)
- *   - verified = ACs whose latest test_event AS OF END-OF-DAY is 'pass'
+ *   - verified = ACs that were GREEN as of end-of-day: on the most recent day the AC ran
+ *                at all (≤ this day), every one of its tests passed
  *
  * V0.0.1 caveat: status reconstruction is not historical. An AC currently
  * `rejected` or `superseded` is excluded from the total even on days when it
@@ -1177,10 +1396,9 @@ export interface AlignmentDay {
  * what we care about TODAY; backfilling true historical status would need a
  * status-event log we don't have.
  *
- * SQL is a window-function pair per day, fanned out via generate_series. The
- * heavy lifting is the LATERAL join that finds the latest test event per
- * (subject_ref, day) ≤ end-of-day. Bounded by the AC set in the Spec, which is
- * small (rarely >100), so this is cheap even at 90 days.
+ * SQL fans days out via generate_series and, per (day × AC), reads the per-day ROLLUP —
+ * not the raw log. Bounded by the AC set in the Spec, which is small (rarely >100), so
+ * this stays cheap even at 90 days.
  */
 export async function listAcAlignmentOverTime(
   memexId: string,
@@ -1213,8 +1431,33 @@ export async function listAcAlignmentOverTime(
     sql`, `,
   );
 
-  // For each (day × ac), find the latest event ≤ end-of-day for that subject_ref;
-  // 'verified' iff that latest is 'pass'. Total = ACs that existed by then.
+  // spec-520 t-11 (ac-24): per (day × AC), read the per-day ROLLUP — not the raw log.
+  //
+  // THE DEFECT THIS CLOSES. This carried a correlated
+  //   SELECT te.status FROM test_events te
+  //   WHERE te.subject_ref = a.subject_ref AND te.created_at < day+1
+  //   ORDER BY te.created_at DESC LIMIT 1
+  // against a table the retention trim caps at RETENTION_KEEP=10 rows per (subject_ref,
+  // test_identifier). For a BUSY AC those ten rows are all from the last few hours, so
+  // every older day found nothing and read as "never verified". Same bias as testRunVolume
+  // and it runs the same direction: the more an AC is tested, the less of its history the
+  // chart could see (prod 2026-08-18 — 65,708 pairs sitting at exactly the cap).
+  //
+  // AND THE DERIVATION IS NOW HONEST. "Latest single event" answered with whichever row
+  // happened to write last, so one passing test masked a sibling that went red in the same
+  // minute. The rollup keeps per-test counts, so green is what it should always have
+  // meant: on the most recent day the AC ran at all, EVERY one of its tests passed. That
+  // is the property t-11 names, and it was not answerable before this table existed.
+  //
+  // SCOPED BY memex_id. The old read filtered on subject_ref alone — tenancy carried by a
+  // string, the spec-396 leak pattern (a real cross-org bleed of ~1.5M rows across 137
+  // memexes) this Spec closes elsewhere.
+  //
+  // ⚠ HISTORY STARTS AT THE ROLLUP'S FIRST ROW. Unlike testRunVolume — which begins its
+  // series at min(day) and so cannot show a fabricated past — this query generates a FIXED
+  // `days`-long window, so it necessarily emits days it cannot measure. `measured` marks
+  // them (ac-5); rendering them as a plain zero would let a deleted past read as measured
+  // absence, which is the specific misreading ac-5 forbids.
   const rows = (await db.execute(sql`
     WITH ac_set(subject_ref, kind, created_at, accepted_at) AS (
       VALUES ${acSetValues}
@@ -1226,6 +1469,9 @@ export async function listAcAlignmentOverTime(
         '1 day'::interval
       )::date AS day
     ),
+    coverage AS (
+      SELECT min(day) AS first_day FROM test_run_daily WHERE memex_id = ${memexId}
+    ),
     daily AS (
       SELECT
         s.day,
@@ -1234,13 +1480,20 @@ export async function listAcAlignmentOverTime(
         a.created_at,
         a.accepted_at,
         (
-          SELECT te.status
-          FROM test_events te
-          WHERE te.subject_ref = a.subject_ref
-            AND te.created_at < (s.day + INTERVAL '1 day')
-          ORDER BY te.created_at DESC
+          -- The most recent day this AC ran at or before s.day, collapsed across all of
+          -- its tests. NULL when it had not run by then — distinct from FALSE (ran, and
+          -- something was red), and the two are treated differently below.
+          SELECT sum(r.fail_count) = 0
+             AND sum(r.error_count) = 0
+             AND sum(r.pass_count) > 0
+          FROM test_run_daily r
+          WHERE r.memex_id = ${memexId}
+            AND r.subject_ref = a.subject_ref
+            AND r.day <= s.day
+          GROUP BY r.day
+          ORDER BY r.day DESC
           LIMIT 1
-        ) AS latest_status
+        ) AS green
       FROM series s
       CROSS JOIN ac_set a
     )
@@ -1248,26 +1501,34 @@ export async function listAcAlignmentOverTime(
       day::text AS date,
       kind,
       COUNT(*) FILTER (WHERE created_at <= day + INTERVAL '1 day') AS total,
-      -- Gate verified on AC existence too — otherwise a test_event predating
-      -- the AC's createdAt (only possible with synthetic seed data, but the
-      -- contract should hold) yields verified > total, which is nonsense.
+      -- Gate verified on AC existence too — otherwise history predating the AC's
+      -- createdAt yields verified > total, which is nonsense.
       --
-      -- spec-188 dec-1/dec-2: a manual acceptance counts as verified from the
-      -- day it was recorded, with the same evidence-wins precedence as
-      -- deriveVerificationState — a failing/erroring latest status suppresses
-      -- it. (V0.0.1 caveat, same as status above: accepted_at is TODAY's
-      -- value, not historically reconstructed across un-accept cycles.)
+      -- spec-188 dec-1/dec-2: a manual acceptance counts as verified from the day it was
+      -- recorded, with the same evidence-wins precedence as deriveVerificationState — a
+      -- red latest day suppresses it. green IS NOT FALSE is the precise form: an AC that
+      -- has never run (NULL) keeps its acceptance, one whose tests are red loses it.
+      -- (V0.0.1 caveat: accepted_at is TODAY's value, not reconstructed across un-accept
+      -- cycles.)
       COUNT(*) FILTER (
         WHERE created_at <= day + INTERVAL '1 day'
           AND (
-            latest_status = 'pass'
+            green
             OR (
               accepted_at IS NOT NULL
               AND accepted_at < day + INTERVAL '1 day'
-              AND (latest_status IS NULL OR latest_status = 'pass')
+              AND green IS NOT FALSE
             )
           )
-      ) AS verified
+      ) AS verified,
+      -- An expression on day, which is already grouped. A Memex with no rollup rows at
+      -- all has first_day NULL, so every day is unmeasured — the strongest form of the
+      -- same statement, and the one a naive "is there a row for this day" flag would miss
+      -- by having nothing to report.
+      (
+        (SELECT first_day FROM coverage) IS NOT NULL
+        AND day >= (SELECT first_day FROM coverage)
+      ) AS measured
     FROM daily
     GROUP BY day, kind
     ORDER BY day ASC, kind ASC
@@ -1276,6 +1537,7 @@ export async function listAcAlignmentOverTime(
     kind: "scope" | "implementation";
     total: string | number;
     verified: string | number;
+    measured: boolean;
   }>;
 
   return rows.map((r) => ({
@@ -1283,6 +1545,7 @@ export async function listAcAlignmentOverTime(
     kind: r.kind,
     total: Number(r.total),
     verified: Number(r.verified),
+    measured: r.measured === true,
   }));
 }
 
@@ -1343,19 +1606,38 @@ export async function auditCiEmissionForBrief(
 
   const out: CiEmissionAuditRow[] = [];
   for (const r of verified) {
-    // The latest non-hidden emission for this AC across all its test_identifiers.
+    // spec-520 dec-8 option A: provenance now comes from the SUMMARY, not the raw log.
+    //
+    // This reads the latest emission of an AC that is ALREADY verified, so the row can be
+    // arbitrarily old. Retention keeps 10 rows per pair today, which for a rarely-run test
+    // spans months — but t-12 replaces that with a short TIME window, at which point the raw
+    // row is gone and `if (!latest) continue` would report "no local-only ACs". That is a
+    // FALSE NEGATIVE on a provenance audit, and it reaches assess_spec's phase rubric, so it
+    // would tell a reader the evidence is stronger than it is at a phase decision.
+    //
+    // test_event_latest holds one row per (subject_ref, test_identifier); the newest overall
+    // is the greatest latest_run_at, and 0137 carries that emission's run id and metadata
+    // beside it.
     const [latest] = await db
       .select({
-        runId: testEvents.runId,
-        metadata: testEvents.metadata,
-        createdAt: testEvents.createdAt,
+        runId: testEventLatest.latestRunId,
+        metadata: testEventLatest.latestMetadata,
+        runAt: testEventLatest.latestRunAt,
       })
-      .from(testEvents)
-      .where(and(eq(testEvents.subjectRef, r.canonicalRef), eq(testEvents.hidden, false)))
-      .orderBy(desc(testEvents.createdAt))
+      .from(testEventLatest)
+      .where(eq(testEventLatest.subjectRef, r.canonicalRef))
+      .orderBy(desc(testEventLatest.latestRunAt))
       .limit(1);
     // A verified AC always has ≥1 passing emission; defensively skip if none.
     if (!latest) continue;
+    // ⚠ NULL metadata means "never observed", NOT "not CI". Rows written before 0137 carry
+    // no provenance and nothing can recover it — the raw rows that knew are exactly the ones
+    // retention deletes. Judging them would report every pre-existing AC as laptop-verified:
+    // a FALSE POSITIVE, the mirror of the false negative above, and just as misleading at a
+    // phase decision. From 0137 on the writer stores `{}` rather than null when an emission
+    // carries no metadata, so NULL here means one thing only, and UNKNOWN skips — exactly
+    // what a missing row does today.
+    if (latest.metadata == null) continue;
     if (!emissionIsCiOriginated({ runId: latest.runId, metadata: latest.metadata })) {
       out.push({ handle: `ac-${r.ac.seq}` });
     }

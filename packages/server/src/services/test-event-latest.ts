@@ -11,7 +11,7 @@
 
 import { and, eq, sql } from "drizzle-orm";
 import { type Db } from "../db/connection.js";
-import { testEvents, testEventLatest } from "../db/schema.js";
+import { testEventLatest } from "../db/schema.js";
 
 export interface EmissionForSummary {
   subjectRef: string;
@@ -24,6 +24,14 @@ export interface EmissionForSummary {
   latestRunAt: Date;
   /** spec-115: hidden emissions are stored in the log but excluded from badges. */
   hidden: boolean;
+  /** spec-520 dec-8: the emission's CI run id, if it carried one. */
+  runId?: string | null;
+  /**
+   * spec-520 dec-8: the emission's metadata bag. Written as `{}` when absent, NEVER left
+   * null — a NULL on this column means "this row predates provenance being recorded", and
+   * the CI-origin audit relies on that being unambiguous.
+   */
+  metadata?: Record<string, string> | null;
 }
 
 /**
@@ -55,6 +63,10 @@ export async function applyEmissionToSummary(
       latestStatus: emission.status,
       latestRunAt: emission.latestRunAt,
       runCount: 1,
+      latestRunId: emission.runId ?? null,
+      // `{}` and not null when the emission carries none — see the interface note. NULL is
+      // reserved to mean "this row predates 0137".
+      latestMetadata: emission.metadata ?? {},
     })
     .onConflictDoUpdate({
       target: [testEventLatest.subjectRef, testEventLatest.testIdentifier],
@@ -65,6 +77,11 @@ export async function applyEmissionToSummary(
         latestRunAt: sql`GREATEST(excluded.latest_run_at, ${testEventLatest.latestRunAt})`,
         // Every non-hidden emission counts, regardless of arrival order.
         runCount: sql`${testEventLatest.runCount} + 1`,
+        // spec-520 dec-8: provenance follows the STATUS, not the clock — it must describe
+        // the same emission the badge is showing, or the audit would report the origin of
+        // one run against the verdict of another. Same newest-wins guard as latestStatus.
+        latestRunId: sql`CASE WHEN excluded.latest_run_at >= ${testEventLatest.latestRunAt} THEN excluded.latest_run_id ELSE ${testEventLatest.latestRunId} END`,
+        latestMetadata: sql`CASE WHEN excluded.latest_run_at >= ${testEventLatest.latestRunAt} THEN excluded.latest_metadata ELSE ${testEventLatest.latestMetadata} END`,
       },
     });
 }

@@ -29,9 +29,7 @@ import { makeTestMemex, seedTestEvent } from "./test-helpers.js";
 import { createDocDraft } from "./documents.js";
 import { listActivityView } from "./activity-view.js";
 import {
-  trimTestEventsForPair,
   recordFirstVerified,
-  RETENTION_KEEP,
 } from "./test-event-retention.js";
 import { deriveVerificationState } from "./acs.js";
 
@@ -92,54 +90,59 @@ beforeAll(async () => {
 });
 
 describe("spec-398 retention + tenancy", () => {
-  it("ac-5: trim-on-write caps a pair at the latest 10; the 11th drops the oldest", async () => {
+  // ⚠ REWRITTEN FOR spec-520 t-12, AND GATED ON AN AMENDMENT THAT IS NOT YET MADE.
+  //
+  // spec-398 ac-5 still reads "trim-on-write caps a pair at the latest 10; the 11th drops
+  // the oldest", and ac-6 reads "Retention is by COUNT not age". t-12 deletes the trim and
+  // replaces it with a time window, so both statements become false about the code.
+  //
+  // t-8 is explicit that the amendment lands BEFORE OR WITH the code change, so no spec-398
+  // criterion is ever left failing — and that no assertion is loosened or deleted without
+  // its criterion being amended first. The new text is drafted and waiting for the Spec's
+  // owner (spec-520 c-14); rewriting an acceptance criterion changes the definition of
+  // finished and is not an agent's call.
+  //
+  // So these assertions describe the NEW behaviour and the change they belong to MUST NOT
+  // MERGE until ac-5 and ac-6 carry their new text. Between those two events the criteria
+  // would read green off tests proving the opposite of what they say, which is precisely
+  // the drift this system exists to prevent.
+  //
+  // ac-4 keeps its tag and needs no new text: it describes the ONE-TIME rewrite-and-swap of
+  // migration 0111, which happened and stays historically true. Its old test asserted the
+  // steady-state trim instead — a tagging defect, also flagged in c-14.
+
+  it("ac-5: an emission issues no DELETE — the 11th run does not evict the oldest", async () => {
     tagAc(`${AC}/ac-5`);
     const subjectRef = ref(1);
     const tid = "tests/a.test.ts::it";
-    // Simulate the route's insert-then-trim, 11 times, ascending timestamps.
     const oldest = new Date("2026-01-01T00:00:00Z");
-    for (let i = 0; i < 11; i++) {
-      const createdAt = new Date(oldest.getTime() + i * 60_000);
-      await insertRaw(subjectRef, tid, [createdAt]);
-      await trimTestEventsForPair(db, subjectRef, tid);
-    }
-    expect(await countFor(subjectRef, tid)).toBe(RETENTION_KEEP);
-    // The oldest (i=0) must be gone; the newest survives.
+    const stamps = Array.from({ length: 11 }, (_, i) => new Date(oldest.getTime() + i * 60_000));
+    await insertRaw(subjectRef, tid, stamps);
+
+    // Under the trim this was exactly 10, forever, however many ran. The write path now
+    // deletes nothing; rows leave only when an aged-out partition is dropped.
+    expect(await countFor(subjectRef, tid)).toBe(11);
     const survivors = await db
       .select({ createdAt: testEvents.createdAt })
       .from(testEvents)
       .where(eq(testEvents.subjectRef, subjectRef));
-    const times = survivors.map((s) => s.createdAt.getTime()).sort((a, b) => a - b);
-    expect(times[0]).toBe(oldest.getTime() + 1 * 60_000); // i=1 is now the oldest kept
-    expect(times).not.toContain(oldest.getTime());
+    const times = survivors.map((sv) => sv.createdAt.getTime()).sort((a, b) => a - b);
+    // The oldest row is the one the trim used to take first. It survives.
+    expect(times[0]).toBe(oldest.getTime());
   });
 
-  it("ac-4 / ac-6: keep the latest 10 by COUNT regardless of age (the rewrite-and-swap invariant)", async () => {
-    tagAc(`${AC}/ac-4`);
+  it("ac-6: retention is by AGE not count — a busy pair keeps everything inside the window", async () => {
     tagAc(`${AC}/ac-6`);
     const subjectRef = ref(2);
     const tid = "tests/b.test.ts::it";
-    // 15 rows: 5 spread across months (old by calendar), 10 packed into one minute
-    // (recent). Keep-last-10 must keep the 10 RECENT ones and drop the 5 old ones,
-    // proving COUNT (not age) is the axis.
-    const old5 = [0, 1, 2, 3, 4].map(
-      (m) => new Date(Date.UTC(2025, m, 1, 0, 0, 0)),
-    );
-    const recent10 = Array.from(
-      { length: 10 },
-      (_, i) => new Date(Date.UTC(2026, 5, 24, 12, 0, i)),
-    );
-    await insertRaw(subjectRef, tid, [...old5, ...recent10]);
-    await trimTestEventsForPair(db, subjectRef, tid);
-    expect(await countFor(subjectRef, tid)).toBe(10);
-    const survivors = await db
-      .select({ createdAt: testEvents.createdAt })
-      .from(testEvents)
-      .where(eq(testEvents.subjectRef, subjectRef));
-    // None of the 5 calendar-old rows survive; all survivors are the recent batch.
-    for (const s of survivors) {
-      expect(s.createdAt.getUTCFullYear()).toBe(2026);
-    }
+    // The old criterion's own example, inverted: "a pair with 50 runs inside one day keeps
+    // exactly its latest 10" becomes "keeps all 50". Fifty runs packed into one minute is
+    // the shape a busy AC actually has, and it is the shape the count cap punished hardest
+    // — which is why the history charts saw 4.5% of what happened.
+    const burst = Array.from({ length: 50 }, (_, i) => new Date(Date.UTC(2026, 5, 24, 12, 0, i)));
+    await insertRaw(subjectRef, tid, burst);
+
+    expect(await countFor(subjectRef, tid)).toBe(50);
   });
 
   it("ac-7: pruning test_events never reduces test_event_latest.run_count", async () => {
@@ -162,9 +165,15 @@ describe("spec-398 retention + tenancy", () => {
         and(eq(testEventLatest.subjectRef, subjectRef), eq(testEventLatest.testIdentifier, tid)),
       );
     expect(before.runCount).toBe(12);
-    // Now prune the log to 10.
-    await trimTestEventsForPair(db, subjectRef, tid);
-    expect(await countFor(subjectRef, tid)).toBe(10);
+    // Now lose the raw rows. Under spec-520 t-12 this happens when an aged-out partition
+    // is DROPPED, not by a per-pair trim — but the claim ac-7 makes is about the
+    // CONSEQUENCE, not the mechanism: run_count is the incremental all-time counter and
+    // losing log rows must never reduce it. A direct delete reproduces exactly the state a
+    // partition drop leaves behind, without needing the test to own a partition.
+    await db
+      .delete(testEvents)
+      .where(and(eq(testEvents.subjectRef, subjectRef), eq(testEvents.testIdentifier, tid)));
+    expect(await countFor(subjectRef, tid)).toBe(0);
     const [after] = await db
       .select({ runCount: testEventLatest.runCount })
       .from(testEventLatest)
@@ -193,11 +202,15 @@ describe("spec-398 retention + tenancy", () => {
       .limit(1);
     expect(tel.memexId).toBe(memexId);
     // first-verified snapshot recorded too.
-    await recordFirstVerified(db, subjectRef, new Date(Date.UTC(2026, 0, 1)));
+    // spec-520 dec-7 option C: the snapshot now carries the tenant too, so the writer takes
+    // the memexId. The assertion below gains a tenancy check for the same reason the row
+    // gained the column — this table used to be scoped purely by ref string.
+    await recordFirstVerified(db, subjectRef, new Date(Date.UTC(2026, 0, 1)), memexId);
     const [fv] = await db
-      .select({ at: acFirstVerified.firstVerifiedAt })
+      .select({ at: acFirstVerified.firstVerifiedAt, memexId: acFirstVerified.memexId })
       .from(acFirstVerified)
       .where(eq(acFirstVerified.subjectRef, subjectRef));
+    expect(fv!.memexId).toBe(memexId);
     expect(fv).toBeDefined();
   });
 
@@ -226,7 +239,14 @@ describe("spec-398 retention + tenancy", () => {
         createdAt: new Date(Date.UTC(2026, 5, 24, 12, 0, i)),
       });
     }
-    await trimTestEventsForPair(db, subjectRef, tid); // prune log to 10
+    // Same substitution as in ac-7: the raw rows go, standing in for a dropped partition.
+    // ac-8's claim — verification reads test_event_latest, so a dormant test still surfaces
+    // its last known status rather than a false "untested" — is about surviving the LOSS,
+    // whatever removed the rows. Under a time window this case stops being hypothetical:
+    // measured on prod 2026-08-30, 81% of pairs hold no row inside three days.
+    await db
+      .delete(testEvents)
+      .where(and(eq(testEvents.subjectRef, subjectRef), eq(testEvents.testIdentifier, tid)));
     const [tel] = await db
       .select({
         testIdentifier: testEventLatest.testIdentifier,
@@ -278,7 +298,24 @@ describe("spec-398 retention + tenancy", () => {
       `)) as unknown as Array<Record<string, string>>;
       return plan.map((r) => Object.values(r)[0]).join("\n");
     });
-    expect(planText).toContain("test_events_memex_id_created_at_idx");
+    // ⚠ ASSERTS THE PROPERTY, NOT AN INDEX NAME. ac-11 says the plan "shows an index-driven
+    // access path with no full sequential scan of test_events" — it names no index. The
+    // original assertion matched on `test_events_memex_id_created_at_idx` literally, which
+    // broke the moment spec-520 t-12 partitioned the table: the plan now reaches each
+    // PARTITION through that partition's own copy of the index
+    // (test_events_20260831_memex_id_created_at_idx, and the legacy one under its renamed
+    // name). Nothing regressed; the assertion was over-specified.
+    const testEventScans = planText
+      .split("\n")
+      .filter((line) => /test_events/.test(line));
+    expect(testEventScans.length).toBeGreaterThan(0);
+    // Every access to test_events (parent or any partition) is an index scan.
+    for (const line of testEventScans) {
+      expect(line, `sequential scan of test_events in the plan:\n${planText}`).not.toMatch(
+        /Seq Scan on test_events/,
+      );
+    }
+    expect(planText).toMatch(/Index (Only )?Scan using test_events\w*_memex/);
   });
 
   it("ac-12 / ac-3: activity_view returns the same test_event entries, tenant-scoped to its memex", async () => {
