@@ -26,6 +26,14 @@ import { ensureUserNamespace } from "../services/user-namespaces.js";
 
 const AC_TENANCY = "mindset-prod/memex-building-itself/specs/spec-520/acs/ac-37";
 
+// spec-520 ac-23 is the COMPOSITE statement of what dec-7 actually delivered, so it is
+// tagged from BOTH halves — the tenancy work here and the throttle in
+// first-verified-throttle.integration.test.ts. Tagging it from either alone would flip it
+// green on half its claim, which is exactly the mistake ac-24/ac-25 made earlier in this
+// Spec and why ac-35/ac-36 had to be split out of them.
+const AC_DEC7 = "mindset-prod/memex-building-itself/specs/spec-520/acs/ac-23";
+
+
 const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 let memexId: string;
 let userId: string;
@@ -73,6 +81,7 @@ afterAll(async () => {
 describe("spec-520 ac-37: ac_first_verified is isolated, and its reader still sees its own rows", () => {
   it("a write from the emission path satisfies the policy", async () => {
     tagAc(AC_TENANCY);
+    tagAc(AC_DEC7);
     // The WRITE half. Under memex_app this INSERT's WITH CHECK is evaluated for real; the
     // emission route runs inside runWithMemexId (issue-8), which is what makes it satisfiable.
     await runWithMemexId(memexId, async () =>
@@ -91,6 +100,7 @@ describe("spec-520 ac-37: ac_first_verified is isolated, and its reader still se
 
   it("THE READ WORKS under the restricted role — acsOverTime still counts the first pass", async () => {
     tagAc(AC_TENANCY);
+    tagAc(AC_DEC7);
 
     // THE assertion this file exists for. If the reader were not ALS-wrapped, this would
     // return a curve of zeroes rather than throw — the silent shape. A non-zero verified
@@ -102,6 +112,7 @@ describe("spec-520 ac-37: ac_first_verified is isolated, and its reader still se
 
   it("another tenant sees none of it", async () => {
     tagAc(AC_TENANCY);
+    tagAc(AC_DEC7);
     // Reads under a foreign tenant rather than with NO context: with app.memex_id unset the
     // policy's ::uuid cast can be evaluated before the guarding IS NOT NULL conjunct — SQL
     // does not promise AND short-circuits — and the query errors instead of returning empty.
@@ -117,8 +128,30 @@ describe("spec-520 ac-37: ac_first_verified is isolated, and its reader still se
     expect(leaked).toEqual([]);
   });
 
+  it("keeps memex_id NULLABLE, so a ref with no surviving summary row kept its date", async () => {
+    tagAc(AC_TENANCY);
+    tagAc(AC_DEC7);
+    // ac_first_verified exists BECAUSE retention destroyed the first-green date once
+    // already. Migration 0136 backfilled memex_id from test_event_latest — but a ref whose
+    // summary row is gone (a discontinued AC, a deleted Spec) has nothing to resolve from.
+    // Making the column NOT NULL would have forced those rows to be deleted or the
+    // migration to fail, and deleting them would be the same loss happening a second time,
+    // this time on purpose.
+    //
+    // Under the policy a NULL matches no tenant, so the row is invisible to the product and
+    // visible to the owner role; the writer heals it on that ref's next emission. This
+    // asserts the column stayed nullable — the schema fact the choice rests on.
+    const [col] = (await db.execute(sql`
+      SELECT is_nullable::text AS is_nullable
+      FROM information_schema.columns
+      WHERE table_name = 'ac_first_verified' AND column_name = 'memex_id'
+    `)) as unknown as Array<{ is_nullable: string }>;
+    expect(col.is_nullable).toBe("YES");
+  });
+
   it("the policy is ENABLEd and NOT FORCEd", async () => {
     tagAc(AC_TENANCY);
+    tagAc(AC_DEC7);
     // std-36: FORCE would apply RLS to the table OWNER too, and on Cloud SQL the deploy role
     // is not a superuser and lacks BYPASSRLS — every migration against this table would then
     // be filtered to nothing. 0081 shipped FORCE and 0093 had to undo it.
