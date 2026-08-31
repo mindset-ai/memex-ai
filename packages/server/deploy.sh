@@ -277,8 +277,19 @@ DB_URL="postgresql://${DB_USER}:${DB_PASS_ENC}@localhost:${PROXY_PORT}/${DB_NAME
 
 # Runtime credentials for Cloud Run (spec-199 t-14). Migrations ALWAYS use the
 # superuser path (DB_USER/DB_PASS) — RUNTIME_DB_* is the restricted memex_app
-# role that RLS enforces on. Defaults to DB_USER/DB_PASS until t-14 is rolled
-# out per environment via RUNTIME_DB_USER/RUNTIME_DB_PASS in the deploy-env secret.
+# role that RLS enforces on.
+#
+# ⚠ THE ROLLOUT HAS HAPPENED. This comment used to end "Defaults to DB_USER/DB_PASS until
+# t-14 is rolled out per environment", which read as if the cutover were still pending.
+# Verified 2026-08-31: BOTH memex-int-deploy-env and memex-prod-deploy-env set
+# RUNTIME_DB_USER=memex_app, so the fallback below never fires in either environment and
+# spec-199 t-14's acceptance criteria hold.
+#
+# The stale wording cost real time: it was read as evidence that the request path still ran
+# as the owner, and that conclusion was repeated into a migration comment, a test, and a
+# Spec record before anyone checked the secret. The fallback stays as a safety net for a
+# NEW environment whose secret has not been populated yet — not as a description of int or
+# prod.
 RUNTIME_DB_USER="${RUNTIME_DB_USER:-$DB_USER}"
 RUNTIME_DB_PASS="${RUNTIME_DB_PASS:-$DB_PASS}"
 RUNTIME_DB_PASS_ENC=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "${RUNTIME_DB_PASS}")

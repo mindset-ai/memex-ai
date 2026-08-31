@@ -9,16 +9,25 @@
 // by Postgres, so a maintenance path that accidentally ran in-process would fail loudly
 // rather than quietly delete a day of emissions.
 //
-// It does NOT prove production is wired that way today, and it cannot. deploy.sh currently
+// It does NOT prove production is wired that way today, and this file cannot. deploy.sh
 // reads:
 //
-//     RUNTIME_DB_USER="${RUNTIME_DB_USER:-$DB_USER}"
+//     RUNTIME_DB_USER="${RUNTIME_DB_USER:-$DB_USER}"   # deploy.sh:282
 //
-// — the runtime role DEFAULTS TO THE OWNER until t-14 rolls the split out per environment.
-// So in production right now the request path's role IS the owner and could drop a
-// partition. That is a fact about sequencing, not a gap in this task: t-14 exists to close
-// it, and the environment-level proof belongs there. Recorded on t-12 rather than left to
-// look like missing coverage.
+// — the runtime role FALLS BACK TO THE OWNER when the deploy-env secret sets no
+// RUNTIME_DB_USER. Whether it does is an environment fact this repo cannot see.
+//
+// ⚠ AND THE RECORD IS AMBIGUOUS ON THAT POINT. deploy.sh attributes the rollout to
+// spec-199 t-14, which is marked COMPLETE on a Spec that is `done`, with acceptance
+// criteria asserting Cloud Run INT *and* PROD use memex_app credentials. Either the secret
+// sets RUNTIME_DB_USER and the fallback never fires — in which case this comment in
+// deploy.sh is simply stale — or the cutover did not happen and a closed Spec is claiming
+// something untrue of production. Those are very different situations and only reading the
+// deployed service settles it. Raised on spec-520 t-12 rather than assumed either way.
+//
+// (An earlier version of this comment attributed the rollout to spec-520's own t-14. That
+// was wrong: spec-520 t-14 is the release-gating task — e2e, smoke, post-deploy emission
+// verification. The runtime-role cutover is spec-199's.)
 
 import { describe, it, expect } from "vitest";
 import { sql } from "drizzle-orm";
