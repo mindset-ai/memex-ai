@@ -76,6 +76,13 @@ describe("spec-358: no migration un-hides, deletes, or rewrites historical test_
       // re-hides, or recomputes it — spec-358's hidden-integrity invariant holds
       // (the retention drop is a separate, deliberate concern, not a hidden mutation).
       "0111_test_events_retention_and_memex_id.sql",
+      // spec-520 t-12: the partitioning swap declares `hidden` in the new parent table's
+      // column list. It is a STRUCTURAL reference only, and a stronger case than 0111's:
+      // where 0111 copied each surviving row's hidden value into a new table, this
+      // migration copies nothing at all — the existing table is ATTACHed as the first
+      // partition, so every historical row is physically the same row it always was and
+      // its hidden value is not read, written, or recomputed.
+      "0142_spec520_partition_test_events.sql",
     ]);
   });
 });

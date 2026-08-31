@@ -1,0 +1,49 @@
+-- spec-520 t-12 — OUT OF BAND. An OPTIMISATION for production, not a prerequisite.
+--
+-- ⚠ THIS FILE IS DELIBERATELY OUTSIDE THE MIGRATION RUNNER. apply-hand-migrations.mjs
+-- wraps every file in one transaction, and CREATE INDEX CONCURRENTLY cannot run inside a
+-- transaction block. Same posture as 0138. The runner's readdirSync is non-recursive, so a
+-- file in out-of-band/ is never picked up automatically.
+--
+-- ⚠ 0142 DOES NOT DEPEND ON THIS FILE. It creates the same index itself with IF NOT
+-- EXISTS, because every fresh database — each per-worker test DB, the e2e cold-template
+-- build, a new dev machine — applies migrations through a runner that never sees
+-- out-of-band/. Running this file first is what keeps PRODUCTION's build out of the
+-- exclusive window; skipping it does not break anything, it just makes the window as long
+-- as the index build.
+--
+-- WHY IT EXISTS. 0142 converts test_events into a partitioned table by ATTACHing the
+-- existing table as its first partition. A partitioned parent whose PRIMARY KEY is
+-- (id, created_at) requires each partition to carry an equivalent unique index. The
+-- existing PK is on (id) alone, so a new one has to be built — and building it inside the
+-- migration would hold ACCESS EXCLUSIVE for the length of the build on the hottest table
+-- in the system.
+--
+-- Built CONCURRENTLY here, it blocks no writes at all. 0142 then adopts it with
+-- ADD PRIMARY KEY USING INDEX, which is a catalogue operation.
+--
+-- MEASURED (local pg16, 2026-08-30, 1.4M rows — production scale): with this index already
+-- in place, 0142's entire exclusive window is ~150 ms. Without it, the build lands inside
+-- that window. For comparison, spec-398's migration 0111 held ACCESS EXCLUSIVE for ~80 s
+-- to copy 1.9M rows, and deadlocked a prod deploy on its first attempt (std-39 cl-9).
+--
+-- ⚠ 150 ms VERSUS 80 s IS NOT A TIDINESS ARGUMENT. The AC emitter has a 5 s client timeout
+-- and NEVER retries (std-48): a blocked emission is not delayed, it is DROPPED, silently,
+-- with only a warning in the CI log. At the measured ~31 events/s, an 80 s window discards
+-- roughly 2,500 emissions and the ACs they carried keep a stale verdict. A 150 ms window
+-- discards none.
+--
+-- RUN IT LIKE THIS (int first, then prod), with the deploy proxy up:
+--
+--     psql "$DB_URL" -f packages/server/drizzle/out-of-band/0141_spec520_test_events_partition_prep.sql
+--
+-- THEN CONFIRM IT IS VALID before deploying 0142. A CONCURRENTLY build that fails leaves an
+-- INVALID index behind, which 0142 would happily adopt as a primary key that enforces
+-- nothing:
+--
+--     SELECT indisvalid FROM pg_index WHERE indexrelid = 'test_events_id_created_at_key'::regclass;
+--
+-- If it returns false: DROP INDEX test_events_id_created_at_key; and run this file again.
+
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS test_events_id_created_at_key
+  ON test_events (id, created_at);
