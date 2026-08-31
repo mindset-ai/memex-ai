@@ -32,6 +32,14 @@ import { makeTestMemex } from "./test-helpers.js";
 
 const AC_THROTTLE = "mindset-prod/memex-building-itself/specs/spec-520/acs/ac-34";
 
+// spec-520 ac-23 is the COMPOSITE statement of what dec-7 actually delivered, so it is
+// tagged from BOTH halves — the tenancy work here and the throttle in
+// first-verified-throttle.integration.test.ts. Tagging it from either alone would flip it
+// green on half its claim, which is exactly the mistake ac-24/ac-25 made earlier in this
+// Spec and why ac-35/ac-36 had to be split out of them.
+const AC_DEC7 = "mindset-prod/memex-building-itself/specs/spec-520/acs/ac-23";
+
+
 const RUN = `spec520-d-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
 // spec-520 dec-7 option C: ac_first_verified now carries memex_id, so the writer needs a
 // real tenant. Under the default OWNER connection RLS is bypassed (std-36: ENABLE, never
@@ -73,6 +81,7 @@ afterAll(async () => {
 describe("spec-520 ac-34: first-verified is written once, not on every passing event", () => {
   it("writes on the first pass", async () => {
     tagAc(AC_THROTTLE);
+    tagAc(AC_DEC7);
     const ref = refFor("first");
     expect(await readRow(ref)).toBeNull();
 
@@ -84,6 +93,7 @@ describe("spec-520 ac-34: first-verified is written once, not on every passing e
 
   it("does NOT rewrite the row for a LATER pass — same value AND same row version", async () => {
     tagAc(AC_THROTTLE);
+    tagAc(AC_DEC7);
     const ref = refFor("later");
     await recordFirstVerified(db, ref, new Date("2026-08-20T10:00:00.000Z"), memexId);
     const before = await readRow(ref);
@@ -100,6 +110,7 @@ describe("spec-520 ac-34: first-verified is written once, not on every passing e
 
   it("does NOT rewrite the row for an IDENTICAL timestamp either", async () => {
     tagAc(AC_THROTTLE);
+    tagAc(AC_DEC7);
     const ref = refFor("equal");
     const at = new Date("2026-08-20T10:00:00.000Z");
     await recordFirstVerified(db, ref, at, memexId);
@@ -112,6 +123,7 @@ describe("spec-520 ac-34: first-verified is written once, not on every passing e
 
   it("STILL writes for a genuinely EARLIER pass — LEAST-wins survives the throttle", async () => {
     tagAc(AC_THROTTLE);
+    tagAc(AC_DEC7);
     const ref = refFor("earlier");
     await recordFirstVerified(db, ref, new Date("2026-08-20T10:00:00.000Z"), memexId);
     const before = await readRow(ref);
@@ -127,6 +139,7 @@ describe("spec-520 ac-34: first-verified is written once, not on every passing e
 
   it("touches only the ref it was given", async () => {
     tagAc(AC_THROTTLE);
+    tagAc(AC_DEC7);
     const target = refFor("target");
     const bystander = refFor("bystander");
     await recordFirstVerified(db, bystander, new Date("2026-08-20T10:00:00.000Z"), memexId);
