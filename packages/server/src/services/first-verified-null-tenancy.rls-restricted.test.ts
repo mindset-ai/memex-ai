@@ -19,7 +19,7 @@
 // that RLS applies to — so the owner-role suite could not see it either. This file runs
 // under the restricted role AND seeds the broken shape deliberately.
 
-import { describe, it, expect, afterAll, beforeAll } from "vitest";
+import { describe, it, expect, afterAll } from "vitest";
 import { sql } from "drizzle-orm";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { db } from "../db/connection.js";
