@@ -55,6 +55,11 @@ const AC_CHARTS = "mindset-prod/memex-building-itself/specs/spec-520/acs/ac-35";
 // other was blocked, and it stays as the narrower statement.
 const AC_BOTH_CHARTS = "mindset-prod/memex-building-itself/specs/spec-520/acs/ac-24";
 const AC_LATEST = "mindset-prod/memex-building-itself/specs/spec-520/acs/ac-36";
+// ac-25 names BOTH consumers — auditCiEmissionForBrief AND verifyingAcIsGreen. Only one
+// could move at a time (dec-8 blocked the other), which is why ac-36 and ac-38 were split
+// out of it. Both are now green, so ac-25 is true as written and is tagged from BOTH
+// halves rather than either alone — the same discipline ac-24 was held to.
+const AC_BOTH_CONSUMERS = "mindset-prod/memex-building-itself/specs/spec-520/acs/ac-25";
 
 let memexId: string;
 let userId: string;
@@ -145,6 +150,7 @@ describe("spec-520 ac-24: testRunVolume reads the rollup, not the raw log", () =
 describe("spec-520 ac-25: the auto-resolve gate reads test_event_latest, not the raw log", () => {
   it("resolves a converted Issue from the SUMMARY alone, with the raw log empty", async () => {
     tagAc(AC_LATEST);
+    tagAc(AC_BOTH_CONSUMERS);
 
     const built = await runWithMemexId(memexId, async () => {
       const doc = await createDocDraft(memexId, `t11 gate ${process.pid}`, "", "spec");
@@ -191,6 +197,7 @@ describe("spec-520 ac-25: the auto-resolve gate reads test_event_latest, not the
 
   it("still refuses when the summary's latest is a FAIL", async () => {
     tagAc(AC_LATEST);
+    tagAc(AC_BOTH_CONSUMERS);
 
     const built = await runWithMemexId(memexId, async () => {
       const doc = await createDocDraft(memexId, `t11 gate red ${process.pid}`, "", "spec");

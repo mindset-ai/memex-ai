@@ -14,6 +14,11 @@ import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 
 const AC_OUT_OF_BAND = "mindset-prod/memex-building-itself/specs/spec-520/acs/ac-39";
+// ac-9 says the same thing ac-39 does — the (memex_id, subject_ref) index is built with
+// CREATE INDEX CONCURRENTLY outside the transactional runner. ac-39 was authored later
+// with the fuller reasoning; ac-9 is its earlier, terser statement. One guard proves both,
+// so both are tagged rather than leaving a true criterion reading as untested.
+const AC_CONCURRENT_INDEX = "mindset-prod/memex-building-itself/specs/spec-520/acs/ac-9";
 import { tagAc } from "@memex-ai-ac/vitest";
 
 const drizzleDir = resolve(import.meta.dirname, "../../drizzle");
@@ -21,6 +26,7 @@ const drizzleDir = resolve(import.meta.dirname, "../../drizzle");
 describe("spec-520 ac-39: out-of-band index builds stay out of the transactional runner", () => {
   it("no migration the runner picks up contains CREATE INDEX CONCURRENTLY", () => {
     tagAc(AC_OUT_OF_BAND);
+    tagAc(AC_CONCURRENT_INDEX);
     // Exactly the runner's own glob: readdirSync (non-recursive) filtered to .sql.
     const applied = readdirSync(drizzleDir).filter((f) => f.endsWith(".sql"));
     const offenders = applied.filter((f) => {
@@ -40,6 +46,7 @@ describe("spec-520 ac-39: out-of-band index builds stay out of the transactional
 
   it("the runner's directory read is NOT recursive, so out-of-band/ stays invisible", () => {
     tagAc(AC_OUT_OF_BAND);
+    tagAc(AC_CONCURRENT_INDEX);
     const runner = readFileSync(
       resolve(import.meta.dirname, "../../scripts/apply-hand-migrations.mjs"),
       "utf8",
@@ -52,6 +59,7 @@ describe("spec-520 ac-39: out-of-band index builds stay out of the transactional
 
   it("the out-of-band file exists and carries its apply + verify instructions", () => {
     tagAc(AC_OUT_OF_BAND);
+    tagAc(AC_CONCURRENT_INDEX);
     // A statement nobody knows how to run is not a migration, it is a note. The file has to
     // say how to apply it AND how to confirm the build did not leave an INVALID index —
     // invalid means never used by the planner but still maintained on every write.
