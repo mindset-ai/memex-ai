@@ -102,3 +102,50 @@ describe("spec-545: code-style arbitrates placement, not only typing (ac-7)", ()
     expect(descriptionOf("code-style")).toMatch(/inside a file|within a file/i);
   });
 });
+
+// The 16 slugs as they stand. Pinned as a LITERAL on purpose: derived from the fixture
+// this assertion would be a tautology that passes through any rename.
+const PINNED_KEYS = [
+  "test-coverage",
+  "e2e-testing",
+  "post-deploy-smoke",
+  "deploy-release",
+  "security",
+  "architecture",
+  "code-style",
+  "db-migrations",
+  "api-design",
+  "observability",
+  "performance",
+  "accessibility",
+  "ci-pr-process",
+  "documentation",
+  "dependencies",
+  "feature-flags",
+] as const;
+
+describe("spec-545: the reword changes wording only, never the key contract (ac-9)", () => {
+  it("still defines exactly the pinned 16 keys, in order", () => {
+    tagAc(AC(9));
+    // WHY THIS IS THE SHARPEST GUARD IN THE SPEC. Keys are the ballot contract:
+    // `taskFacetBallots.vocabularyKeys` stores them, every persisted `verdict` map is
+    // keyed on them, and `validateBallot` decides completeness by comparing against
+    // them. Adding, removing or renaming one invalidates ballots already in the
+    // database — while every wording assertion above keeps passing, because the prose
+    // would still read correctly. Nothing else in this Spec would notice.
+    expect(DEFAULT_FACETS.map((f) => f.key)).toEqual([...PINNED_KEYS]);
+  });
+
+  it("holds the vocabulary at 16 entries", () => {
+    tagAc(AC(9));
+    expect(DEFAULT_FACETS).toHaveLength(16);
+  });
+
+  it("gives every entry a non-empty name and description", () => {
+    tagAc(AC(9));
+    // A blank description is the one way to break the ballot rubric without tripping
+    // any pattern-based guard: the agent is simply handed a slug and no criterion.
+    const blank = DEFAULT_FACETS.filter((f) => !f.name.trim() || !f.description.trim()).map((f) => f.key);
+    expect(blank, `facets with a blank name or description: ${blank.join(", ")}`).toEqual([]);
+  });
+});
