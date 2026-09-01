@@ -393,7 +393,13 @@ describe("ac-2 — the archived Spec's own ref returns a stub, not its content",
     // handle, title, archived-at, actor, phase-at-archive, reason
     expect(stub).toContain(archivedRef);
     expect(stub).toContain("Parked work with decisions an agent must not read");
-    expect(stub).toMatch(/ARCHIVED \d{1,2} \w{3} \d{4}/);
+    // ⚠ {3,4} AND NOT {3} — DO NOT "TIDY" THIS BACK.
+    // `en-GB` with month:'short' renders SEPTEMBER as "Sept" — four letters. Every other
+    // month is three: Jan Feb Mar Apr May Jun Jul Aug **Sept** Oct Nov Dec. A \w{3} match
+    // therefore fails for the whole month of September, every year, and passes the other
+    // eleven. It broke every PR in the repo at midnight on 2026-09-01 with the same commit
+    // that had been green all August.
+    expect(stub).toMatch(/ARCHIVED \d{1,2} \w{3,4} \d{4}/);
     expect(stub).toContain("phase at archive:");
     expect(stub).toContain(ARCHIVE_REASON);
     // The archiving actor resolved from the threaded ctx, denormalised at write.
