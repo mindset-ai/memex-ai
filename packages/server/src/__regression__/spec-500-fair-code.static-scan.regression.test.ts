@@ -4,11 +4,16 @@
 // regression guard that every file spec-500 introduced/edited stays fair-code:
 // none is EE-marked. If a future edit moves any of them across the license line,
 // this fails loudly and names the file.
+//
+// The marker predicate itself lives in ./licence-marker.ts — spec-545 became its second
+// consumer, and one definition of "which licence does this file ship under" is worth
+// more than two copies that can drift.
 
 import { describe, it, expect } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { eeMarkedAmong } from "./licence-marker.js";
 
 const AC_FAIR_CODE = "mindset-prod/memex-building-itself/specs/spec-500/acs/ac-15";
 
@@ -33,13 +38,6 @@ const SPEC_500_FILES = [
   "packages/ui/e2e/journey-65-spec-500-explore-memex.spec.ts",
 ];
 
-function isEeMarked(repoRelPath: string): boolean {
-  const base = repoRelPath.split("/").pop() ?? "";
-  const dirs = repoRelPath.split("/").slice(0, -1);
-  // `.ee.` filename marker OR `.ee` as any directory segment.
-  return base.includes(".ee.") || dirs.includes(".ee");
-}
-
 describe("spec-500 is fair-code — no EE markers (ac-15)", () => {
   it("every spec-500 file exists and carries no .ee. / .ee marker", () => {
     tagAc(AC_FAIR_CODE);
@@ -47,7 +45,7 @@ describe("spec-500 is fair-code — no EE markers (ac-15)", () => {
     const missing = SPEC_500_FILES.filter((f) => !existsSync(join(REPO_ROOT, f)));
     expect(missing, `spec-500 files not found (path drift?): ${missing.join(", ")}`).toEqual([]);
 
-    const eeMarked = SPEC_500_FILES.filter(isEeMarked);
+    const eeMarked = eeMarkedAmong(SPEC_500_FILES);
     expect(eeMarked, `spec-500 files must stay fair-code, but these are EE-marked: ${eeMarked.join(", ")}`).toEqual([]);
   });
 });
