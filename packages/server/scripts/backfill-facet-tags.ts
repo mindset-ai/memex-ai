@@ -18,6 +18,15 @@
 // add_clause hard-fail landed). Run this ONCE per memex just before the Phase 2 deploy
 // serves, so no clause is left silently unclassified.
 //
+// ⚠ THE DEFAULT IS LOAD-BEARING (spec-545 ac-4 / ac-10). Without `--gap-only` this
+// re-classifies EVERY clause in the memex against the CURRENT facet descriptions —
+// tagClause deletes then re-inserts — so a bare run after a description is reworded
+// silently re-tags the whole corpus under the new wording. spec-545 changed the
+// `architecture` and `code-style` descriptions on that understanding and forbids a
+// non-gap-only run; a regression guard pins this default so that warning cannot go
+// stale (src/__regression__/facet-backfill-gap-only-default.spec-545.regression.test.ts).
+// If you deliberately flip the default, revise spec-545's Operations lens too.
+//
 // Usage:
 //   pnpm --filter @memex/server tsx scripts/backfill-facet-tags.ts <memexId> [--gap-only]
 
