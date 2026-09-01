@@ -57,13 +57,13 @@ export const DEFAULT_FACETS: readonly DefaultFacet[] = [
     key: "architecture",
     name: "Architecture",
     description:
-      "System and module structure, boundaries, and design patterns — how components are separated and how they communicate. Governs a clause about where logic belongs or how pieces fit together. Distinct from code-style, which is about local conventions (naming, formatting, typing) rather than structural decomposition.",
+      "System and module structure, boundaries, and design patterns — how components are separated and how they communicate. Everyday work counts: creating a new module or file, adding to what a module exposes to its callers, or moving code from one place to another. Governs a clause about where logic belongs or how pieces fit together. Distinct from code-style, which is about local conventions (naming, formatting, typing) rather than structural decomposition.",
   },
   {
     key: "code-style",
     name: "Code style",
     description:
-      "Local code conventions: naming, formatting, lint rules, typing idioms, and file organization. Governs a clause prescribing how code is written at the line or file level. On a typing rule, prefer code-style unless the rule is really about module boundaries — then it is architecture.",
+      "Local code conventions: naming, formatting, lint rules, typing idioms, and how code is laid out inside a file. Governs a clause prescribing how code is written at the line or file level. Where a rule is about structure or placement — what a module offers its callers, where logic lives, or which file something belongs in — prefer architecture; code-style keeps only how code is written inside a file.",
   },
   {
     key: "db-migrations",

@@ -495,7 +495,11 @@ export interface TestSignalPulse {
 }
 
 const PULSE_DEFAULT_WINDOW_MIN = 60;
-const PULSE_MAX_WINDOW_MIN = 240;
+// Exported so the retention window can be checked against it (spec-520 ac-14). The Pulse
+// reads raw test_events, so a retention window shorter than this bound would silently give
+// it a partial answer — a sparkline that flattens toward its left edge for no visible
+// reason. The relationship is asserted in test-events-window-fits.regression.test.ts.
+export const PULSE_MAX_WINDOW_MIN = 240;
 
 /**
  * "Are test signals flowing right now?" — minute-bucketed emission volume over a

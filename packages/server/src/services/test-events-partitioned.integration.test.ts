@@ -24,6 +24,11 @@ import { makeTestMemex, seedTestEvent } from "./test-helpers.js";
 import { PARTITION_HORIZON_DAYS, TEST_EVENTS_RETENTION_DAYS, partitionNameFor } from "./test-event-retention.js";
 
 const AC_PARTITIONED = "mindset-prod/memex-building-itself/specs/spec-520/acs/ac-13";
+// ac-12 states the narrower half of ac-13 as its own criterion: "an emission issues no
+// DELETE against test_events — trimTestEventsForPair and RETENTION_KEEP no longer exist in
+// the codebase". Both halves are proven below, so it is tagged from exactly the two tests
+// that prove them rather than left untested beside the criterion that subsumes it.
+const AC_NO_DELETE = "mindset-prod/memex-building-itself/specs/spec-520/acs/ac-12";
 
 let memexId: string;
 let namespaceSlug: string;
@@ -145,6 +150,7 @@ describe("spec-520 ac-13: the table is partitioned by time", () => {
 describe("spec-520 ac-13: an emission deletes nothing", () => {
   it("keeps every emission for a pair — the 11th no longer evicts the oldest", async () => {
     tagAc(AC_PARTITIONED);
+    tagAc(AC_NO_DELETE);
     const ref = await seedAc("no trim");
     const base = Date.now() - 20 * 60_000;
     for (let i = 0; i < 15; i++) {
@@ -165,6 +171,7 @@ describe("spec-520 ac-13: an emission deletes nothing", () => {
 
   it("exports no per-pair trim to call any more", async () => {
     tagAc(AC_PARTITIONED);
+    tagAc(AC_NO_DELETE);
     const mod = await import("./test-event-retention.js");
     // A leftover export is an invitation to reintroduce the 13.4%: the emission path used
     // to call it, and a future edit restoring that call would be a one-line regression with
