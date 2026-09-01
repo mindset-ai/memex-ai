@@ -75,7 +75,7 @@
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
     "google-auth-library": "^10.7.0",
-    "hono": "^4.12.25",
+    "hono": "^4.12.34",
     "js-yaml": "^4.1.0",
     "openai": "^6.42.0",
     "postgres": "^3.4.5",
