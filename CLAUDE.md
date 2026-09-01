@@ -65,6 +65,7 @@ mcp__memex__get_doc({ref: "mindset-prod/memex-building-itself/standards/std-N"})
 | std-40 | Plugins are the Claude-Code delivery vehicle — one plugin, one concern. Covers hooks (std-41), a bundled MCP server, or slash commands; excludes the `memex-ai` CLI credential installer. |
 | std-41 | Hooks make capability a side effect of work you already do — use them sparingly, never for correctness. Six tests gate whether a hook is the right tool; correctness/security/mutation work belongs on the server (std-8). |
 | std-42 | Desktop client (memex-clients) releases follow one runbook — signing on BOTH platforms, notarization, auto-update, and per-channel distribution. An unsigned build is a CI artifact only, never published. |
+| std-51 | Module shape — a small interface over a lot of behaviour, tested through that interface. Prefer depth (leverage at the interface, not line count); export nothing without a caller outside the module; a single-consumer symbol belongs in that consumer; apply the deletion test before introducing a module; a seam needs two adapters, not one; never widen exports so a test can reach inside; `shared`/`utils`/`misc` are not module names. Fixes the design vocabulary (module / interface / seam / adapter / depth). Advisory by design — it guides, it does not gate: no check blocks a merge on it; it reaches an agent through facet routing on create_task/resolve_decision and through this index. |
 <!-- END generated: standards-index -->
 
 If a Standard contradicts the code, the Standard is probably right and the code has drifted — flag it.
