@@ -32,6 +32,11 @@ import { seedTestEvent } from "./test-helpers.js";
 import { makeTestMemex } from "./test-helpers.js";
 
 const AC_PROVENANCE = "mindset-prod/memex-building-itself/specs/spec-520/acs/ac-38";
+// ac-25 names BOTH consumers — auditCiEmissionForBrief AND verifyingAcIsGreen. Only one
+// could move at a time (dec-8 blocked the other), which is why ac-36 and ac-38 were split
+// out of it. Both are now green, so ac-25 is true as written and is tagged from BOTH
+// halves rather than either alone — the same discipline ac-24 was held to.
+const AC_BOTH_CONSUMERS = "mindset-prod/memex-building-itself/specs/spec-520/acs/ac-25";
 
 let memexId: string;
 let namespaceSlug: string;
@@ -85,6 +90,7 @@ afterAll(async () => {
 describe("spec-520 ac-38: CI provenance comes from the summary", () => {
   it("flags a verified AC whose latest emission carries NO CI marker", async () => {
     tagAc(AC_PROVENANCE);
+    tagAc(AC_BOTH_CONSUMERS);
     const { docId, ref } = await specWithVerifiedAc("local", 1);
     await seedTestEvent({ subjectRef: ref, status: "pass", testIdentifier: "s::t" });
 
@@ -98,6 +104,7 @@ describe("spec-520 ac-38: CI provenance comes from the summary", () => {
 
   it("does NOT flag one whose latest emission carries a run id", async () => {
     tagAc(AC_PROVENANCE);
+    tagAc(AC_BOTH_CONSUMERS);
     const { docId, ref } = await specWithVerifiedAc("ci", 1);
     await seedTestEvent({ subjectRef: ref, status: "pass", testIdentifier: "s::t" });
 
@@ -114,6 +121,7 @@ describe("spec-520 ac-38: CI provenance comes from the summary", () => {
 
   it("does NOT flag one whose run id rides in metadata instead", async () => {
     tagAc(AC_PROVENANCE);
+    tagAc(AC_BOTH_CONSUMERS);
     const { docId, ref } = await specWithVerifiedAc("ci-md", 1);
     await seedTestEvent({ subjectRef: ref, status: "pass", testIdentifier: "s::t" });
 
@@ -133,6 +141,7 @@ describe("spec-520 ac-38: CI provenance comes from the summary", () => {
 
   it("treats a row with NO RECORDED PROVENANCE as unknown and does NOT flag it", async () => {
     tagAc(AC_PROVENANCE);
+    tagAc(AC_BOTH_CONSUMERS);
     const { docId, ref } = await specWithVerifiedAc("pre-0137", 1);
     await seedTestEvent({ subjectRef: ref, status: "pass", testIdentifier: "s::t" });
 
@@ -152,6 +161,7 @@ describe("spec-520 ac-38: CI provenance comes from the summary", () => {
 
   it("answers without the raw log — the row t-12's retention window will delete", async () => {
     tagAc(AC_PROVENANCE);
+    tagAc(AC_BOTH_CONSUMERS);
     const { docId, ref } = await specWithVerifiedAc("no-raw", 1);
     await seedTestEvent({ subjectRef: ref, status: "pass", testIdentifier: "s::t" });
 
