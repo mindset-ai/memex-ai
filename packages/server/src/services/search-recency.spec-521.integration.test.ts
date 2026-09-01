@@ -210,7 +210,16 @@ describe("ac-9 — every hit states how old its content is", () => {
     // The shared timeAgo() vocabulary: "just now", "Nm/h/d/w ago", or an absolute
     // date past ~8 weeks. Whichever it is, it must be human-readable prose and never
     // a raw ISO timestamp — that is the ac-9 requirement, not a particular unit.
-    expect(heading).toMatch(/(resolved|updated) (just now|\d+[mhdw] ago|\d{1,2} \w{3} \d{4})/);
+    // ⚠ {3,4} AND NOT {3} — DO NOT "TIDY" THIS BACK.
+    // `en-GB` with month:'short' renders SEPTEMBER as "Sept" — four letters. Every other
+    // month is three: Jan Feb Mar Apr May Jun Jul Aug **Sept** Oct Nov Dec. A \w{3} match
+    // therefore fails for the whole month of September, every year, and passes the other
+    // eleven. It broke every PR in the repo at midnight on 2026-09-01 with the same commit
+    // that had been green all August.
+    // Latent here rather than firing today: the alternation usually takes the
+    // relative-date branch, so this one only breaks when the absolute branch is
+    // reached in September. Fixed with the others so it cannot surface later.
+    expect(heading).toMatch(/(resolved|updated) (just now|\d+[mhdw] ago|\d{1,2} \w{3,4} \d{4})/);
     expect(heading).not.toMatch(/\d{4}-\d{2}-\d{2}T/);
   });
 });

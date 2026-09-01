@@ -311,7 +311,13 @@ describe("ac-7 — every read of a superseded Spec leads with the pointer", () =
     expect(out).toContain("SUPERSEDED BY");
     expect(out).toContain(succ.handle);
     expect(out).toContain(NOTE);
-    expect(out).toMatch(/\d{1,2} \w{3} \d{4}/);
+    // ⚠ {3,4} AND NOT {3} — DO NOT "TIDY" THIS BACK.
+    // `en-GB` with month:'short' renders SEPTEMBER as "Sept" — four letters. Every other
+    // month is three: Jan Feb Mar Apr May Jun Jul Aug **Sept** Oct Nov Dec. A \w{3} match
+    // therefore fails for the whole month of September, every year, and passes the other
+    // eleven. It broke every PR in the repo at midnight on 2026-09-01 with the same commit
+    // that had been green all August.
+    expect(out).toMatch(/\d{1,2} \w{3,4} \d{4}/);
   });
 
   it("get_doc STILL SERVES the content — a superseded Spec is history, not a secret", async () => {
