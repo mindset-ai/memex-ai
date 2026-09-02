@@ -45,8 +45,10 @@ jobs:
       contents: write # commit the regenerated index to the PR branch
       pull-requests: write # open / update the rolling PR
     steps:
+      # Pinned to an immutable SHA, not the mutable `@v4` tag — see the note in
+      # .github/actions/standards-index/action.yml.
       - name: Check out
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Sync the index and open a PR if it moved
         uses: ./.github/actions/standards-index

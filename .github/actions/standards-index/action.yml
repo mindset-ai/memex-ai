@@ -41,8 +41,14 @@ inputs:
 runs:
   using: composite
   steps:
+    # Third-party actions are pinned to an immutable commit SHA, not a mutable
+    # tag: `@v4` is a moving pointer, so whoever controls the tag controls what
+    # runs here. The repo's older workflows still use tags and are grandfathered
+    # by the Semgrep ratchet (security.yml scans diff-aware, so legacy debt is
+    # burned down separately) — new files clear the bar rather than widen it.
+    # Comment names the version the SHA is, or nobody can read the diff later.
     - name: Set up Node
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
       with:
         node-version: "22"
 
