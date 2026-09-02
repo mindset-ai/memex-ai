@@ -58,8 +58,20 @@ runs:
         # layout move fails in memex-ai's own suite rather than here at 3am.
         SCRIPT="$GITHUB_ACTION_PATH/../../../scripts/ci/standards-index.mjs"
         test -f "$SCRIPT" || { echo "::error::generator not found at $SCRIPT"; exit 1; }
-        # --root is the CALLER's checkout, not the action's.
-        node "$SCRIPT" --sync --repo "$REPO_NAME" --root "$GITHUB_WORKSPACE"
+
+        # TWO roots, and they are different things (dec-7):
+        #   --root     the repo being generated FOR — the caller's checkout.
+        #   --curation where the curated "Covers" prose lives — memex-ai, which is
+        #              THIS action's own checkout. It has one home; a caller reads
+        #              it and writes no manifest of its own.
+        # For memex-ai's own caller these resolve to the same tree, and the
+        # generator then behaves exactly as it does from the Makefile.
+        CURATION="$GITHUB_ACTION_PATH/../../.."
+        test -f "$CURATION/standards.manifest.json" || {
+          echo "::error::curated manifest not found at $CURATION — dec-7 expects it in memex-ai"; exit 1; }
+
+        node "$SCRIPT" --sync --repo "$REPO_NAME" \
+          --root "$GITHUB_WORKSPACE" --curation "$CURATION"
 
     - name: Open a PR if the index moved
       shell: bash
@@ -70,7 +82,16 @@ runs:
         REPO_NAME: ${{ inputs.repo }}
       run: |
         set -euo pipefail
-        if git diff --quiet -- CLAUDE.md standards.manifest.json; then
+
+        # The manifest is OPTIONAL: only the repo that owns the curation has one
+        # (dec-7). A pathspec naming a file git has never seen is an error, not an
+        # empty diff, so the path list is built from what actually exists.
+        PATHS=(CLAUDE.md)
+        if git ls-files --error-unmatch standards.manifest.json >/dev/null 2>&1; then
+          PATHS+=(standards.manifest.json)
+        fi
+
+        if git diff --quiet -- "${PATHS[@]}"; then
           echo "✓ index already current — nothing to open"
           exit 0
         fi
@@ -78,7 +99,7 @@ runs:
         git config user.name "memex-standards-bot"
         git config user.email "noreply@memex.ai"
         git checkout -B "$BRANCH"
-        git add CLAUDE.md standards.manifest.json
+        git add -- "${PATHS[@]}"
 
         # Heredocs, not `-m "…"` / `--body "…"`: a multi-line string written
         # inline in YAML carries this file's indentation into the real commit

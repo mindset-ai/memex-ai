@@ -308,7 +308,13 @@ function parseArgs(argv) {
         `  Check: ${SELF}`,
     );
   }
-  return { mode, repo, root: flag("--root") ?? ROOT };
+  const root = flag("--root") ?? ROOT;
+  // dec-7: the curated "Covers" prose has ONE home. `--root` is the repo being
+  // generated FOR; `--curation` is where the curated manifest lives. Same
+  // directory for the repo that owns its curation (memex-ai); different for every
+  // other caller, whose run reads memex-ai's manifest out of the action's own
+  // checkout and writes no manifest of its own.
+  return { mode, repo, root, curation: flag("--curation") ?? root };
 }
 
 function loadManifest(manifestPath) {
@@ -328,16 +334,40 @@ function loadManifest(manifestPath) {
 
 /** `--sync`: the ONLY mode that touches the network. Fetch the live list, plan,
  *  write the manifest, then fall through to `write` so the index follows. */
-async function sync({ repo, root }) {
-  const { manifest: manifestPath } = paths(root);
+async function sync({ repo, root, curation }) {
+  const { manifest: manifestPath } = paths(curation);
   const live = await fetchLiveStandards();
-  // The manifest may not exist yet (memex-clients has none) — an absent file is a
-  // first run, not an error. A PRESENT but zero-standard file still refuses, via
-  // loadManifest, because that is corruption rather than a cold start.
+  // An absent manifest is a first run, not an error. A PRESENT but zero-standard
+  // file still refuses, via loadManifest — that is corruption, not a cold start.
   let curated = [];
   if (existsSync(manifestPath)) curated = loadManifest(manifestPath);
 
   const { standards, seeded } = planIndex({ live, manifest: curated, repo });
+
+  // dec-7: only the repo that OWNS the curation persists it. Elsewhere the
+  // manifest we just read lives in the action's ephemeral checkout, so writing
+  // there would be worse than pointless — the seeded summary would vanish with
+  // the runner, and every run would re-seed and re-report the same placeholder
+  // forever, while a second copy of the prose accumulated in another repo.
+  const ownsCuration = curation === root;
+  if (!ownsCuration) {
+    process.stdout.write(
+      `✓ live: ${standards.length} · curation read from ${manifestPath} ` +
+        `(not written — this repo does not own it, dec-7)\n`,
+    );
+    if (seeded.length > 0) {
+      process.stdout.write(
+        `  ${seeded.length} of them have no curated summary yet and render their ` +
+          `live title: ${seeded.join(", ")}\n` +
+          `  Curate them in memex-ai's standards.manifest.json — that is the one home.\n`,
+      );
+    }
+    // Hand the PLAN back rather than letting main() re-read the manifest: that
+    // file belongs to another repo and does not carry the un-curated handles, so
+    // re-reading it here would silently drop them from this repo's index — the
+    // exact class of absence this Spec exists to end.
+    return { standards };
+  }
 
   writeFileSync(
     manifestPath,
@@ -366,19 +396,20 @@ async function sync({ repo, root }) {
         `  advisory, not a failure (spec-544 dec-3).\n\n`,
     );
   }
-  return 0;
+  return { standards };
 }
 
 async function main(argv) {
-  const { mode, repo, root } = parseArgs(argv);
-  const { claudeMd, manifest: manifestPath } = paths(root);
+  const { mode, repo, root, curation } = parseArgs(argv);
+  // CLAUDE.md is read and written in the repo being generated FOR; the curated
+  // manifest is read from wherever curation lives (dec-7).
+  const { claudeMd } = paths(root);
+  const { manifest: manifestPath } = paths(curation);
 
-  if (mode === "sync") {
-    const code = await sync({ repo, root });
-    if (code !== 0) return code;
-  }
-
-  const standards = loadManifest(manifestPath);
+  // In sync mode the plan IS the source — it carries the handles the curated
+  // manifest has not seen yet. Re-reading the manifest would drop them.
+  const planned = mode === "sync" ? await sync({ repo, root, curation }) : null;
+  const standards = planned ? planned.standards : loadManifest(manifestPath);
   const current = readFileSync(claudeMd, "utf8");
   const next = applyRegions(current, renderForRepo(standards, repo));
   // What THIS repo's index should contain — not the whole Memex (dec-2).
