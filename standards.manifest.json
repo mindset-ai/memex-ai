@@ -265,7 +265,9 @@
     {
       "handle": "std-37",
       "summary": "Test fixtures are isolated under parallel execution — per-worker-unique identifiers, poll for async writes, restore global stubs.",
-      "repos": []
+      "repos": [
+        "memex-ai"
+      ]
     },
     {
       "handle": "std-38",
@@ -284,12 +286,16 @@
     {
       "handle": "std-40",
       "summary": "Plugins are the Claude-Code delivery vehicle — one plugin, one concern. Covers hooks (std-41), a bundled MCP server, or slash commands; excludes the `memex-ai` CLI credential installer.",
-      "repos": []
+      "repos": [
+        "memex-ai"
+      ]
     },
     {
       "handle": "std-41",
       "summary": "Hooks make capability a side effect of work you already do — use them sparingly, never for correctness. Six tests gate whether a hook is the right tool; correctness/security/mutation work belongs on the server (std-8).",
-      "repos": []
+      "repos": [
+        "memex-ai"
+      ]
     },
     {
       "handle": "std-42",
@@ -365,7 +371,10 @@
     {
       "handle": "std-52",
       "summary": "A defect's cause is claimed only after a command goes red on it — the loop comes before the theory",
-      "repos": []
+      "repos": [
+        "memex-ai",
+        "memex-clients"
+      ]
     }
   ]
 }
