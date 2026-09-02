@@ -14,6 +14,23 @@ export function renderTable(standards: StandardEntry[]): string;
 /** The repositories this Memex is the system of record for (spec-544 dec-1). */
 export const REPOS: string[];
 
+/** The honest lead-in rendered inside every generated block (spec-544 ac-16). */
+export const INDEX_LEAD_IN: string;
+
+/** The unauthenticated live-list URL — one constant, because BOTH repos are
+ *  governed by the same Memex. */
+export const LIVE_STANDARDS_URL: string;
+
+/** Read the live Standard list. Unauthenticated by design: the Memex is public,
+ *  and attaching a credential would couple a public read to an expiring secret.
+ *  Throws on a non-2xx; leaves array/empty validation to `planIndex`. */
+export function fetchLiveStandards(url?: string): Promise<unknown>;
+
+/** Render one repo's table, failing open: an entry with no `repos` binds every
+ *  repo. Shared by `planIndex` (live) and the offline check/write path
+ *  (manifest) so the two can never disagree. */
+export function renderForRepo(entries: PlannedEntry[], repo: string): string;
+
 /** A Standard as the live list returns it under `?type=standard&include=tags`. */
 export interface LiveStandard {
   handle: string;

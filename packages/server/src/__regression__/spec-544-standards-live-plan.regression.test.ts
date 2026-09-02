@@ -186,6 +186,26 @@ describe("spec-544: per-repo filtering FAILS OPEN", () => {
     expect(clientsTable, "std-51 binds both repos").toMatch(/\|\s*std-51\s*\|/);
   });
 
+  it("the rendered block says what it contains, and never 'matches Memex' (ac-16)", () => {
+    tagAc(AC(16));
+
+    const { table } = planIndex({ live: rows, manifest, repo: CLIENTS });
+
+    // Under filtering, "matches Memex" is simply false. The index must say what it
+    // IS — the Standards binding THIS repo — and name the way to see all of them,
+    // or a reader takes a filtered table for the whole rulebook.
+    expect(
+      table,
+      "The generated block must claim only what it delivers.",
+    ).not.toMatch(/matches Memex/i);
+    expect(table).toMatch(/bind this repo|binding this repo/i);
+    expect(
+      table,
+      "A filtered index has to tell the reader where the rest are, or the narrowing " +
+        "reads as the complete set.",
+    ).toMatch(/search_memex/);
+  });
+
   it("the manifest keeps EVERY Standard regardless of repo (ac-15)", () => {
     tagAc(AC(15));
 

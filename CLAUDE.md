@@ -21,6 +21,8 @@ mcp__memex__get_doc({ref: "mindset-prod/memex-building-itself/standards/std-N"})
 ## Standards index
 
 <!-- BEGIN generated: standards-index -->
+_The Standards that bind this repo. The Memex holds more — `search_memex({ memex: 'mindset-prod/memex-building-itself', kind: 'standard' })` lists every one._
+
 | Standard | Covers |
 |---|---|
 | std-1 | Namespace / org / memex are three distinct concepts — plus user-facing vocabulary and handle conventions (`b-N` / `doc-N` / `std-N` / `s-N` / `dec-N` / `t-N` / `c-N`). |
@@ -65,6 +67,14 @@ mcp__memex__get_doc({ref: "mindset-prod/memex-building-itself/standards/std-N"})
 | std-40 | Plugins are the Claude-Code delivery vehicle — one plugin, one concern. Covers hooks (std-41), a bundled MCP server, or slash commands; excludes the `memex-ai` CLI credential installer. |
 | std-41 | Hooks make capability a side effect of work you already do — use them sparingly, never for correctness. Six tests gate whether a hook is the right tool; correctness/security/mutation work belongs on the server (std-8). |
 | std-42 | Desktop client (memex-clients) releases follow one runbook — signing on BOTH platforms, notarization, auto-update, and per-channel distribution. An unsigned build is a CI artifact only, never published. |
+| std-43 | [REVERTED — abandoned, safe to archive/delete] Per-user-private tenant tables |
+| std-44 | Flutter clients run through fvm, ship desktop-only, and are not done until analyze and test both run clean |
+| std-45 | A claim about what the user sees is verified by mounting the widget — controller tests do not count |
+| std-46 | A live pty in a Flutter tree is never disturbed — no widget-type swaps, no size-enforcing boxes, no reflow without an explicit resize |
+| std-47 | macOS desktop input: modifiers may only ADD a path, and an ancestor Listener cannot decline |
+| std-48 | Dart has no Memex emission helper — memex-clients tags ACs with a hand-rolled acTest and a short-lived per-Spec key |
+| std-49 | A colour that spans repositories is read from what ships, never sampled from a screenshot |
+| std-50 | A value one component depends on and another owns is read, declared, or refused — never defaulted in silence |
 | std-51 | Module shape — a small interface over a lot of behaviour, tested through that interface. Prefer depth (leverage at the interface, not line count); export nothing without a caller outside the module; a single-consumer symbol belongs in that consumer; apply the deletion test before introducing a module; a seam needs two adapters, not one; never widen exports so a test can reach inside; `shared`/`utils`/`misc` are not module names. Fixes the design vocabulary (module / interface / seam / adapter / depth). Advisory by design — it guides, it does not gate: no check blocks a merge on it; it reaches an agent through facet routing on create_task/resolve_decision and through this index. |
 <!-- END generated: standards-index -->
 
@@ -107,7 +117,8 @@ Each rule below has a check. Break one and the check tells you what to run — y
 
 | Rule | Check | Fix |
 |---|---|---|
-| The standards index above matches Memex | `make standards-check` (in `make check`) | `make standards-gen` |
+| The standards index above lists every Standard binding THIS repo | `make standards-check` (in `make check`, offline) | `make standards-gen` |
+| A Standard approved in Memex reaches this repo's index | the standards-drift job (`push` to develop + nightly) opens a PR | `make standards-sync` |
 | Your e2e run can't silently test another workspace's code | `scripts/ci/e2e-preflight.mjs` (auto, via `make e2e`/`e2e-cold`) | it prints the exact command |
 | Two worktrees don't collide on ports or databases | `make prove-concurrent` | — |
 | UI types are really checked (`tsc -b`, not the no-op `--noEmit`) | `make typecheck`, pinned by `spec-512-workspace-isolation` | — |

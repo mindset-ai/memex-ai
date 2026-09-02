@@ -309,15 +309,17 @@ help:
 
 ## Fail if the CLAUDE.md standards index has drifted from the manifest.
 standards-check:
-	@node scripts/ci/standards-index.mjs --check
+	@node scripts/ci/standards-index.mjs --check --repo memex-ai
 
 ## Regenerate the CLAUDE.md standards index from standards.manifest.json.
 standards-gen:
-	@node scripts/ci/standards-index.mjs --write
+	@node scripts/ci/standards-index.mjs --write --repo memex-ai
 
-## Refresh the manifest FROM Memex (online — an agent runs search_memex and
-## rewrites standards.manifest.json), then regenerate. Deliberately not part of
-## `make check`: the offline lane must never need the network.
+## Refresh the manifest from the LIVE Standard list, then regenerate the index
+## (spec-544 dec-3). Online, and deliberately NOT part of `make check` — the
+## offline lane must never need the network. Needs no credential: the Memex is
+## public, so this is a plain unauthenticated GET. A Standard the manifest has
+## never seen is SEEDED from its live title and reported as a placeholder; the
+## rule becomes visible immediately rather than waiting on prose.
 standards-sync:
-	@echo "Refresh standards.manifest.json from Memex, then run: make standards-gen"
-	@echo "  search_memex({ memex: 'mindset-prod/memex-building-itself', kind: 'standard' })"
+	@node scripts/ci/standards-index.mjs --sync --repo memex-ai
