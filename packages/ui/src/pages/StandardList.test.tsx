@@ -82,7 +82,12 @@ describe('StandardList', () => {
     );
 
     await screen.findByText(/No standards yet/i);
-    expect(fetchDocsMock).toHaveBeenCalledWith('standard', { include: ['driftCount'] });
+    // spec-544 dec-5 added `tags` to the SAME include, so attribution rides this
+    // request rather than a second one. The property this test guards is the
+    // round-trip count, not the exact token list — and it still holds.
+    expect(fetchDocsMock).toHaveBeenCalledWith('standard', {
+      include: ['driftCount', 'tags'],
+    });
     // Critically: only ONE call. Confirms the N+1 fan-out is gone.
     expect(fetchDocsMock).toHaveBeenCalledTimes(1);
   });
