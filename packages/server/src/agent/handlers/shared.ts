@@ -135,7 +135,7 @@ export interface ResolvedRef {
  * owns every WORD. New event shapes get a new variant here — never prose in a
  * handler.
  */
-export type FooterSignal =
+type FooterSignal =
   | {
       kind: "decision_resolved";
       decRef: string;
@@ -354,7 +354,7 @@ export function buildNudgeOrgBlocksGetter(
 // carry `title`, `readOnlyHint`, and `destructiveHint`. Misclassifying a
 // destructive tool as readOnly means Claude calls it without confirmation, so
 // these are kept verbatim in `__regression__/tools-annotations.regression.test.ts`.
-export interface ToolAnnotations {
+interface ToolAnnotations {
   /** Human-readable display name shown in tool pickers. */
   title: string;
   /** True if the tool does not modify any state. */
@@ -419,7 +419,7 @@ export const COMPLETION_NUDGE =
 // Helpers
 // ══════════════════════════════════════
 
-export interface FullDocState {
+interface FullDocState {
   doc: Awaited<ReturnType<typeof getDoc>>;
   // spec-445 dec-2 — each decision/task carries its stored true facet keys, surfaced on
   // the read (get_doc) as context.
@@ -627,7 +627,7 @@ export async function formatState(
  * Best-effort: never throws — a guidance-policy failure must not cost the tool
  * its result.
  */
-export interface GuidanceEnvelope {
+interface GuidanceEnvelope {
   header?: string;
   footer?: string;
 }
@@ -648,7 +648,7 @@ export interface GuidanceEnvelope {
  * per-tool steers (create_doc's scope-AC push, resolve_decision's impl-AC push,
  * …) into this one map; this is the seam they land on.
  */
-export const STEER_BY_TOOL: Partial<Record<string, (phase: Phase) => string | undefined>> = {
+const STEER_BY_TOOL: Partial<Record<string, (phase: Phase) => string | undefined>> = {
   // After editing a section while shaping the plan, the surgical next move is to
   // keep the narrative honest against the decisions. No other surface says this
   // per-tool, and update_section parks no slot nugget — so no echo.
@@ -664,7 +664,7 @@ export const STEER_BY_TOOL: Partial<Record<string, (phase: Phase) => string | un
  * handler slot). This is the single read of the transition map (ac-5: the
  * per-tool nudge notion has exactly one author, the seat).
  */
-export function composeToolSteer(toolName: string | undefined, phase: Phase): string | undefined {
+function composeToolSteer(toolName: string | undefined, phase: Phase): string | undefined {
   if (!toolName) return undefined;
   return STEER_BY_TOOL[toolName]?.(phase);
 }
@@ -817,7 +817,7 @@ export async function renderFooterSignal(
  * Returns undefined when neither applies, which is the overwhelmingly common case,
  * so an ordinary read pays one indexed lookup and gains no text.
  */
-export async function composeSupersessionHeader(
+async function composeSupersessionHeader(
   memexId: string,
   docId: string,
 ): Promise<string | undefined> {
@@ -1059,11 +1059,11 @@ export async function composeGuidanceEnvelope(
 // an ADVISORY collision line when another session is materially advancing the
 // spec (an AC delta, a phase move, or task churn by a DIFFERENT actor recently).
 // Advisory only — never blocks, never aborts; best-effort, never throws.
-export const ACTIVITY_RECENT_LIMIT = 8;
-export const MATERIAL_WINDOW_MS = 10 * 60 * 1000; // "recently" for the collision predicate
+const ACTIVITY_RECENT_LIMIT = 8;
+const MATERIAL_WINDOW_MS = 10 * 60 * 1000; // "recently" for the collision predicate
 // Kinds whose appearance is MATERIAL advancement (vs. a comment / read). A phase
 // move shows up as an activity_log status_changed row (kind 'activity_log').
-export const MATERIAL_KINDS: ReadonlySet<string> = new Set([
+const MATERIAL_KINDS: ReadonlySet<string> = new Set([
   "ac",
   "task",
   "decision",
@@ -1081,12 +1081,12 @@ export const MATERIAL_KINDS: ReadonlySet<string> = new Set([
 //
 // A resolved actor name that contains a raw UUID (an unattributed actor_raw,
 // say) is not a name — drop it so the caller falls back to "someone".
-export function sanitizeActorName(name: string | null): string | null {
+function sanitizeActorName(name: string | null): string | null {
   if (!name) return null;
   return containsUuid(name) ? null : name;
 }
 
-export function agoLabel(at: Date, now: number): string {
+function agoLabel(at: Date, now: number): string {
   const ms = Math.max(0, now - at.getTime());
   const mins = Math.round(ms / 60000);
   if (mins < 1) return "just now";
@@ -1174,7 +1174,7 @@ export async function craftActivityBlock(
  * test yet, named, with the methodology push. Returns null when there are none
  * (nothing worth saying → no footer). Best-effort; never throws.
  */
-export async function craftUntestedAcNag(
+async function craftUntestedAcNag(
   memexId: string,
   docId: string,
 ): Promise<string | null> {
@@ -1211,7 +1211,7 @@ export async function craftUntestedAcNag(
  *  point — the overview just needs to be emitted for them, on terse AND verbose.
  *  A named set so the surface is one edit to widen. Mutations are deliberately
  *  excluded: the overview is read-path only and never touches a mutation footer. */
-export const ORIENT_READ_TOOLS: ReadonlySet<string> = new Set([
+const ORIENT_READ_TOOLS: ReadonlySet<string> = new Set([
   "get_doc",
   "list_acs",
   "assess_spec",
@@ -1244,7 +1244,7 @@ export interface StatusFacts {
  * in any phase and outranks everything; then phase-shaped progression. When the
  * spec is done it offers no forward action.
  */
-export function statusNextAction(f: StatusFacts): string {
+function statusNextAction(f: StatusFacts): string {
   // spec-521 dec-5 (ac-7) — a superseded Spec's open decisions and incomplete tasks
   // STOP COUNTING AS COMMITMENTS. This short-circuits above the failing-AC rule
   // deliberately: even a red test on a superseded Spec is not work to pick up, and
@@ -1317,7 +1317,7 @@ export function composeStatusOverview(f: StatusFacts): string {
  * rather than costing the tool its result. Called ONLY from
  * composeGuidanceEnvelope (ac-6: the single seat).
  */
-export async function craftStatusOverview(
+async function craftStatusOverview(
   memexId: string,
   docId: string,
   state: FullDocState,
@@ -1474,7 +1474,7 @@ export function formatAcCoverageSummary(
  * verbose doc-state dump. Returns "" when the Spec has no ACs (no signal),
  * or when the doc isn't a Spec.
  */
-export async function formatCoverageHeader(
+async function formatCoverageHeader(
   memexId: string,
   briefId: string,
   docType: string,
@@ -1539,7 +1539,7 @@ export async function findNewlyUnblockedDependents(
 // the canonical ref + type + status + a 50-char content snippet. Per b-36 T-2
 // comments are path-addressable (`.../comments/c-N`), so the ref is the stable
 // reference an agent pastes back into a follow-up call.
-export const COMMENT_SNIPPET_LEN = 50;
+const COMMENT_SNIPPET_LEN = 50;
 
 export function formatTerseComment(
   c: {
@@ -1603,7 +1603,7 @@ export function formatDocCommentsTerse(
   return lines;
 }
 
-export function parseTypeFilter(value?: string | string[]): CommentType[] | undefined {
+function parseTypeFilter(value?: string | string[]): CommentType[] | undefined {
   if (value === undefined) return undefined;
   const list = Array.isArray(value) ? value : [value];
   const cleaned = list.flatMap((s) => s.split(",")).map((s) => s.trim()).filter(Boolean);
@@ -1662,8 +1662,8 @@ export function parseTypeFilter(value?: string | string[]): CommentType[] | unde
 //   - comment verbs (`update_comment`) expect kind === 'comment'.
 //   - `add_comment` / `list_comments` accept any of {section, decision, task}.
 
-export type DocLikeKind = "spec" | "doc" | "standard" | "execution-plan";
-export const DOC_LIKE_KINDS = new Set<DocLikeKind>(["spec", "doc", "standard", "execution-plan"]);
+type DocLikeKind = "spec" | "doc" | "standard" | "execution-plan";
+const DOC_LIKE_KINDS = new Set<DocLikeKind>(["spec", "doc", "standard", "execution-plan"]);
 
 export function isDocLikeKind(kind: ResolvedEntity["kind"]): kind is DocLikeKind {
   return DOC_LIKE_KINDS.has(kind as DocLikeKind);
@@ -1716,8 +1716,8 @@ export async function suggestActiveSpecsForIssue(
 // overlap — and, among those, we keep hits whose score is at least
 // RELATED_ISSUE_SCORE_RATIO of the top FTS-backed hit (a secondary trim that
 // drops far-weaker partial matches). Below the gate, nothing is appended.
-export const RELATED_ISSUE_SCORE_RATIO = 0.5;
-export const RELATED_ISSUE_LIMIT = 3;
+const RELATED_ISSUE_SCORE_RATIO = 0.5;
+const RELATED_ISSUE_LIMIT = 3;
 
 // Search Issues across the whole Memex (cross-Spec) for ones whose text overlaps
 // the decision, keeping only those above the relevance threshold. Exported so the
