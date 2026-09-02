@@ -364,7 +364,7 @@
     },
     {
       "handle": "std-52",
-      "summary": "A defect's cause is claimed only after a command goes red on it — the loop comes before the theory",
+      "summary": "A defect's cause is claimed only after a command goes red on it — the loop comes before the theory. Before claiming a cause or writing a fix for a reported defect, name ONE command that goes red on it, run it, and show its output: red-capable (asserts the symptom as reported, not \"it didn't error\"), deterministic (or a stated raised reproduction rate), fast, unattended. Then minimise until every remaining element is load-bearing, rank 3–5 falsifiable hypotheses before probing any, one variable per probe with tagged instrumentation, and write the regression test before the fix at a seam that reaches the real pattern (a missing seam IS the finding). The general form of std-45 / std-48; advisory by design like std-51.",
       "repos": []
     }
   ]
