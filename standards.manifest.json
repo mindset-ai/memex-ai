@@ -1,178 +1,371 @@
 {
   "//": "GENERATED-CONSUMED. The authoritative offline copy of the Memex standards index.",
-  "//refresh": "An agent refreshes this from Memex with: search_memex({kind:\"standard\"}) — then `make standards-gen` rewrites the CLAUDE.md table.",
+  "//refresh": "Refreshed from the LIVE Standard list by `--sync` (spec-544 dec-3) — no credential needed, the Memex is public. `repos` narrows a Standard to those repositories; ABSENT or empty means it binds every repo (fail-open, dec-2).",
   "standards": [
     {
       "handle": "std-1",
-      "summary": "Namespace / org / memex are three distinct concepts — plus user-facing vocabulary and handle conventions (`b-N` / `doc-N` / `std-N` / `s-N` / `dec-N` / `t-N` / `c-N`)."
+      "summary": "Namespace / org / memex are three distinct concepts — plus user-facing vocabulary and handle conventions (`b-N` / `doc-N` / `std-N` / `s-N` / `dec-N` / `t-N` / `c-N`).",
+      "repos": [
+        "memex-ai",
+        "memex-clients"
+      ]
     },
     {
       "handle": "std-2",
-      "summary": "Tenant routing is path-based on the apex domain — never subdomains."
+      "summary": "Tenant routing is path-based on the apex domain — never subdomains.",
+      "repos": [
+        "memex-ai"
+      ]
     },
     {
       "handle": "std-3",
-      "summary": "Namespace slug allocation (format, reserved list, rate limits, rename cooldown)."
+      "summary": "Namespace slug allocation (format, reserved list, rate limits, rename cooldown).",
+      "repos": [
+        "memex-ai"
+      ]
     },
     {
       "handle": "std-4",
-      "summary": "Org membership grants access to every Memex in the org (v1 access model)."
+      "summary": "Org membership grants access to every Memex in the org (v1 access model).",
+      "repos": [
+        "memex-ai"
+      ]
     },
     {
       "handle": "std-5",
-      "summary": "No silent namespace default — ambiguous MCP / middleware calls error."
+      "summary": "No silent namespace default — ambiguous MCP / middleware calls error.",
+      "repos": [
+        "memex-ai"
+      ]
     },
     {
       "handle": "std-6",
-      "summary": "Domain-based auto-join requires explicit user consent."
+      "summary": "Domain-based auto-join requires explicit user consent.",
+      "repos": [
+        "memex-ai"
+      ]
     },
     {
       "handle": "std-7",
-      "summary": "Unauthorized resource access returns 404, not 403."
+      "summary": "Unauthorized resource access returns 404, not 403.",
+      "repos": [
+        "memex-ai"
+      ]
     },
     {
       "handle": "std-8",
-      "summary": "Every mutation goes through `mutate()` and emits on the unified bus (real-time SSE)."
+      "summary": "Every mutation goes through `mutate()` and emits on the unified bus (real-time SSE).",
+      "repos": [
+        "memex-ai"
+      ]
     },
     {
       "handle": "std-9",
-      "summary": "Infrastructure: int + prod GCP projects (Cloud Run, Cloud SQL, buckets, secrets, DNS) + local development."
+      "summary": "Infrastructure: int + prod GCP projects (Cloud Run, Cloud SQL, buckets, secrets, DNS) + local development.",
+      "repos": [
+        "memex-ai"
+      ]
     },
     {
       "handle": "std-10",
-      "summary": "Canonical URL paths for Memex entities (the `ref` grammar)."
+      "summary": "Canonical URL paths for Memex entities (the `ref` grammar).",
+      "repos": [
+        "memex-ai"
+      ]
     },
     {
       "handle": "std-11",
-      "summary": "AI agent: direct Anthropic SDK on server, LangGraph in React UI."
+      "summary": "AI agent: direct Anthropic SDK on server, LangGraph in React UI.",
+      "repos": [
+        "memex-ai"
+      ]
     },
     {
       "handle": "std-12",
-      "summary": "Service architecture — bounded components and how they wire."
+      "summary": "Service architecture — bounded components and how they wire.",
+      "repos": [
+        "memex-ai"
+      ]
     },
     {
       "handle": "std-13",
-      "summary": "Native authentication: hand-rolled JWT + scrypt + auth_tokens + Postmark."
+      "summary": "Native authentication: hand-rolled JWT + scrypt + auth_tokens + Postmark.",
+      "repos": [
+        "memex-ai"
+      ]
     },
     {
       "handle": "std-14",
-      "summary": "Per-domain debug logging convention (`packages/server/.logs/<domain>.log`)."
+      "summary": "Per-domain debug logging convention (`packages/server/.logs/<domain>.log`).",
+      "repos": [
+        "memex-ai"
+      ]
     },
     {
       "handle": "std-15",
-      "summary": "Agent prompts live in `packages/server/src/agent/phases/` markdown, never inline in code."
+      "summary": "Agent prompts live in `packages/server/src/agent/phases/` markdown, never inline in code.",
+      "repos": [
+        "memex-ai"
+      ]
     },
     {
       "handle": "std-16",
-      "summary": "The coding-agent tool contract has one source — the `@memex/shared` manifest."
+      "summary": "The coding-agent tool contract has one source — the `@memex/shared` manifest.",
+      "repos": [
+        "memex-ai"
+      ]
     },
     {
       "handle": "std-17",
-      "summary": "Smoke tests are mandatory and run against live envs — int after every deploy, green before prod."
+      "summary": "Smoke tests are mandatory and run against live envs — int after every deploy, green before prod.",
+      "repos": [
+        "memex-ai"
+      ]
     },
     {
       "handle": "std-18",
-      "summary": "Spec anatomy — the lens set every Spec carries: core lenses (Overview, Design & UX, Architecture & Security) always present; adaptive lenses (Operations, …) added when the work earns them. Decisions and ACs are primitives, not prose sections."
+      "summary": "Spec anatomy — the lens set every Spec carries: core lenses (Overview, Design & UX, Architecture & Security) always present; adaptive lenses (Operations, …) added when the work earns them. Decisions and ACs are primitives, not prose sections.",
+      "repos": [
+        "memex-ai",
+        "memex-clients"
+      ]
     },
     {
       "handle": "std-19",
-      "summary": "Specs are SDD's canonical artifact — every unit of work is a Spec; \"Spec\" is the noun."
+      "summary": "Specs are SDD's canonical artifact — every unit of work is a Spec; \"Spec\" is the noun.",
+      "repos": [
+        "memex-ai",
+        "memex-clients"
+      ]
     },
     {
       "handle": "std-20",
-      "summary": "Spec-Driven Development — drift is the enemy; the Spec is a living node in a knowledge map."
+      "summary": "Spec-Driven Development — drift is the enemy; the Spec is a living node in a knowledge map.",
+      "repos": [
+        "memex-ai",
+        "memex-clients"
+      ]
     },
     {
       "handle": "std-21",
-      "summary": "Branch structure — `develop` integrates work; `main` is the production line (releases land as a **merge commit** via the develop→main PR — GitHub's PR surface can't fast-forward, cl-50; the content invariant is `git log develop..main --no-merges` empty, not SHA-identity; branch-bound deploy targets, main-only licence carve-out)."
+      "summary": "Branch structure — `develop` integrates work; `main` is the production line (releases land as a **merge commit** via the develop→main PR — GitHub's PR surface can't fast-forward, cl-50; the content invariant is `git log develop..main --no-merges` empty, not SHA-identity; branch-bound deploy targets, main-only licence carve-out).",
+      "repos": [
+        "memex-ai",
+        "memex-clients"
+      ]
     },
     {
       "handle": "std-22",
-      "summary": "Everything we ship runs against arbitrary codebases — portable artifacts (prompts, scaffold prose, Prompt Buttons, Init Prompts, in-repo tools) assume no language, framework, layout, file paths, or tooling."
+      "summary": "Everything we ship runs against arbitrary codebases — portable artifacts (prompts, scaffold prose, Prompt Buttons, Init Prompts, in-repo tools) assume no language, framework, layout, file paths, or tooling.",
+      "repos": [
+        "memex-ai",
+        "memex-clients"
+      ]
     },
     {
       "handle": "std-23",
-      "summary": "Prompt Buttons are the standard human→agent handoff — prompt prose lives in the Scaffold (`scaffold-data.ts`), never inline; copy-to-clipboard; Org-extensible (append-only)."
+      "summary": "Prompt Buttons are the standard human→agent handoff — prompt prose lives in the Scaffold (`scaffold-data.ts`), never inline; copy-to-clipboard; Org-extensible (append-only).",
+      "repos": [
+        "memex-ai"
+      ]
     },
     {
       "handle": "std-24",
-      "summary": "One version per shared library across the pnpm workspace, enforced by `pnpm.overrides` (today: vitest, `@vitest/coverage-v8`, `@types/node`, `react`/`react-dom`, `typescript`; plus security-floor pins `esbuild`/`form-data`/`protobufjs`). Exact pins in each package's devDependencies; new dep families added to the root overrides."
+      "summary": "One version per shared library across the pnpm workspace, enforced by `pnpm.overrides` (today: vitest, `@vitest/coverage-v8`, `@types/node`, `react`/`react-dom`, `typescript`; plus security-floor pins `esbuild`/`form-data`/`protobufjs`). Exact pins in each package's devDependencies; new dep families added to the root overrides.",
+      "repos": [
+        "memex-ai"
+      ]
     },
     {
       "handle": "std-25",
-      "summary": "Every Spec classifies its work as fair-code (open core) or EE — the licence boundary is decided per-Spec, up front, not retrofitted."
+      "summary": "Every Spec classifies its work as fair-code (open core) or EE — the licence boundary is decided per-Spec, up front, not retrofitted.",
+      "repos": [
+        "memex-ai",
+        "memex-clients"
+      ]
     },
     {
       "handle": "std-26",
-      "summary": "Deploying Memex follows one runbook — prerequisites, the int→prod sequence, and the gotchas that bite (the procedural sibling of std-9's topology)."
+      "summary": "Deploying Memex follows one runbook — prerequisites, the int→prod sequence, and the gotchas that bite (the procedural sibling of std-9's topology).",
+      "repos": [
+        "memex-ai"
+      ]
     },
     {
       "handle": "std-27",
-      "summary": "Charts & data-viz: one theme-aware palette + glass treatment — `useChartPalette()`/`insightsTheme` from `packages/ui/src/components/insights/theme.ts`, reserved hue semantics, translucent fills with crisp edges, integer count ticks, themed tooltips, noise excluded server-side."
+      "summary": "Charts & data-viz: one theme-aware palette + glass treatment — `useChartPalette()`/`insightsTheme` from `packages/ui/src/components/insights/theme.ts`, reserved hue semantics, translucent fills with crisp edges, integer count ticks, themed tooltips, noise excluded server-side.",
+      "repos": [
+        "memex-ai"
+      ]
     },
     {
       "handle": "std-28",
-      "summary": "PR-gate e2e journeys are mandatory — every change that adds/alters a user-facing flow adds or extends a Playwright journey in `packages/ui/e2e`; journey work is part of EVERY Spec's lifecycle (surfaced in plan, delivered in build, gating verify); run `make e2e-cold` before opening every PR; the suite runs per-PR against a cold DB and is a required check on develop + main; path-based nav, seed via the env-gated test surface (no raw SQL). The merge-side sibling of std-17's post-deploy smoke rule. Authoring a journey + local-run gotchas (cold-DB `PGPASSWORD`, stale `@memex/shared` build, browser install): [`packages/ui/e2e/README.md`](packages/ui/e2e/README.md)."
+      "summary": "PR-gate e2e journeys are mandatory — every change that adds/alters a user-facing flow adds or extends a Playwright journey in `packages/ui/e2e`; journey work is part of EVERY Spec's lifecycle (surfaced in plan, delivered in build, gating verify); run `make e2e-cold` before opening every PR; the suite runs per-PR against a cold DB and is a required check on develop + main; path-based nav, seed via the env-gated test surface (no raw SQL). The merge-side sibling of std-17's post-deploy smoke rule. Authoring a journey + local-run gotchas (cold-DB `PGPASSWORD`, stale `@memex/shared` build, browser install): [`packages/ui/e2e/README.md`](packages/ui/e2e/README.md).",
+      "repos": [
+        "memex-ai"
+      ]
     },
     {
       "handle": "std-29",
-      "summary": "Guide content (Specky) stays current with the UI it documents — drift flagged for retirement (spec-508 removed the voice guide + its content pipeline)."
+      "summary": "Guide content (Specky) stays current with the UI it documents — drift flagged for retirement (spec-508 removed the voice guide + its content pipeline).",
+      "repos": [
+        "memex-ai"
+      ]
     },
     {
       "handle": "std-30",
-      "summary": "All LLM access goes through the metering wrapper (`getAnthropicClient()` singleton) — the only sanctioned path; direct `new Anthropic(...)` construction is forbidden."
+      "summary": "All LLM access goes through the metering wrapper (`getAnthropicClient()` singleton) — the only sanctioned path; direct `new Anthropic(...)` construction is forbidden.",
+      "repos": [
+        "memex-ai"
+      ]
     },
     {
       "handle": "std-31",
-      "summary": "No real person or customer names in this public Memex (it builds itself in the open)."
+      "summary": "No real person or customer names in this public Memex (it builds itself in the open).",
+      "repos": [
+        "memex-ai",
+        "memex-clients"
+      ]
     },
     {
       "handle": "std-32",
-      "summary": "The activity contract — every activity-bearing table (`documents`/`acs`/`tasks`/`decisions`/`doc_sections`/`doc_comments`/`test_events`/`activity_log`) carries WHEN (`at`, the row's own timestamp) + WHO (`actor_user_id` + denormalised `actor_name`, stamped at write so a rename can't rewrite history) + HOW (`channel`) + WHAT-coarse (owning-spec ref); load-bearing fields are first-class columns, only decorative context lives in `metadata`/`payload`. Identity rides the explicit `RequestCtx` through `mutate()` (not AsyncLocalStorage); a missing channel is a visible defect, never a silent 'server'. The attribution sibling of std-8 (spec-122 dec-2)."
+      "summary": "The activity contract — every activity-bearing table (`documents`/`acs`/`tasks`/`decisions`/`doc_sections`/`doc_comments`/`test_events`/`activity_log`) carries WHEN (`at`, the row's own timestamp) + WHO (`actor_user_id` + denormalised `actor_name`, stamped at write so a rename can't rewrite history) + HOW (`channel`) + WHAT-coarse (owning-spec ref); load-bearing fields are first-class columns, only decorative context lives in `metadata`/`payload`. Identity rides the explicit `RequestCtx` through `mutate()` (not AsyncLocalStorage); a missing channel is a visible defect, never a silent 'server'. The attribution sibling of std-8 (spec-122 dec-2).",
+      "repos": [
+        "memex-ai"
+      ]
     },
     {
       "handle": "std-33",
-      "summary": "Embedding the guide SDK (Specky) — drift flagged for retirement (spec-508 deleted `packages/guide-sdk` and the /guide/v1 backend)."
+      "summary": "Embedding the guide SDK (Specky) — drift flagged for retirement (spec-508 deleted `packages/guide-sdk` and the /guide/v1 backend).",
+      "repos": [
+        "memex-ai"
+      ]
     },
     {
       "handle": "std-34",
-      "summary": "No human-facing surface instructs an MCP-only step — signal the web↔MCP capability boundary in copy (the honest-CTA rule)."
+      "summary": "No human-facing surface instructs an MCP-only step — signal the web↔MCP capability boundary in copy (the honest-CTA rule).",
+      "repos": [
+        "memex-ai"
+      ]
     },
     {
       "handle": "std-35",
-      "summary": "Usage events / Mixpanel — the metering + product-analytics event recipe."
+      "summary": "Usage events / Mixpanel — the metering + product-analytics event recipe.",
+      "repos": [
+        "memex-ai"
+      ]
     },
     {
       "handle": "std-36",
-      "summary": "Tenant RLS posture — `ENABLE` row-level security, never `FORCE`; `runWithMemexId` ALS sets `memex_id`; views are `security_invoker`."
+      "summary": "Tenant RLS posture — `ENABLE` row-level security, never `FORCE`; `runWithMemexId` ALS sets `memex_id`; views are `security_invoker`.",
+      "repos": [
+        "memex-ai"
+      ]
     },
     {
       "handle": "std-37",
-      "summary": "Test fixtures are isolated under parallel execution — per-worker-unique identifiers, poll for async writes, restore global stubs."
+      "summary": "Test fixtures are isolated under parallel execution — per-worker-unique identifiers, poll for async writes, restore global stubs.",
+      "repos": []
     },
     {
       "handle": "std-38",
-      "summary": "In-app agents share one contract — same visual shell (`ChatPanel`), Memex-wide grounding, narrow per-mode authoring scope enforced server-side by a `MODE_TOOLS` allow-list, copyable handoff on refusal."
+      "summary": "In-app agents share one contract — same visual shell (`ChatPanel`), Memex-wide grounding, narrow per-mode authoring scope enforced server-side by a `MODE_TOOLS` allow-list, copyable handoff on refusal.",
+      "repos": [
+        "memex-ai"
+      ]
     },
     {
       "handle": "std-39",
-      "summary": "Database hygiene — every DB interaction is reasoned about for cost, locks, and growth, not just correctness. Covers migrations, handlers, MCP tools, relays, cron, and the React UI's query/polling patterns."
+      "summary": "Database hygiene — every DB interaction is reasoned about for cost, locks, and growth, not just correctness. Covers migrations, handlers, MCP tools, relays, cron, and the React UI's query/polling patterns.",
+      "repos": [
+        "memex-ai"
+      ]
     },
     {
       "handle": "std-40",
-      "summary": "Plugins are the Claude-Code delivery vehicle — one plugin, one concern. Covers hooks (std-41), a bundled MCP server, or slash commands; excludes the `memex-ai` CLI credential installer."
+      "summary": "Plugins are the Claude-Code delivery vehicle — one plugin, one concern. Covers hooks (std-41), a bundled MCP server, or slash commands; excludes the `memex-ai` CLI credential installer.",
+      "repos": []
     },
     {
       "handle": "std-41",
-      "summary": "Hooks make capability a side effect of work you already do — use them sparingly, never for correctness. Six tests gate whether a hook is the right tool; correctness/security/mutation work belongs on the server (std-8)."
+      "summary": "Hooks make capability a side effect of work you already do — use them sparingly, never for correctness. Six tests gate whether a hook is the right tool; correctness/security/mutation work belongs on the server (std-8).",
+      "repos": []
     },
     {
       "handle": "std-42",
-      "summary": "Desktop client (memex-clients) releases follow one runbook — signing on BOTH platforms, notarization, auto-update, and per-channel distribution. An unsigned build is a CI artifact only, never published."
+      "summary": "Desktop client (memex-clients) releases follow one runbook — signing on BOTH platforms, notarization, auto-update, and per-channel distribution. An unsigned build is a CI artifact only, never published.",
+      "repos": [
+        "memex-clients"
+      ]
+    },
+    {
+      "handle": "std-43",
+      "summary": "[REVERTED — abandoned, safe to archive/delete] Per-user-private tenant tables",
+      "repos": []
+    },
+    {
+      "handle": "std-44",
+      "summary": "Flutter clients run through fvm, ship desktop-only, and are not done until analyze and test both run clean",
+      "repos": [
+        "memex-clients"
+      ]
+    },
+    {
+      "handle": "std-45",
+      "summary": "A claim about what the user sees is verified by mounting the widget — controller tests do not count",
+      "repos": [
+        "memex-clients"
+      ]
+    },
+    {
+      "handle": "std-46",
+      "summary": "A live pty in a Flutter tree is never disturbed — no widget-type swaps, no size-enforcing boxes, no reflow without an explicit resize",
+      "repos": [
+        "memex-clients"
+      ]
+    },
+    {
+      "handle": "std-47",
+      "summary": "macOS desktop input: modifiers may only ADD a path, and an ancestor Listener cannot decline",
+      "repos": [
+        "memex-clients"
+      ]
+    },
+    {
+      "handle": "std-48",
+      "summary": "Dart has no Memex emission helper — memex-clients tags ACs with a hand-rolled acTest and a short-lived per-Spec key",
+      "repos": [
+        "memex-clients"
+      ]
+    },
+    {
+      "handle": "std-49",
+      "summary": "A colour that spans repositories is read from what ships, never sampled from a screenshot",
+      "repos": [
+        "memex-ai",
+        "memex-clients"
+      ]
+    },
+    {
+      "handle": "std-50",
+      "summary": "A value one component depends on and another owns is read, declared, or refused — never defaulted in silence",
+      "repos": [
+        "memex-ai",
+        "memex-clients"
+      ]
     },
     {
       "handle": "std-51",
-      "summary": "Module shape — a small interface over a lot of behaviour, tested through that interface. Prefer depth (leverage at the interface, not line count); export nothing without a caller outside the module; a single-consumer symbol belongs in that consumer; apply the deletion test before introducing a module; a seam needs two adapters, not one; never widen exports so a test can reach inside; `shared`/`utils`/`misc` are not module names. Fixes the design vocabulary (module / interface / seam / adapter / depth). Advisory by design — it guides, it does not gate: no check blocks a merge on it; it reaches an agent through facet routing on create_task/resolve_decision and through this index."
+      "summary": "Module shape — a small interface over a lot of behaviour, tested through that interface. Prefer depth (leverage at the interface, not line count); export nothing without a caller outside the module; a single-consumer symbol belongs in that consumer; apply the deletion test before introducing a module; a seam needs two adapters, not one; never widen exports so a test can reach inside; `shared`/`utils`/`misc` are not module names. Fixes the design vocabulary (module / interface / seam / adapter / depth). Advisory by design — it guides, it does not gate: no check blocks a merge on it; it reaches an agent through facet routing on create_task/resolve_decision and through this index.",
+      "repos": [
+        "memex-ai",
+        "memex-clients"
+      ]
+    },
+    {
+      "handle": "std-52",
+      "summary": "A defect's cause is claimed only after a command goes red on it — the loop comes before the theory",
+      "repos": []
     }
   ]
 }

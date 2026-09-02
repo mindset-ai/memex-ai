@@ -1,0 +1,57 @@
+# memex-ai's caller for the shared standards-index action (spec-544 dec-6).
+#
+# The set-diff lives in .github/actions/standards-index; this file just runs it
+# with this repo's own token. memex-clients carries a near-identical caller of
+# its own — same action, its own token, its own PR.
+#
+# TRIGGERS (dec-3). `push: develop` is PRIMARY and `schedule:` is the net, not the
+# other way round. GitHub queues and SKIPS scheduled runs under load with no
+# alert on a missed tick, and it auto-disables scheduled workflows in a PUBLIC
+# repo after 60 days without commit activity — a silently-stopped drift job is the
+# same failure class as the green offline check this Spec exists to kill. Firing
+# on every merge removes the dependency on schedule delivery instead of hoping
+# for it, and makes a BROKEN job a visible red on the develop line.
+#
+# NOT A REQUIRED CHECK, deliberately. develop and main carry 11/10 required
+# contexts with enforce_admins on. A required check that calls memex.ai would
+# couple every merge to prod availability with no admin bypass; five bad minutes
+# in prod would block every PR. The PR this opens is the notification instead.
+
+name: standards drift
+
+on:
+  push:
+    branches: [develop]
+  schedule:
+    # Nightly, offset from test.yml's 06:00 perf run so they don't contend.
+    - cron: "40 5 * * *"
+  workflow_dispatch:
+
+# Least privilege, at the job level rather than the workflow root. First use of
+# `pull-requests` in this repo — nothing here has opened a PR from CI before.
+permissions:
+  contents: read
+
+concurrency:
+  # One refresh at a time; a newer push supersedes an in-flight run.
+  group: standards-drift-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  refresh:
+    name: Refresh the standards index
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # commit the regenerated index to the PR branch
+      pull-requests: write # open / update the rolling PR
+    steps:
+      # Pinned to an immutable SHA, not the mutable `@v4` tag — see the note in
+      # .github/actions/standards-index/action.yml.
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Sync the index and open a PR if it moved
+        uses: ./.github/actions/standards-index
+        with:
+          repo: memex-ai
+          token: ${{ secrets.GITHUB_TOKEN }}
