@@ -1,0 +1,144 @@
+# Refresh a repo's standards index from the LIVE Standard list, and open a PR if
+# it moved. spec-544 dec-6.
+#
+# WHY A COMPOSITE ACTION AND NOT A WORKFLOW IN EACH REPO. One Memex is the system
+# of record for two repositories, and the set-diff must exist ONCE — two
+# implementations kept in step by hand is the same duplication disease as two
+# manifests (dec-3). But the automatic GITHUB_TOKEN is scoped to the repository
+# its workflow runs in, so a job in memex-ai cannot open a PR in memex-clients.
+# Rather than introduce this repo's first PAT (tied to a person, expires silently
+# — the exact failure dec-3 designed out) or a GitHub App (heavy for keeping a
+# markdown table current), each repo calls THIS action from its own workflow and
+# opens its own PR with its own token. Nobody writes into anyone else's repo.
+#
+# The PR is deliberately the notification. There is no required check here: a
+# check that calls memex.ai would couple every merge to prod availability, and
+# develop/main carry enforce_admins with no bypass.
+
+name: Standards index
+description: >-
+  Sync a repository's CLAUDE.md standards index from the live Memex Standard
+  list, and open a pull request if it changed. Needs no credential to READ (the
+  Memex is public); writes with the caller's own repo-scoped token.
+
+inputs:
+  repo:
+    description: >-
+      Which repository's index to generate — the attribution name a Standard is
+      tagged with (e.g. memex-ai, memex-clients). Required and never defaulted:
+      generating the wrong repo's index would look like success.
+    required: true
+  token:
+    description: >-
+      The CALLER's own GITHUB_TOKEN. Repo-scoped on purpose — this action never
+      needs access to another repository.
+    required: true
+  branch:
+    description: Branch the PR is opened from.
+    required: false
+    default: chore/standards-index-refresh
+
+runs:
+  using: composite
+  steps:
+    # Third-party actions are pinned to an immutable commit SHA, not a mutable
+    # tag: `@v4` is a moving pointer, so whoever controls the tag controls what
+    # runs here. The repo's older workflows still use tags and are grandfathered
+    # by the Semgrep ratchet (security.yml scans diff-aware, so legacy debt is
+    # burned down separately) — new files clear the bar rather than widen it.
+    # Comment names the version the SHA is, or nobody can read the diff later.
+    - name: Set up Node
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      with:
+        node-version: "22"
+
+    - name: Sync the index from the live Standard list
+      shell: bash
+      env:
+        REPO_NAME: ${{ inputs.repo }}
+      run: |
+        set -euo pipefail
+        # $GITHUB_ACTION_PATH is this action's directory inside the memex-ai
+        # checkout GitHub fetches for `uses:`. The script lives in that repo's
+        # scripts/ci, three levels up. Pinned by the spec-544 guard test, so a
+        # layout move fails in memex-ai's own suite rather than here at 3am.
+        SCRIPT="$GITHUB_ACTION_PATH/../../../scripts/ci/standards-index.mjs"
+        test -f "$SCRIPT" || { echo "::error::generator not found at $SCRIPT"; exit 1; }
+
+        # TWO roots, and they are different things (dec-7):
+        #   --root     the repo being generated FOR — the caller's checkout.
+        #   --curation where the curated "Covers" prose lives — memex-ai, which is
+        #              THIS action's own checkout. It has one home; a caller reads
+        #              it and writes no manifest of its own.
+        # For memex-ai's own caller these resolve to the same tree, and the
+        # generator then behaves exactly as it does from the Makefile.
+        CURATION="$GITHUB_ACTION_PATH/../../.."
+        test -f "$CURATION/standards.manifest.json" || {
+          echo "::error::curated manifest not found at $CURATION — dec-7 expects it in memex-ai"; exit 1; }
+
+        node "$SCRIPT" --sync --repo "$REPO_NAME" \
+          --root "$GITHUB_WORKSPACE" --curation "$CURATION"
+
+    - name: Open a PR if the index moved
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        BRANCH: ${{ inputs.branch }}
+        REPO_NAME: ${{ inputs.repo }}
+      run: |
+        set -euo pipefail
+
+        # The manifest is OPTIONAL: only the repo that owns the curation has one
+        # (dec-7). A pathspec naming a file git has never seen is an error, not an
+        # empty diff, so the path list is built from what actually exists.
+        PATHS=(CLAUDE.md)
+        if git ls-files --error-unmatch standards.manifest.json >/dev/null 2>&1; then
+          PATHS+=(standards.manifest.json)
+        fi
+
+        if git diff --quiet -- "${PATHS[@]}"; then
+          echo "✓ index already current — nothing to open"
+          exit 0
+        fi
+
+        git config user.name "memex-standards-bot"
+        git config user.email "noreply@memex.ai"
+        git checkout -B "$BRANCH"
+        git add -- "${PATHS[@]}"
+
+        # Heredocs, not `-m "…"` / `--body "…"`: a multi-line string written
+        # inline in YAML carries this file's indentation into the real commit
+        # message and PR body.
+        git commit -F - <<'MSG'
+        chore: refresh the standards index from the live Memex list
+
+        A Standard approved in Memex was missing from this repo's index. An approved
+        Standard absent from the table an agent orients from is not binding anyone's
+        behaviour (spec-544).
+
+        Summaries seeded from a live title are placeholders — refine them when you
+        can; the rules are already visible.
+        MSG
+        git push --force-with-lease origin "$BRANCH"
+
+        # One rolling PR, not one per run: re-pushing the branch updates the
+        # existing PR, so a quiet week does not accumulate seven of them.
+        if gh pr view "$BRANCH" --json number >/dev/null 2>&1; then
+          echo "✓ updated the open PR for $BRANCH"
+        else
+          gh pr create \
+            --base "${GITHUB_REF_NAME}" \
+            --head "$BRANCH" \
+            --title "chore: refresh the $REPO_NAME standards index" \
+            --body-file - <<'BODY'
+        The live Memex Standard list has Standards this repo's index does not.
+
+        A Standard that is approved but absent from `CLAUDE.md` binds nobody, because
+        that table is how a coding agent discovers which rules apply here.
+
+        Opened automatically by the standards-index action (spec-544 dec-3 / dec-6).
+        Reading the Memex needs no credential — it is public — and this PR was raised
+        with this repository's own token, never a cross-repo one.
+        BODY
+        fi

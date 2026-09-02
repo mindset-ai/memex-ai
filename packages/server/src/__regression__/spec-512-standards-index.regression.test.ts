@@ -48,9 +48,19 @@ describe("spec-512: the standards index is generated and complete", () => {
         `make the completeness assertion below pass against nothing.`,
     ).toBeGreaterThan(30);
 
-    const handlesInManifest = MANIFEST.standards.map(
-      (s: { handle: string }) => s.handle,
-    );
+    // spec-544 dec-2 CHANGED this invariant, deliberately. The manifest is the
+    // authority for the whole Memex; each repo's index lists only the Standards
+    // ATTRIBUTED to it (an entry with no `repos` binds every repo — fail-open).
+    // So "complete" now means complete FOR THIS REPO, and comparing against the
+    // unfiltered manifest reports memex-clients' Standards as missing here.
+    // spec-512's ac-15 is untouched by this: it names std-38 and std-39, both of
+    // which bind memex-ai and are both still present.
+    const handlesInManifest = MANIFEST.standards
+      .filter(
+        (s: { handle: string; repos?: string[] }) =>
+          !Array.isArray(s.repos) || s.repos.length === 0 || s.repos.includes("memex-ai"),
+      )
+      .map((s: { handle: string }) => s.handle);
     const missing = handlesInManifest.filter(
       (h: string) => !handlesInFile.includes(h),
     );
@@ -65,9 +75,14 @@ describe("spec-512: the standards index is generated and complete", () => {
         `Check: packages/server/src/__regression__/spec-512-standards-index.regression.test.ts`,
     ).toEqual([]);
 
-    // The five that had actually drifted. Pinned by name so a regression is named,
-    // not merely counted.
-    for (const h of ["std-38", "std-39", "std-40", "std-41", "std-42"]) {
+    // The ones that had actually drifted, pinned by name so a regression is named
+    // and not merely counted. std-42 has LEFT this list: it is the memex-clients
+    // release runbook, and its presence in the server repo's index was the leftover
+    // spec-544 dec-2 cited as making the two-repo split ambiguous rather than merely
+    // incomplete. It is now attributed to memex-clients and belongs in that repo's
+    // index only. std-40 and std-41 stay because nothing has attributed them yet, so
+    // fail-open keeps them everywhere.
+    for (const h of ["std-38", "std-39", "std-40", "std-41"]) {
       expect(handlesInFile, `${h} must be indexed in CLAUDE.md`).toContain(h);
     }
   });
@@ -81,7 +96,9 @@ describe("spec-512: the standards index is generated and complete", () => {
     // The table must be INSIDE the region, not adjacent to it.
     const inner = CLAUDE_MD.slice(regions[0].start, regions[0].end);
     expect(inner).toMatch(/\|\s*std-1\s*\|/);
-    expect(inner).toMatch(/\|\s*std-42\s*\|/);
+    // The last row this repo's index actually carries. std-42 used to anchor this
+    // and no longer belongs here (see above) — std-51 is the current tail.
+    expect(inner).toMatch(/\|\s*std-51\s*\|/);
   });
 });
 
