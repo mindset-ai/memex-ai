@@ -361,6 +361,11 @@
         "memex-ai",
         "memex-clients"
       ]
+    },
+    {
+      "handle": "std-52",
+      "summary": "A defect's cause is claimed only after a command goes red on it — the loop comes before the theory",
+      "repos": []
     }
   ]
 }

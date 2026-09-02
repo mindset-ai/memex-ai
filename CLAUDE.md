@@ -70,6 +70,7 @@ _The Standards that bind this repo. The Memex holds more — `search_memex({ mem
 | std-49 | A colour that spans repositories is read from what ships, never sampled from a screenshot |
 | std-50 | A value one component depends on and another owns is read, declared, or refused — never defaulted in silence |
 | std-51 | Module shape — a small interface over a lot of behaviour, tested through that interface. Prefer depth (leverage at the interface, not line count); export nothing without a caller outside the module; a single-consumer symbol belongs in that consumer; apply the deletion test before introducing a module; a seam needs two adapters, not one; never widen exports so a test can reach inside; `shared`/`utils`/`misc` are not module names. Fixes the design vocabulary (module / interface / seam / adapter / depth). Advisory by design — it guides, it does not gate: no check blocks a merge on it; it reaches an agent through facet routing on create_task/resolve_decision and through this index. |
+| std-52 | A defect's cause is claimed only after a command goes red on it — the loop comes before the theory |
 <!-- END generated: standards-index -->
 
 If a Standard contradicts the code, the Standard is probably right and the code has drifted — flag it.
