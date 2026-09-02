@@ -2249,6 +2249,45 @@ const PROMPT_BUTTONS: PromptButtonNode[] = [
       'spec-438 dec-1: the manual initiation doorbell for cold-start standards detection. Short kickoff prose in the Scaffold (std-23) that points the developer\'s coding agent at the `standards-bootstrap` get_information topic (t-1) rather than embedding the protocol body (ac-7/ac-8). Rendered on the Standards page empty-state; the SAME single artifact the spec-422 empty-state nudge surfaces later (ac-9), so the 422 front door slots in without re-instrumentation. Portable per std-22.',
   },
   {
+    // spec-544 dec-5 — the handoff for a state the web can SHOW but not WRITE.
+    // Repo attribution decides which repository's agent-orientation file lists a
+    // Standard, and it is written over MCP. std-34 cl-5 therefore puts the web
+    // surface at read-only-plus-handoff, and cl-2 makes the handoff mandatory
+    // rather than leaving a reader stuck at a value they can see and cannot
+    // change. The prose lives here, never in the client (std-23, cl-3).
+    kind: 'prompt_button',
+    id: 'attribute-standard',
+    label: 'Attribute this Standard to a repo',
+    text: `You are working in Memex ({namespace}/{memex}), with the Memex MCP tools available.
+
+Standard {handle} "{title}"
+URL: {url}
+
+Set which repositories this Standard binds. The attribution decides which repo's agent-orientation file lists it, so a wrong or missing value changes what a coding agent believes applies to the code in front of it.
+
+── HOW TO WRITE IT ──
+
+Attribution is a set of FLAT tags — one per repository, no scope:
+
+    update_doc({ ref: '{namespace}/{memex}/standards/{handle}', tags: ['memex-ai'] })
+    update_doc({ ref: '{namespace}/{memex}/standards/{handle}', tags: ['memex-ai', 'memex-clients'] })
+
+Use flat labels, NOT a scoped \`repo::memex-ai\` form. A scoped tag is mutually exclusive within its scope, so applying \`repo::memex-clients\` DROPS any existing \`repo::memex-ai\` — a Standard binding both repositories would silently lose half its attribution. Flat labels coexist. Use \`removeTags\` to take one away.
+
+── HOW TO DECIDE ──
+
+Read the Standard first, then ask what a change obeying it would actually touch.
+
+- Names a language, framework, platform or toolchain that exists in only one repository → that repository alone.
+- A process, vocabulary or design rule that binds work in either repository → BOTH. This set is larger than it first looks; do not default a design principle to one repo because that is where you happen to be working.
+- Genuinely unsure → LEAVE IT UNTAGGED and say so. An untagged Standard appears in EVERY repository's index, which is the safe direction: an over-broad index is a tolerable cost where an invisible rule is not. A guess recorded as a decision is worse than a visible gap.
+
+Do not invent repository names. If you believe a Standard belongs to a repository not already in use, raise it rather than tagging it.`,
+    surfaces: ['standard-detail'],
+    rationale:
+      'spec-544 dec-5: repo attribution is visible on the Standards surface but written MCP-side, so std-34 cl-5 puts the web at read-only + handoff and cl-2 makes the handoff mandatory. Prose in the Scaffold per std-23 / cl-3; the label names the action per cl-4. The prompt teaches dec-1\'s FLAT tag shape explicitly because a scoped `repo::` value is mutually exclusive within its scope and would silently displace a sibling attribution — the failure dec-1 was resolved to avoid. It also tells the agent to leave a Standard UNTAGGED when unsure, because dec-2 fails open and a visible gap beats a recorded guess. Portable per std-22: it names no file path, language or layout.',
+  },
+  {
     kind: 'prompt_button',
     id: 'verify-spec',
     label: 'Verify handoff',
