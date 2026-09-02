@@ -46,6 +46,92 @@ export function renderTable(standards) {
   return lines.join("\n");
 }
 
+// ── Per-repo attribution (spec-544 dec-1 / dec-2) ────────────────────────────
+//
+// One Memex is the system of record for two repositories, and a Standard is
+// attributed with FLAT tags — `memex-ai`, `memex-clients` — never a scoped
+// `repo::` tag. A scoped value is mutually exclusive within its scope, and the
+// both-repos set is a dozen Standards, so the attribute is a SET of repos.
+//
+// This list is not the "hand-maintained exclusion list" ac-3 forbids: that rule
+// is about never hand-listing which STANDARDS to exclude. Knowing which repos
+// exist is a different, tiny, stable thing — and the generator needs it anyway
+// to know which indexes to render.
+export const REPOS = ["memex-ai", "memex-clients"];
+
+/** The repos a live row is attributed to. Flat tags only (scope NULL); any other
+ *  flat label a Standard happens to carry is ignored rather than read as a repo. */
+function attributionOf(row) {
+  const tags = Array.isArray(row.tags) ? row.tags : [];
+  return tags
+    .filter((t) => t && (t.scope === null || t.scope === undefined))
+    .map((t) => t.value)
+    .filter((v) => REPOS.includes(v));
+}
+
+function byHandleNumber(a, b) {
+  return Number(a.handle.slice(4)) - Number(b.handle.slice(4));
+}
+
+/**
+ * Plan the manifest and one repo's index from the LIVE Standard list.
+ *
+ * The whole offline transformation behind one interface (std-51): merge live
+ * handles into the manifest, seed the ones with no curated summary, derive
+ * attribution, filter for `repo`, render the table. Pure — no network, no fs —
+ * which is what keeps `make check` offline while this logic stays covered.
+ *
+ * Two behaviours here are deliberate and load-bearing:
+ *
+ *   SEED, NEVER BLOCK. A live handle with no manifest entry gets its live `title`
+ *   as a provisional summary and is named in `seeded`. Refusing to generate until
+ *   a human writes prose sounds stricter but fails worse: the red goes ambient or
+ *   gets bypassed, and the Standard stays invisible — the exact harm spec-544
+ *   exists to close. A curated summary is NEVER overwritten by the shorter title.
+ *
+ *   FAIL OPEN. A Standard with no attribution appears in EVERY repo's table.
+ *   Attribution only ever narrows; absence never hides. Filtering that hid the
+ *   unattributed would make one mis-tag erase a rule from both repos at once.
+ */
+export function planIndex({ live, manifest, repo }) {
+  if (!Array.isArray(live)) {
+    throw new Error(
+      `The live Standard list is not an array (got ${typeof live}) — refusing to plan.\n` +
+        `  A changed response shape must fail loud, not render an empty table.\n` +
+        `  Check: ${SELF}`,
+    );
+  }
+  if (live.length === 0) {
+    throw new Error(
+      `The live Standard list is EMPTY — refusing to generate anything.\n` +
+        `  Zero live Standards is indistinguishable from a renamed Memex or one\n` +
+        `  flipped to private (which returns 404 per std-7). Generating from it\n` +
+        `  would blank the table every agent orients from.\n` +
+        `  Check: ${SELF}`,
+    );
+  }
+
+  const curated = new Map((manifest ?? []).map((s) => [s.handle, s.summary]));
+  const seeded = [];
+  const standards = live.map((row) => {
+    const existing = curated.get(row.handle);
+    if (existing === undefined) seeded.push(row.handle);
+    return {
+      handle: row.handle,
+      summary: existing ?? row.title,
+      repos: attributionOf(row),
+    };
+  });
+  standards.sort(byHandleNumber);
+
+  // Fail open: no attribution ⇒ binds every repo.
+  const forRepo = standards.filter(
+    (s) => s.repos.length === 0 || s.repos.includes(repo),
+  );
+
+  return { standards, seeded, table: renderTable(forRepo) };
+}
+
 /** Locate every generated region. Throws with a contract-shaped message on any
  *  malformed marker rather than silently rewriting part of the file. */
 export function findRegions(text) {
