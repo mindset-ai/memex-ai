@@ -13,6 +13,8 @@ import type { Comment, DocSection, DocWithGraph } from '../api/types';
 import { Spinner } from '../components/Spinner';
 import { useDocChangeStream } from '../hooks/useDocChangeStream';
 import { DecisionLink } from '../components/DecisionLink';
+import { TagChip } from '../components/TagChip';
+import { PromptButton } from '../components/PromptButton';
 import { rehypeRefLinkifier } from '../components/chat/refLinkifier';
 import { specRefComponents } from '../components/specRef/specRefAnchor';
 import { rehypeSpecRefLinkifier } from '../components/chat/specRefLinkifier';
@@ -200,6 +202,47 @@ export function Standard() {
                   {totalDriftCount} drift
                 </Link>
               )}
+              {/*
+                spec-544 dec-5 — which repositories this Standard binds. Chips are
+                READ-ONLY (`TagChip` without `onRemove`): the write lives MCP-side,
+                and std-34 cl-5 forbids a control on this surface whose input would
+                be silently dropped. The handoff below is cl-2's required companion.
+
+                Same assumption as the list: today a Standard's only tags ARE its
+                attribution, so "no tags" reads as unattributed.
+              */}
+              {(doc.tags ?? []).length > 0 ? (
+                (doc.tags ?? []).map((t) => <TagChip key={t.id} tag={t} />)
+              ) : (
+                <span
+                  data-testid="standard-unattributed"
+                  className="italic opacity-60 text-xs"
+                  title="No repo attribution yet — under fail-open this Standard binds every repo, which is not the same as being deliberately attributed to all of them."
+                >
+                  unattributed
+                </span>
+              )}
+            </div>
+            {/*
+              cl-2: a surface whose next step is MCP-only carries an explicit
+              handoff. cl-4 puts the ACTION in the link text and the handover
+              instruction outside it; the prompt body lives in the Scaffold
+              (std-23), so no tool name appears in the copy around it (cl-1).
+            */}
+            <div className="mt-3" data-testid="standard-attribution-handoff">
+              <PromptButton
+                buttonId="attribute-standard"
+                context={{
+                  handle: doc.handle,
+                  title: doc.title,
+                  url: window.location.href,
+                }}
+                // cl-4 exactly: the ACTION is the highlighted link, the handover
+                // instruction trails it unhighlighted. That is what the sentence
+                // form renders, so it is used rather than the default label.
+                linkText="Attribute this Standard to a repo"
+                sentence="by pasting this prompt into your coding agent — the web can show attribution but not set it."
+              />
             </div>
           </div>
         </div>

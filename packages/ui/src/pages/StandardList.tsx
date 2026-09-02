@@ -8,6 +8,7 @@ import { Spinner } from '../components/Spinner';
 import { tenantPath, getCurrentTenant } from '../utils/tenantUrl';
 import { PageHeader } from '../components/PageHeader';
 import { StandardsMap } from '../components/StandardsMap';
+import { TagChip } from '../components/TagChip';
 import { matchesQuery } from '../components/standards-map/model';
 import { ChatPanel } from '../components/ChatPanel';
 import { ResizableChatRail } from '../components/chat/ResizableChatRail';
@@ -63,7 +64,10 @@ export function StandardList() {
   }, []);
 
   const loadStandards = useCallback(() => {
-    fetchDocs('standard', { include: ['driftCount'] })
+    // spec-544 dec-5: `tags` rides the SAME request as the drift counts. Both are
+    // opt-in tokens on one list route, so showing attribution costs no extra
+    // round-trip — the N+1 fan-out this page removed stays removed.
+    fetchDocs('standard', { include: ['driftCount', 'tags'] })
       .then((data) => {
         const sorted = [...data].sort(
           (a, b) =>
@@ -263,6 +267,32 @@ export function StandardList() {
                   </div>
                   <div className="flex items-center gap-2 text-xs text-muted flex-wrap">
                     <span className="font-mono">{d.handle}</span>
+                    {/*
+                      spec-544 dec-5 — repo attribution, READ-ONLY. `TagChip`
+                      without `onRemove` renders no × on purpose: writing
+                      attribution lives MCP-side, and std-34 cl-5 forbids a
+                      control whose input this surface would silently drop.
+
+                      Attribution sits before the date because it decides which
+                      repo's CLAUDE.md lists this Standard — that outranks a
+                      creation timestamp for anyone scanning the grid.
+
+                      ASSUMPTION worth knowing: today a Standard's only tags ARE
+                      its attribution, so "no tags" means "unattributed". If a
+                      non-attribution tag ever lands on a Standard, the marker
+                      below stops being accurate and needs a real filter.
+                    */}
+                    {(d.tags ?? []).length > 0 ? (
+                      (d.tags ?? []).map((t) => <TagChip key={t.id} tag={t} />)
+                    ) : (
+                      <span
+                        data-testid="standard-unattributed"
+                        className="italic opacity-60"
+                        title="No repo attribution yet — under fail-open this Standard binds every repo, which is not the same as being deliberately attributed to all of them."
+                      >
+                        unattributed
+                      </span>
+                    )}
                     <span className="opacity-40">&middot;</span>
                     <span>{formatDate(d.createdAt)}</span>
                   </div>
