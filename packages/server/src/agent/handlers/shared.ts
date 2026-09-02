@@ -26,7 +26,7 @@
 import { z, type ZodRawShape } from "zod";
 import { eq, } from "drizzle-orm";
 import { db } from "../../db/connection.js";
-import { documents, docSections, taskDeps } from "../../db/schema.js";
+import { documents } from "../../db/schema.js";
 import {
   formatReplacesLead,
   formatSupersessionLead,
@@ -34,8 +34,6 @@ import {
 } from "../../services/supersession.js";
 import {
   assertRefNotUuid,
-  buildChildRef,
-  memexSlugsById,
 } from "../../mcp/refs.js";
 import type { ResolvedEntity } from "../../services/resolver.js";
 import {
@@ -44,11 +42,6 @@ import {
 import {
   listCommentsForDoc,
 } from "../../services/comments.js";
-import {
-  COMMENT_TYPES,
-  isCommentType,
-  type CommentType,
-} from "../../types/roles.js";
 import {
   listDecisions,
 } from "../../services/decisions.js";
@@ -59,7 +52,6 @@ import {
 } from "../../services/acs.js";
 import {
   listTasks,
-  getTask,
 } from "../../services/tasks.js";
 import type { RequestCtx } from "../../services/mutate.js";
 import type { AccessibleMemex } from "../../services/skills/skills-service.js";
@@ -68,7 +60,6 @@ import { facetKeysByTask, facetKeysByDecision } from "../../services/facet-ballo
 import { resolveTestEventActors } from "../../services/who-resolver.js";
 import { stripUuids, containsUuid } from "../../services/shared/identifiers.js";
 import { listPresent } from "../../services/presence.js";
-import { getUserByEmail, getUserById } from "../../services/users.js";
 import {
   listDocTags,
 } from "../../services/tags.js";
@@ -404,14 +395,6 @@ export const VERBOSE_FIELD = z
       "Default false returns a terse confirmation.",
   );
 
-export const COMMENT_TYPE_DESC =
-  `Comment taxonomy. Pick one of: ${COMMENT_TYPES.join(", ")}. ` +
-  "Use `plan` before coding, `progress` for in-flight notes, `issue` for blockers, `deferred` for skipped work, " +
-  "`question` when you need a human, `cross_reference` for observations whose action lives elsewhere (combine with exactly one of referenceBriefId / referenceStandardId / referenceDecisionId / referenceTaskId), " +
-  "`readiness_check` for execution-plan READY/NOT READY assessments, `plan_revision` after re-submitting a plan, `drift` for standard drift findings.";
-
-export const TASK_STATUS = ["not_started", "in_progress", "complete"] as const;
-
 export const COMPLETION_NUDGE =
   "Leave a `progress` comment for whoever picks this up next: what landed, the contract it honours, any surprises, and what is left for downstream.";
 
@@ -429,112 +412,6 @@ interface FullDocState {
   // spec-136 t-4: the Spec's tags, rendered inline by formatFullDocState so any
   // doc-state response (get_doc, every mutation) carries them.
   tags: Awaited<ReturnType<typeof listDocTags>>;
-}
-
-/**
- * Build the canonical ref for a comment that landed on a standard SECTION
- * (flag_drift / propose_standard_change). The tools take a canonical section
- * ref and resolve it to the section UUID server-side (see
- * resolveStandardSectionRef, spec-143 ac-14); the resulting comment lives under
- * the standard's `std-N` handle and so also has a canonical ref. Returns null
- * only if the section/standard or memex slugs can't be resolved (in which case
- * the handler omits the `ref:` line entirely rather than leaking a raw UUID).
- */
-export async function buildStandardCommentRef(
-  memexId: string,
-  standardSectionId: string,
-  commentSeq: number,
-): Promise<string | null> {
-  const section = await db.query.docSections.findFirst({
-    where: eq(docSections.id, standardSectionId),
-  });
-  if (!section) return null;
-  const standard = await db.query.documents.findFirst({
-    where: eq(documents.id, section.docId),
-  });
-  if (!standard) return null;
-  const slugs = await memexSlugsById(memexId);
-  if (!slugs) return null;
-  return buildChildRef(slugs, standard, { type: "comments", seq: commentSeq });
-}
-
-/**
- * Resolve a standard-section `ref` arg (e.g.
- * `<ns>/<mx>/standards/std-N/sections/s-M`) to its owning memex + raw section
- * UUID, for the standards-drift verbs (`flag_drift` / `propose_standard_change`).
- *
- * spec-143 ac-14: these verbs used to take a raw section UUID via
- * `resolveMemexFromEntity("section", …)`, but the read surface only ever emits
- * `s-N` section refs (see `formatStandard` — `Section #N | ref: …/sections/s-N`),
- * never a section UUID, so the UUID-only contract made them uncallable from MCP
- * and contradicted the "UUIDs are not accepted on the MCP boundary" invariant.
- * They now take the canonical ref and resolve it server-side, exactly like
- * `update_section` / `edit_clause`. `resolveRefArg` rejects a raw UUID up front
- * via `assertRefNotUuid`.
- */
-export async function resolveStandardSectionRef(
-  ctx: ToolCtx,
-  ref: string,
-): Promise<{ memexId: string; sectionId: string }> {
-  const resolved = await resolveRefArg(ctx, ref);
-  if (resolved.entity.kind !== "section") {
-    throw new ValidationError(
-      `Expected a standard section ref (e.g. \`<ns>/<mx>/standards/std-N/sections/s-M\`); got ${resolved.entity.kind}.`,
-    );
-  }
-  if (resolved.doc.docType !== "standard") {
-    throw new ValidationError(
-      `\`${ref}\` is a section on a ${resolved.doc.docType}, not a standard. flag_drift / propose_standard_change only operate on standard sections.`,
-    );
-  }
-  return { memexId: resolved.memexId, sectionId: resolved.entity.row.id };
-}
-
-/**
- * Resolve a canonical DECISION ref (e.g. `<ns>/<mx>/specs/spec-N/decisions/dec-M`)
- * to its memexId + decision id, rejecting a raw UUID up front (std-10). spec-497
- * dec-3: used by flag_drift's optional `decisionRef` so an agent can link the drift
- * it flags to the decision that prompted it. When `expectMemexId` is supplied the
- * decision MUST belong to that memex — a cross-tenant ref is a 404-shaped
- * ValidationError, never a silent accept (std-7 spirit).
- */
-export async function resolveDecisionRefArg(
-  ctx: ToolCtx,
-  ref: string,
-  expectMemexId?: string,
-): Promise<{ memexId: string; decisionId: string }> {
-  const resolved = await resolveRefArg(ctx, ref, "decisionRef");
-  if (resolved.entity.kind !== "decision") {
-    throw new ValidationError(
-      `Expected a decision ref (e.g. \`<ns>/<mx>/specs/spec-N/decisions/dec-M\`); got ${resolved.entity.kind}.`,
-    );
-  }
-  if (expectMemexId !== undefined && resolved.memexId !== expectMemexId) {
-    throw new ValidationError(
-      `decisionRef \`${ref}\` is not in the same Memex as the standard section being flagged.`,
-    );
-  }
-  return { memexId: resolved.memexId, decisionId: resolved.entity.row.id };
-}
-
-/**
- * Resolve the current verification state of one AC (spec-127) so the
- * discontinue/restore write tools can report the badge result inline — the
- * agent sees immediately whether the retire cleared the red. Best-effort: any
- * lookup miss reports "unknown" rather than failing the (already-committed)
- * mutation.
- */
-export async function verificationStateForAc(
-  memexId: string,
-  briefId: string,
-  acId: string,
-): Promise<string> {
-  try {
-    const rows = await listAcsForBriefWithVerification(memexId, briefId);
-    return rows.find((r) => r.ac.id === acId)?.verificationState ?? "unknown";
-  } catch {
-    return "unknown";
-  }
 }
 
 export async function fullDocState(memexId: string, docIdOrHandle: string): Promise<FullDocState> {
@@ -1490,134 +1367,6 @@ async function formatCoverageHeader(
   }
 }
 
-export async function loadSpec(memexId: string, missionId: string) {
-  const doc = await getDoc(memexId, missionId);
-  if (doc.docType !== "spec") {
-    throw new ValidationError(
-      `Document ${doc.handle} is a ${doc.docType}, not a Spec.`,
-    );
-  }
-  return doc;
-}
-
-// Per dec-1 of doc-20: terse update_task on addBlocker/removeBlocker reports
-// the resulting [READY] / [BLOCKED-by-...] marker so the agent doesn't need a
-// follow-up `list_tasks` call to learn the new state.
-export function formatTaskReadyMarker(t: {
-  blockedByDecisions: { seq: number }[];
-  blockedByTasks: { seq: number }[];
-}): string {
-  const handles = [
-    ...t.blockedByDecisions.map((d) => `D-${d.seq}`),
-    ...t.blockedByTasks.map((bt) => `T-${bt.seq}`),
-  ];
-  return handles.length === 0 ? "[READY]" : `[BLOCKED-by-${handles.join(",")}]`;
-}
-
-// Per dec-1 of doc-20: terse update_task(status='complete') reports
-// dependents that JUST became unblocked by this completion. Returns the
-// fresh blocker state (`getTask`) for each dependent and filters to the
-// ones whose blocker set is now empty.
-export async function findNewlyUnblockedDependents(
-  memexId: string,
-  completedTaskId: string,
-): Promise<{ id: string; seq: number }[]> {
-  const dependentRows = await db
-    .select({ taskId: taskDeps.taskId })
-    .from(taskDeps)
-    .where(eq(taskDeps.dependsOnId, completedTaskId));
-  if (dependentRows.length === 0) return [];
-  const fresh = await Promise.all(
-    dependentRows.map((row) => getTask(memexId, row.taskId).catch(() => null)),
-  );
-  return fresh
-    .filter((t): t is NonNullable<typeof t> => t !== null && !t.blocked)
-    .map((t) => ({ id: t.id, seq: t.seq }));
-}
-
-// Per dec-4 of doc-20: terse `list_comments` emits one line per comment with
-// the canonical ref + type + status + a 50-char content snippet. Per b-36 T-2
-// comments are path-addressable (`.../comments/c-N`), so the ref is the stable
-// reference an agent pastes back into a follow-up call.
-const COMMENT_SNIPPET_LEN = 50;
-
-export function formatTerseComment(
-  c: {
-    seq: number;
-    commentType: string;
-    resolvedAt: Date | null;
-    content: string;
-  },
-  slugs: { namespace: string; memex: string } | null,
-  doc: import("../../db/schema.js").Doc,
-): string {
-  const status = c.resolvedAt ? "resolved" : "open";
-  const oneLine = c.content.replace(/\s+/g, " ").trim();
-  const snippet =
-    oneLine.length > COMMENT_SNIPPET_LEN
-      ? `${oneLine.slice(0, COMMENT_SNIPPET_LEN)}…`
-      : oneLine;
-  const ref = slugs
-    ? buildChildRef(slugs, doc, { type: "comments", seq: c.seq })
-    : `c-${c.seq}`;
-  return `(ref: ${ref}) [${c.commentType}, ${status}] "${snippet}"`;
-}
-
-export function formatDocCommentsTerse(
-  result: {
-    sections: {
-      section: { sectionType: string; title?: string | null; id: string };
-      comments: { seq: number; commentType: string; resolvedAt: Date | null; content: string }[];
-    }[];
-    decisions: {
-      decision: { seq: number };
-      comments: { seq: number; commentType: string; resolvedAt: Date | null; content: string }[];
-    }[];
-    tasks: {
-      task: { seq: number };
-      comments: { seq: number; commentType: string; resolvedAt: Date | null; content: string }[];
-    }[];
-  },
-  slugs: { namespace: string; memex: string } | null,
-  doc: import("../../db/schema.js").Doc,
-): string[] {
-  const lines: string[] = [];
-  for (const sg of result.sections) {
-    const label = `section ${sg.section.title ?? sg.section.sectionType}`;
-    for (const c of sg.comments) {
-      lines.push(`- ${formatTerseComment(c, slugs, doc)} on ${label}`);
-    }
-  }
-  for (const dg of result.decisions) {
-    const label = `dec-${dg.decision.seq}`;
-    for (const c of dg.comments) {
-      lines.push(`- ${formatTerseComment(c, slugs, doc)} on ${label}`);
-    }
-  }
-  for (const tg of result.tasks) {
-    const label = `t-${tg.task.seq}`;
-    for (const c of tg.comments) {
-      lines.push(`- ${formatTerseComment(c, slugs, doc)} on ${label}`);
-    }
-  }
-  return lines;
-}
-
-function parseTypeFilter(value?: string | string[]): CommentType[] | undefined {
-  if (value === undefined) return undefined;
-  const list = Array.isArray(value) ? value : [value];
-  const cleaned = list.flatMap((s) => s.split(",")).map((s) => s.trim()).filter(Boolean);
-  if (cleaned.length === 0) return undefined;
-  for (const v of cleaned) {
-    if (!isCommentType(v)) {
-      throw new ValidationError(
-        `Invalid comment type '${v}'. Must be one of: ${COMMENT_TYPES.join(", ")}`,
-      );
-    }
-  }
-  return cleaned as CommentType[];
-}
-
 // `pathLikeForDomain` removed per doc-24 dec-1 — only the codebase-intelligence
 // tools called it.
 
@@ -1640,7 +1389,6 @@ function parseTypeFilter(value?: string | string[]): CommentType[] | undefined {
 // renaming a tool here forces a matching edit in the manifest. `list_memexes`
 // is the one tool registered inline in `mcp/tools.ts` (not in this array), so
 // the cross-check below excludes it — see `manifestVsSpecsDiff`.
-
 
 // ══════════════════════════════════════
 // Internal helper: canonical-ref resolution at tool boundary
@@ -1781,30 +1529,3 @@ export async function resolveRefArg(
   assertRefNotUuid(ref, argName);
   return ctx.resolveRef(ref);
 }
-
-// spec-118: resolve a tool's USER target. Tools accept either an email
-// (contains '@' — resolved against the users table) or a user UUID (looked up
-// to confirm it exists). There is no separate user-lookup tool; callers pass an
-// email or id directly. A miss is a ValidationError so Claude can correct the
-// argument rather than silently mutating the wrong user.
-// Resolve an email-or-uuid user argument to the user record. Returns id + email
-// so callers can render the EMAIL in terse output — std-10 forbids raw UUIDs in
-// the response body, so handlers must never echo the resolved id.
-export async function resolveUserArg(
-  value: string,
-  argName: string,
-): Promise<{ id: string; email: string | null }> {
-  if (typeof value !== "string" || value.trim().length === 0) {
-    throw new ValidationError(`${argName} is required.`);
-  }
-  const trimmed = value.trim();
-  if (trimmed.includes("@")) {
-    const user = await getUserByEmail(trimmed);
-    if (!user) throw new ValidationError(`No user found for email '${trimmed}'.`);
-    return { id: user.id, email: user.email };
-  }
-  const user = await getUserById(trimmed);
-  if (!user) throw new ValidationError(`No user found for id '${trimmed}'.`);
-  return { id: user.id, email: user.email };
-}
-

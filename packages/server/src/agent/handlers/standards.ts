@@ -26,15 +26,105 @@ import {
 import {
   MEMEX_DESC,
   VERBOSE_FIELD,
-  buildStandardCommentRef,
   fullDocState,
   formatState,
   reqCtx,
   resolveRefArg,
-  resolveStandardSectionRef,
-  resolveDecisionRefArg,
   type ToolSpec,
+  type ToolCtx,
 } from "./shared.js";
+import { eq } from "drizzle-orm";
+import { db } from "../../db/connection.js";
+import { docSections, documents } from "../../db/schema.js";
+
+// ── Moved here from shared.ts by spec-546 t-2: this file is the symbol's only
+// consumer, so it lives with its consumer and is private [per std-51].
+/**
+ * Build the canonical ref for a comment that landed on a standard SECTION
+ * (flag_drift / propose_standard_change). The tools take a canonical section
+ * ref and resolve it to the section UUID server-side (see
+ * resolveStandardSectionRef, spec-143 ac-14); the resulting comment lives under
+ * the standard's `std-N` handle and so also has a canonical ref. Returns null
+ * only if the section/standard or memex slugs can't be resolved (in which case
+ * the handler omits the `ref:` line entirely rather than leaking a raw UUID).
+ */
+async function buildStandardCommentRef(
+  memexId: string,
+  standardSectionId: string,
+  commentSeq: number,
+): Promise<string | null> {
+  const section = await db.query.docSections.findFirst({
+    where: eq(docSections.id, standardSectionId),
+  });
+  if (!section) return null;
+  const standard = await db.query.documents.findFirst({
+    where: eq(documents.id, section.docId),
+  });
+  if (!standard) return null;
+  const slugs = await memexSlugsById(memexId);
+  if (!slugs) return null;
+  return buildChildRef(slugs, standard, { type: "comments", seq: commentSeq });
+}
+
+/**
+ * Resolve a standard-section `ref` arg (e.g.
+ * `<ns>/<mx>/standards/std-N/sections/s-M`) to its owning memex + raw section
+ * UUID, for the standards-drift verbs (`flag_drift` / `propose_standard_change`).
+ *
+ * spec-143 ac-14: these verbs used to take a raw section UUID via
+ * `resolveMemexFromEntity("section", …)`, but the read surface only ever emits
+ * `s-N` section refs (see `formatStandard` — `Section #N | ref: …/sections/s-N`),
+ * never a section UUID, so the UUID-only contract made them uncallable from MCP
+ * and contradicted the "UUIDs are not accepted on the MCP boundary" invariant.
+ * They now take the canonical ref and resolve it server-side, exactly like
+ * `update_section` / `edit_clause`. `resolveRefArg` rejects a raw UUID up front
+ * via `assertRefNotUuid`.
+ */
+async function resolveStandardSectionRef(
+  ctx: ToolCtx,
+  ref: string,
+): Promise<{ memexId: string; sectionId: string }> {
+  const resolved = await resolveRefArg(ctx, ref);
+  if (resolved.entity.kind !== "section") {
+    throw new ValidationError(
+      `Expected a standard section ref (e.g. \`<ns>/<mx>/standards/std-N/sections/s-M\`); got ${resolved.entity.kind}.`,
+    );
+  }
+  if (resolved.doc.docType !== "standard") {
+    throw new ValidationError(
+      `\`${ref}\` is a section on a ${resolved.doc.docType}, not a standard. flag_drift / propose_standard_change only operate on standard sections.`,
+    );
+  }
+  return { memexId: resolved.memexId, sectionId: resolved.entity.row.id };
+}
+
+/**
+ * Resolve a canonical DECISION ref (e.g. `<ns>/<mx>/specs/spec-N/decisions/dec-M`)
+ * to its memexId + decision id, rejecting a raw UUID up front (std-10). spec-497
+ * dec-3: used by flag_drift's optional `decisionRef` so an agent can link the drift
+ * it flags to the decision that prompted it. When `expectMemexId` is supplied the
+ * decision MUST belong to that memex — a cross-tenant ref is a 404-shaped
+ * ValidationError, never a silent accept (std-7 spirit).
+ */
+async function resolveDecisionRefArg(
+  ctx: ToolCtx,
+  ref: string,
+  expectMemexId?: string,
+): Promise<{ memexId: string; decisionId: string }> {
+  const resolved = await resolveRefArg(ctx, ref, "decisionRef");
+  if (resolved.entity.kind !== "decision") {
+    throw new ValidationError(
+      `Expected a decision ref (e.g. \`<ns>/<mx>/specs/spec-N/decisions/dec-M\`); got ${resolved.entity.kind}.`,
+    );
+  }
+  if (expectMemexId !== undefined && resolved.memexId !== expectMemexId) {
+    throw new ValidationError(
+      `decisionRef \`${ref}\` is not in the same Memex as the standard section being flagged.`,
+    );
+  }
+  return { memexId: resolved.memexId, decisionId: resolved.entity.row.id };
+}
+
 
 export const standardsTools: ToolSpec[] = [
   {
