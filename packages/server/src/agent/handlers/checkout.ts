@@ -24,7 +24,7 @@ import {
   isDocLikeKind,
   type ToolSpec,
   type ToolCtx,
-} from "./shared.js";
+} from "./tool-contract.js";
 
 const REF_DESC = "Canonical ref to the Spec, e.g. `mindset/main/specs/spec-3`.";
 

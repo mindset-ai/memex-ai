@@ -24,15 +24,17 @@ import {
   ValidationError,
 } from "../../types/errors.js";
 import {
-  MEMEX_DESC,
-  VERBOSE_FIELD,
   fullDocState,
   formatState,
+} from "./doc-state.js";
+import {
+  MEMEX_DESC,
+  VERBOSE_FIELD,
   reqCtx,
   resolveRefArg,
   type ToolSpec,
   type ToolCtx,
-} from "./shared.js";
+} from "./tool-contract.js";
 import { eq } from "drizzle-orm";
 import { db } from "../../db/connection.js";
 import { docSections, documents } from "../../db/schema.js";

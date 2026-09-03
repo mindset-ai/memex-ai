@@ -1,29 +1,15 @@
-// spec-366 (sol-1 of audit spec-345, umbrella spec-354): shared handler
-// infrastructure extracted from agent/tool-specs.ts. Holds the ToolCtx/ToolSpec
-// types, the request-context bridge, and the rendering + guidance-envelope
-// helpers every per-domain handler module leans on. tool-specs.ts re-exports the
-// externally-imported symbols so no import site moved (std-12 bounded
-// components; std-16 tool contract unchanged).
+// spec-546: The guidance envelope: one public entry point, composeGuidanceEnvelope, which is
+// the SOLE author of footer prose. Everything else here is its machinery.
+//
+// guidance-authoring-confined.regression.test.ts pins that invariant by scanning
+// this directory as one text blob: renderFooterSignal must PRECEDE
+// composeGuidanceEnvelope, and the prose builders may only be referenced between
+// them. Do not reorder those two, and never move a prose builder out of
+// agent/handlers/ — the guard would then pass while asserting nothing.
+//
+// Split out of agent/handlers/shared.ts (renamed tool-contract.ts in t-3)
+// [per std-51: a module is named for its contents, never for the act that made it].
 
-// doc-2 t-1: Single-source tool catalogue used by both surfaces.
-//
-// Today the MCP server (`mcp/tools.ts`) and the React-UI agent (`agent/tools.ts`)
-// each carry their own switch dispatch over the same `services/*` layer. This
-// file lifts the shared 30 tools to one canonical spec list, with a per-call
-// `verbose` flag deciding whether to assemble full markdown (MCP) or a terse
-// status string (the in-app agent loop). Both adapters wrap these specs.
-//
-// Tool count breakdown (per dec-4 of doc-14):
-//   - This file: 30 specs (the shared surface).
-//   - MCP-only: `list_memexes` (registered inline in mcp/tools.ts).
-//   - Agent-only: 6 `render_*` UI tools (defined in agent/tools.ts).
-//
-// Adding/changing a tool:
-//   - Edit the spec here — both surfaces inherit it.
-//   - Update the regression test in `__regression__/tools-coverage.regression.test.ts`
-//     if the catalogue shape changes (e.g. a new MCP-only tool).
-
-import { z, type ZodRawShape } from "zod";
 import { eq, } from "drizzle-orm";
 import { db } from "../../db/connection.js";
 import { documents } from "../../db/schema.js";
@@ -33,49 +19,17 @@ import {
   listPredecessors,
 } from "../../services/supersession.js";
 import {
-  assertRefNotUuid,
-} from "../../mcp/refs.js";
-import type { ResolvedEntity } from "../../services/resolver.js";
-import {
-  getDoc,
-} from "../../services/documents.js";
-import {
-  listCommentsForDoc,
-} from "../../services/comments.js";
-import {
-  listDecisions,
-} from "../../services/decisions.js";
-import {
   listAcsForBriefWithVerification,
-  type AcKind,
   type AcWithVerification,
 } from "../../services/acs.js";
-import {
-  listTasks,
-} from "../../services/tasks.js";
-import type { RequestCtx } from "../../services/mutate.js";
-import type { AccessibleMemex } from "../../services/skills/skills-service.js";
 import { listActivityView } from "../../services/activity-view.js";
-import { facetKeysByTask, facetKeysByDecision } from "../../services/facet-ballot.js";
 import { resolveTestEventActors } from "../../services/who-resolver.js";
 import { stripUuids, containsUuid } from "../../services/shared/identifiers.js";
 import { listPresent } from "../../services/presence.js";
 import {
-  listDocTags,
-} from "../../services/tags.js";
-import { ValidationError } from "../../types/errors.js";
-import {
-  formatFullDocState,
   formatSpecGuidanceBody,
-  type InjectedBlock,
 } from "../../formatting/formatters.js";
-import { buildSketchBlock, type SketchAc } from "../../mcp/ac-test-sketch.js";
-import { getOrgIdForMemex } from "../../services/memexes.js";
-import { listOrgScaffoldAdditionsCached } from "../../services/scaffold-additions-cache.js";
-import { filterOrgBlocksForMemex } from "../../services/scaffold-additions.js";
-import {
-  searchMemex,
-} from "../../services/memex-search.js";
+import { buildSketchBlock } from "../../mcp/ac-test-sketch.js";
 import {
   BASE_SCAFFOLD,
   HANDOFF_BUTTON_BY_PHASE,
@@ -83,398 +37,14 @@ import {
   toHandoffEssence,
   GET_PROMPT_PROSE,
   type Phase,
-  type GuidanceBlock,
 } from "@memex/shared";
 import { claimFullHandoffDelivery } from "../../services/handoff-delivery.js";
-// Codebase-intelligence service + formatter imports removed per doc-24 dec-1
-// alongside the commented-out tool block below. Restore from
-// `../mcp/codebase-formatters.js`, `../services/{code-search,repos,files,symbols,endpoints,imports,calls,repo-meta}.js`
-// when the tools come back.
-
-// ══════════════════════════════════════
-// Tool context
-// ══════════════════════════════════════
-//
-// Both surfaces inject a ctx so the spec can be agnostic about *how* a
-// memex is resolved (membership checks for MCP, bound-and-validated for
-// the in-app agent) and *what* shape the response should take (full
-// markdown vs. terse status string).
-
-export type EntityKind = "doc" | "section" | "decision" | "task" | "comment";
-
-/**
- * b-36 T-6: an entity resolved from a canonical ref, packaged together with
- * the parent doc + namespace/memex slugs so a tool handler can both mutate
- * via the service layer (memexId + entity id) and emit a `ref:` line on the
- * way out (slugs + doc + child seq) without re-querying the DB.
- */
-export interface ResolvedRef {
-  /** Full entity discriminated union from the resolver. */
-  entity: ResolvedEntity;
-  /** The owning memex's UUID — same as `entity.row.memexId`, surfaced for ergonomics. */
-  memexId: string;
-  /** The parent doc — same row as `entity.row` for doc-level kinds. */
-  doc: import("../../db/schema.js").Doc;
-  /** Namespace + memex slugs, ready to feed into `buildDocRef` / `buildChildRef`. */
-  slugs: { namespace: string; memex: string };
-}
-
-/**
- * spec-219 Phase 2 (sole-author): the structured signal a handler parks in
- * `ctx.footerSlot` to tell `composeGuidanceEnvelope` WHAT just happened. The
- * handler passes DATA only; `composeGuidanceEnvelope` (via `renderFooterSignal`)
- * owns every WORD. New event shapes get a new variant here — never prose in a
- * handler.
- */
-type FooterSignal =
-  | {
-      kind: "decision_resolved";
-      decRef: string;
-      linkedAcs: SketchAc[];
-      issueHits: Awaited<ReturnType<typeof relatedIssuesForDecision>>;
-    }
-  | { kind: "task_completed"; allComplete: boolean; remaining: number }
-  | { kind: "doc_transition"; beforeStatus: string; target: string; docType: string }
-  | { kind: "doc_created"; docRef: string; docType: string }
-  | { kind: "decision_created"; issueHits: Awaited<ReturnType<typeof relatedIssuesForDecision>> }
-  | {
-      kind: "ac_created";
-      acKind: AcKind;
-      sameKindCount: number;
-      // implementation-kind only: the build-gate picture, so the footer can push
-      // toward build the moment every resolved decision is covered (and name the
-      // remaining gaps until then). open/uncovered are dec-N handles.
-      coverage?: { phase: string; resolvedCount: number; uncovered: string[]; open: string[] };
-    };
-
-/** The single channel from a handler to `composeGuidanceEnvelope`: a structured
- *  `signal` carrying the DATA of what just happened. composeGuidanceEnvelope
- *  (renderFooterSignal) owns the words. A handler never puts prose here. */
-export interface FooterSlot {
-  signal?: FooterSignal;
-}
-
-export interface ToolCtx {
-  userId: string;
-  /**
-   * spec-203 Layer 2 (dec-2): the MCP `Mcp-Session-Id` for this call, threaded
-   * from the dispatch layer (`createMcpServer`). The centralized footer machine
-   * (`formatState`) keys its once-per-(user, session, spec, phase) full-handoff
-   * delivery on it. Present only on the MCP surface; undefined for the in-app
-   * agent (which is primed via the shared_nudge channel, spec-123 dec-8) and for
-   * hand-rolled test ctxes — both keep the compressed-essence footer path.
-   */
-  sessionId?: string;
-  /**
-   * spec-156 ac-19: the surface invoking this handler — `mcp` for the MCP
-   * server wrap (`mcp/tools.ts`), `in_app_agent` for the React agent loop
-   * (`agent/tools.ts` → `buildAgentCtx`). Handlers that thread a channel into a
-   * downstream `mutate()`/`RequestCtx` (e.g. update_doc's tag writes) MUST read
-   * it here instead of hardcoding — otherwise Pulse misattributes agent-driven
-   * activity as MCP. Optional + defaults to `mcp` at the call site so the many
-   * hand-rolled test ctxes (which never set it) keep their historic behaviour.
-   */
-  channel?: "mcp" | "in_app_agent";
-  /**
-   * Display name of the acting user, set ONLY on the in-app agent path (the
-   * agent acts on behalf of the signed-in human). When present, user-authored
-   * artifacts like comments are attributed to this name with source='human'
-   * (spec-126 change-10). The MCP path leaves it undefined and keeps the
-   * historic 'Memex agent' / source='agent' attribution.
-   */
-  userName?: string;
-  /**
-   * MCP: resolveMemexFromEntity-bound — looks up the entity and asserts
-   * the user is an active member of its memex.
-   * Agent: validates the entity belongs to the pre-bound memexId; throws
-   * NotFoundError otherwise (defence-in-depth against tenant cross-talk).
-   *
-   * Legacy — used only by callers that haven't migrated to ref-based
-   * resolution. New code calls `resolveRef` instead.
-   */
-  resolveMemexFromEntity: (kind: EntityKind, id: string) => Promise<string>;
-  /**
-   * MCP: resolveWorkspace-bound — picks the user's memex by namespace slug.
-   * Agent: returns the pre-bound memexId, ignoring the `memex` arg.
-   */
-  resolveMemex: (memex?: string) => Promise<string>;
-  /**
-   * spec-300 dec-25: enumerate the Memexes this caller may read, for the
-   * cross-Memex skills union (`list_skills({ all_memexes: true })`). This is the
-   * authorization seam — the handler never decides which Memexes are visible.
-   * MCP binds it to the org-scoped membership list (std-4 + the OAuth Org-scope
-   * filter); the in-app agent binds it to the single Memex its chat is scoped to.
-   *
-   * Optional for the same reason as `getOrgBlocksForNudge` below: the many
-   * hand-rolled test ctxes never set it. BOTH real surfaces do, so it is always
-   * present in production; the `all_memexes` handler guards on its absence.
-   */
-  listAccessibleMemexes?: () => Promise<readonly AccessibleMemex[]>;
-  /**
-   * b-36 T-6: resolve a canonical ref (`<ns>/<mx>/<doc-type>/<handle>[/...]`)
-   * to its entity row, parent doc, and namespace/memex slugs — and assert
-   * the caller has membership on the owning memex. Throws on parse error,
-   * missing entity, or membership denial.
-   */
-  resolveRef: (ref: string) => Promise<ResolvedRef>;
-  /**
-   * Build a tenant URL (`${origin(APP_BASE_URL)}/${namespace}/${memex}`) for
-   * verbose output. Path-based per std-2, host-agnostic. Agent passes a no-op
-   * (returns empty string) since terse output never renders URLs.
-   */
-  workspaceUrl: (memexId: string) => Promise<string>;
-  /**
-   * Selects response shape:
-   *   true  → assemble full doc state and format via the existing
-   *           formatters (MCP).
-   *   false → return a terse status string compatible with the agent's
-   *           current `executeServerTool` returns (UI agent loop).
-   */
-  verbose: boolean;
-  /**
-   * The doc UUID the agent is currently editing, if any. Set by the in-app
-   * agent when the chat is bound to a specific doc; unset for the creation
-   * phase (no doc yet) and for the MCP surface (no bound doc). Used by
-   * `search_memex` to exclude self-hits by default — the agent already has
-   * the current doc in its Document Context system block, so search
-   * regurgitating it adds noise without signal.
-   */
-  currentDocId?: string;
-  /**
-   * b-68 t-8 / ac-29: name of the tool currently dispatching this handler.
-   * Threaded into the nudge channel so `toNudge({ tool, ... })` picks up
-   * per-tool Org additions targeting this exact tool. Both surfaces (the
-   * MCP server in `mcp/tools.ts` and the React agent in `agent/tools.ts`)
-   * MUST populate this — it's the load-bearing signal that keeps both
-   * surfaces composing identical nudge text for the same (tool, phase)
-   * pair.
-   */
-  toolName?: string;
-  /**
-   * b-68 t-8 / ac-29: lazy fetcher for the principal's Org's enabled
-   * `org_scaffold_additions`, threaded into the nudge channel so
-   * `toNudge({ orgBlocks, ... })` can merge Org overlay blocks with the
-   * base `BASE_SCAFFOLD` content. Both surfaces populate this with the
-   * cached `listOrgScaffoldAdditionsCached` reader (per b-68 t-11) so the
-   * hot path stays O(1) inside the 30s TTL.
-   *
-   * Lazy — only invoked when a handler reaches a spec doc state
-   * formatter. Most tool calls (search, list, comments) don't need it, so
-   * we don't pay the lookup cost up front. Returns `[]` when the bound
-   * memex has no Org context (personal namespaces).
-   */
-  getOrgBlocksForNudge?: () => Promise<readonly GuidanceBlock[]>;
-  /**
-   * spec-219 dec-3 (t-3): the stable slot a handler parks its dynamic footer
-   * nugget in — the result-reporting / steering text it used to inject as a
-   * `{ zone: "footer" }` block on its own `formatState` call. The single seat
-   * (`composeGuidanceEnvelope`) reads it and folds it into the footer, so the
-   * choke point lands it AFTER `FOOTER_DELIMITER` and the telemetry split
-   * persists it to `mcp_tool_calls.footer_text` (it never was while the nugget
-   * rode the body, before the delimiter). A shared mutable holder: the choke
-   * point (`runToolWithSpecTraffic`) creates one, threads it into the handler's
-   * ctx, and reads it back when it composes the envelope. Absent on hand-rolled
-   * test ctxes that bypass the choke — there the nugget is simply not delivered,
-   * exactly as any footer needs the choke to attach it.
-   */
-  footerSlot?: FooterSlot;
-  /**
-   * spec-219 Phase 2: a creating tool (e.g. `create_doc`) records the doc it
-   * just made so the choke point runs `composeGuidanceEnvelope` for it — the
-   * tool resolved no ref, so the normal `resolveRef` target capture never fired.
-   * The choke sets this; handlers call it.
-   */
-  recordCreatedDoc?: (memexId: string, docId: string) => void;
-}
-
-/**
- * spec-122 dec-5 — turn a ToolCtx into the RequestCtx the source-table services
- * thread into mutate() and stamp onto the activity contract columns. Carries WHO
- * (actorUserId; actorName when the surface knows it — the in-app agent does, the
- * MCP surface leaves it for the service to resolve) and HOW (channel defaults to
- * 'mcp' for the same reason the dispatch layer does — a hand-rolled test ctx
- * without a channel is the MCP server) plus the per-client session id.
- */
-export function reqCtx(ctx: ToolCtx): RequestCtx {
-  return {
-    actorUserId: ctx.userId,
-    ...(ctx.userName !== undefined ? { actorName: ctx.userName } : {}),
-    channel: ctx.channel ?? "mcp",
-    ...(ctx.sessionId !== undefined ? { clientId: ctx.sessionId } : {}),
-  };
-}
-
-/**
- * b-68 t-8 / ac-29: lazy fetcher for the principal Org's enabled
- * `org_scaffold_additions`, used by both surfaces (MCP + React) to populate
- * `ToolCtx.getOrgBlocksForNudge`. Pulling this helper through one shared
- * function keeps the merge contract identical across surfaces — both call
- * `listOrgScaffoldAdditionsCached(orgId, { enabledOnly: true })` exactly
- * the way the runtime nudge composer expects.
- *
- * Personal namespaces (memexes with no owning Org) return `[]` — the nudge
- * composer is shaped to accept an empty Org-blocks list (per ac-25), so the
- * caller doesn't need to special-case "no org" anywhere downstream.
- *
- * `getMemexId` is a thunk so the fetcher resolves the memexId at call time
- * (after the spec handler has resolved a ref / memex). On surfaces where
- * the memexId isn't known until a resolveMemex/resolveRef hop fires, this
- * lets us bind the getter into the ctx up-front without depending on the
- * resolution order.
- */
-export function buildNudgeOrgBlocksGetter(
-  getMemexId: () => string | undefined,
-): () => Promise<readonly GuidanceBlock[]> {
-  return async () => {
-    const memexId = getMemexId();
-    if (!memexId) return [];
-    const orgId = await getOrgIdForMemex(memexId);
-    if (!orgId) return [];
-    // spec-193 t-5: the cache holds every enabled row for the Org (account-wide
-    // + per-memex). Filter to this memex's view — account-wide rows plus the
-    // rows scoped to THIS memex — so a per-memex override never bleeds into a
-    // sibling memex under the same namespace.
-    const all = await listOrgScaffoldAdditionsCached(orgId, { enabledOnly: true });
-    return filterOrgBlocksForMemex(all, memexId);
-  };
-}
-
-// MCP `ToolAnnotations` hints — surfaced to clients (Claude) so they can vary
-// behaviour (e.g. ask the user to confirm before calling a destructive tool).
-// Required by the Anthropic Connectors Directory (b-31 W2): every tool must
-// carry `title`, `readOnlyHint`, and `destructiveHint`. Misclassifying a
-// destructive tool as readOnly means Claude calls it without confirmation, so
-// these are kept verbatim in `__regression__/tools-annotations.regression.test.ts`.
-interface ToolAnnotations {
-  /** Human-readable display name shown in tool pickers. */
-  title: string;
-  /** True if the tool does not modify any state. */
-  readOnlyHint: boolean;
-  /**
-   * True if the tool performs an irreversible mutation (delete, hard drop, etc.).
-   * False for reversible mutations (update_*, create_* — all can be reverted by
-   * a follow-up tool call).
-   */
-  destructiveHint: boolean;
-}
-
-export interface ToolSpec {
-  name: string;
-  description: string;
-  schema: ZodRawShape;
-  /** MCP tool annotations (b-31 W2). */
-  annotations: ToolAnnotations;
-  /** Returns the response text. Adapters wrap into MCP/agent shapes. */
-  handler: (input: Record<string, unknown>, ctx: ToolCtx) => Promise<string>;
-}
-
-// ══════════════════════════════════════
-// Shared description fragments
-// ══════════════════════════════════════
-
-export const MEMEX_DESC =
-  'Memex identifier in `<namespace>/<memex>` form (e.g. "mindset/website-rewrite") — same string the user types in the browser. ' +
-  "Optional if you have only one Memex; required otherwise. " +
-  "Always confirm with the user which Memex to operate in before any mutating call — don't assume the only one when there are multiple, and don't assume the personal one is the right default. " +
-  "Use list_memexes() to discover the values.";
-
-/**
- * Per dec-1 of doc-20: every shared tool spec accepts an optional `verbose`
- * input flag. Default (unset / false) returns a terse confirmation; true
- * routes through the existing markdown formatters to return the full doc
- * state. Exported as a single shared zod fragment so naming + description
- * stay consistent across all 30 specs (per §4 Risks R1) — every
- * `spec.schema.verbose` references THIS instance by identity, enforced by
- * the audit suite.
- */
-export const VERBOSE_FIELD = z
-  .boolean()
-  .optional()
-  .describe(
-    "When true, return the full markdown response (doc state + formatters). " +
-      "Default false returns a terse confirmation.",
-  );
+import type { ToolCtx, FooterSignal } from "./tool-contract.js";
+import { fullDocState, type FullDocState } from "./doc-state.js";
+import { relatedIssuesNudge } from "./related-issues.js";
 
 export const COMPLETION_NUDGE =
   "Leave a `progress` comment for whoever picks this up next: what landed, the contract it honours, any surprises, and what is left for downstream.";
-
-// ══════════════════════════════════════
-// Helpers
-// ══════════════════════════════════════
-
-interface FullDocState {
-  doc: Awaited<ReturnType<typeof getDoc>>;
-  // spec-445 dec-2 — each decision/task carries its stored true facet keys, surfaced on
-  // the read (get_doc) as context.
-  decs: (Awaited<ReturnType<typeof listDecisions>>[number] & { facets?: string[] })[];
-  tasks: (Awaited<ReturnType<typeof listTasks>>[number] & { facets?: string[] })[];
-  comments: Awaited<ReturnType<typeof listCommentsForDoc>>;
-  // spec-136 t-4: the Spec's tags, rendered inline by formatFullDocState so any
-  // doc-state response (get_doc, every mutation) carries them.
-  tags: Awaited<ReturnType<typeof listDocTags>>;
-}
-
-export async function fullDocState(memexId: string, docIdOrHandle: string): Promise<FullDocState> {
-  const doc = await getDoc(memexId, docIdOrHandle);
-  const [decs, tasksList, comments, docTags] = await Promise.all([
-    listDecisions(memexId, doc.id),
-    listTasks(memexId, doc.id),
-    listCommentsForDoc(memexId, doc.id),
-    listDocTags(memexId, doc.id),
-  ]);
-  // spec-445 dec-2 — attach each decision's/task's stored true facet keys so get_doc
-  // surfaces the classification as context (batched; a task/decision with no ballot gets []).
-  const [decFacets, taskFacets] = await Promise.all([
-    facetKeysByDecision(memexId, decs.map((d) => d.id)),
-    facetKeysByTask(memexId, tasksList.map((t) => t.id)),
-  ]);
-  const decsWithFacets = decs.map((d) => ({ ...d, facets: decFacets.get(d.id) ?? [] }));
-  const tasksWithFacets = tasksList.map((t) => ({ ...t, facets: taskFacets.get(t.id) ?? [] }));
-  return { doc, decs: decsWithFacets, tasks: tasksWithFacets, comments, tags: docTags };
-}
-
-/**
- * Format the full doc state for a tool response. Pass `ctx` so the
- * spec phase footer (composed by `toNudge` inside
- * `formatBriefGuidance`) picks up the per-call tool name and the
- * principal's Org-overlay blocks — both surfaces (MCP + React) thread the
- * same context here, which keeps the nudge channel a single composer per
- * b-68 dec-9 (ac-29).
- *
- * `ctx` is optional only for backwards-compatible callers (tests, ad-hoc
- * usage) — production tool dispatch ALWAYS supplies it. When absent, the
- * nudge composes against base data only (tool + orgBlocks are undefined).
- */
-export async function formatState(
-  baseUrl: string,
-  state: FullDocState,
-  ctx?: ToolCtx,
-  // spec-203 dec-3 (t-3): tool-injected guidance blocks (coverage header, tag
-  // summary, nudges). Tools report these instead of concatenating around the
-  // call; the composer places them by zone. Absent for the many bare callers.
-  blocks?: readonly InjectedBlock[],
-): Promise<string> {
-  // spec-203 ac-15: formatState renders only the doc BODY (+ tool-injected
-  // header/footer blocks). The machine footer is no longer composed here — the
-  // single seat `decideFooter` composes and attaches it at the one choke point
-  // (`runToolWithSpecTraffic`) on EVERY Spec-resolving call. `ctx` is retained
-  // for signature stability (callers pass it); the footer no longer reads it.
-  void ctx;
-  return formatFullDocState(
-    state.doc,
-    state.decs,
-    state.tasks,
-    baseUrl,
-    state.comments,
-    undefined,
-    undefined,
-    undefined,
-    // spec-136 t-4: the Spec's tags, rendered as a one-line strip in the header.
-    state.tags,
-    // spec-203 dec-3 (t-3): tool-injected guidance, placed by the composer.
-    blocks,
-  );
-}
 
 /**
  * THE single seat that composes the platform guidance ENVELOPE — header + footer
@@ -937,7 +507,9 @@ export async function composeGuidanceEnvelope(
 // spec (an AC delta, a phase move, or task churn by a DIFFERENT actor recently).
 // Advisory only — never blocks, never aborts; best-effort, never throws.
 const ACTIVITY_RECENT_LIMIT = 8;
+
 const MATERIAL_WINDOW_MS = 10 * 60 * 1000; // "recently" for the collision predicate
+
 // Kinds whose appearance is MATERIAL advancement (vs. a comment / read). A phase
 // move shows up as an activity_log status_changed row (kind 'activity_log').
 const MATERIAL_KINDS: ReadonlySet<string> = new Set([
@@ -1069,19 +641,6 @@ async function craftUntestedAcNag(
     return null;
   }
 }
-
-// ──────────────────────────────────────────────────────────────────────────
-// spec-249 — the live spec-status overview that orients a cold picker-upper.
-//
-// One synthesized line — phase + a FULL state census + the single next action —
-// pushed onto EVERY orientation read (get_doc / list_acs / assess_spec), on both
-// terse and verbose reads (ORIENT_READ_TOOLS, below). It is PUSHED, not pulled:
-// the cold agent never opts in, and (the lesson that reopened this spec) cannot
-// be depended on to set `verbose` or to read through any one tool. Pure data,
-// read from current state, so the line is LIVE — it changes every call as
-// decisions resolve, tasks complete, and ACs pass or fail (ac-3). No phase prose
-// lives here; the phase essence in the same footer is the single source (ac-6).
-// ──────────────────────────────────────────────────────────────────────────
 
 /** The orientation READ surfaces the overview rides (ac-2). Every one of these
  *  resolves a single Spec, so each already flows through this seat at the choke
@@ -1365,167 +924,4 @@ async function formatCoverageHeader(
   } catch {
     return "";
   }
-}
-
-// `pathLikeForDomain` removed per doc-24 dec-1 — only the codebase-intelligence
-// tools called it.
-
-// ══════════════════════════════════════
-// Specs
-// ══════════════════════════════════════
-//
-// b-67 t-2 [per std-19]: the CANONICAL tool list + its presentation metadata
-// (summary / args / group) live in `@memex/shared/tool-manifest.ts`. This
-// array is the runtime half of that contract — it supplies the Zod schema +
-// handler + MCP annotations for each tool, plus the rich `description` strings
-// the live MCP / agent surfaces emit. The manifest carries the terse reference
-// metadata the React UI Init Prompt renders.
-//
-// The two halves are NOT physically deduped (this matches the existing
-// MCP ↔ agent parity pattern in this codebase — parity is enforced by test,
-// not by a single physical source). The b-67 regression test in
-// `__regression__/tools-coverage.regression.test.ts` asserts the manifest's
-// tool-name set equals the registered MCP surface, so adding / removing /
-// renaming a tool here forces a matching edit in the manifest. `list_memexes`
-// is the one tool registered inline in `mcp/tools.ts` (not in this array), so
-// the cross-check below excludes it — see `manifestVsSpecsDiff`.
-
-// ══════════════════════════════════════
-// Internal helper: canonical-ref resolution at tool boundary
-// ══════════════════════════════════════
-//
-// b-36 D-7 / T-6: tool inputs accept canonical refs only — no UUIDs, no
-// `<prefix>-N` handles in isolation. This helper enforces the boundary,
-// delegates to `ctx.resolveRef` (which runs the resolver + membership), and
-// optionally asserts the resolved kind matches what the tool expects.
-//
-// Expected kinds for ref-acting tools:
-//   - doc-level CRUD (`get_doc`, `update_doc`, `add_section`, `create_decision`,
-//     `create_task`, `list_tasks`, `list_comments` with docId, `assess_spec`,
-//     `publish_spec`) expect kind ∈ {spec, doc, standard, execution-plan}.
-//   - section CRUD (`update_section`) expects kind === 'section'.
-//   - decision verbs (`update_decision`, `resolve_decision`,
-//     `approve_candidate`, `reject_candidate`) expect kind === 'decision'.
-//   - task verbs (`update_task`, `delete_task`) expect kind === 'task'.
-//   - comment verbs (`update_comment`) expect kind === 'comment'.
-//   - `add_comment` / `list_comments` accept any of {section, decision, task}.
-
-type DocLikeKind = "spec" | "doc" | "standard" | "execution-plan";
-const DOC_LIKE_KINDS = new Set<DocLikeKind>(["spec", "doc", "standard", "execution-plan"]);
-
-export function isDocLikeKind(kind: ResolvedEntity["kind"]): kind is DocLikeKind {
-  return DOC_LIKE_KINDS.has(kind as DocLikeKind);
-}
-
-// spec-112 (ac-25/ac-27): rank the best-suited Specs to home a homeless Issue.
-// Semantic search over the issue text (title + body) restricted to Specs
-// (kind:'spec'). searchMemex already excludes archived + paused content; we
-// additionally drop `done` so ONLY active-phase Specs are suggested. The vector
-// arm of searchMemex runs whenever a provider is supplied — so this ranks via
-// the vector path when embeddings are configured, and falls back to FTS-only
-// otherwise (ac-27). Exported so the assist's ranking is unit-testable with an
-// injected provider without driving the whole register_issue handler.
-export async function suggestActiveSpecsForIssue(
-  memexId: string,
-  title: string,
-  body: string,
-  provider: import("../../services/embedding-provider.js").EmbeddingProvider | null,
-  limit = 5,
-): Promise<import("../../services/memex-search.js").MemexSearchHit[]> {
-  const issueText = `${title}\n\n${body}`.trim();
-  if (issueText.length === 0) return [];
-  const hits = await searchMemex(memexId, issueText, {
-    kind: "spec",
-    provider,
-    limit,
-  });
-  // searchMemex drops archived/paused already; exclude `done` so the
-  // suggestions are active-phase Specs only (ac-27).
-  return hits.filter((h) => h.status !== "done" && h.status !== "archived");
-}
-
-// spec-112 (ac-4 / ac-15): decision-time auto-surfacing of related Issues.
-//
-// When a decision is created or resolved, the JIT-nudge channel appends related
-// Issues whose semantic overlap with the decision text clears a relevance
-// threshold. This reuses the SAME searchMemex(kind:'issue') machinery the
-// search_issues tool rides — no new search infra (s-4). It is INFORMATIONAL
-// only: it never mutates, never blocks a phase move, and below threshold it
-// appends nothing.
-//
-// Relevance threshold. searchMemex merges an FTS arm and a vector arm via RRF.
-// The vector arm is rank-only — it returns EVERY embedded Issue ordered by
-// cosine distance with no distance cutoff (see runIssueVector), so a
-// vector-only hit is not by itself evidence of relevance, and adjacent
-// post-RRF scores are nearly identical (1/(K+i) for consecutive ranks). The
-// genuine relevance gate is therefore the FTS arm: `@@ plainto_tsquery` only
-// matches Issues that share content terms with the decision text. So the
-// threshold is "the hit must have been surfaced by FTS" — a real lexical
-// overlap — and, among those, we keep hits whose score is at least
-// RELATED_ISSUE_SCORE_RATIO of the top FTS-backed hit (a secondary trim that
-// drops far-weaker partial matches). Below the gate, nothing is appended.
-const RELATED_ISSUE_SCORE_RATIO = 0.5;
-const RELATED_ISSUE_LIMIT = 3;
-
-// Search Issues across the whole Memex (cross-Spec) for ones whose text overlaps
-// the decision, keeping only those above the relevance threshold. Exported so the
-// threshold behaviour is unit-testable with an injected provider (ac-15) without
-// driving a whole create/resolve_decision handler.
-export async function relatedIssuesForDecision(
-  memexId: string,
-  decisionText: string,
-  provider: import("../../services/embedding-provider.js").EmbeddingProvider | null,
-  limit = RELATED_ISSUE_LIMIT,
-): Promise<import("../../services/memex-search.js").MemexSearchHit[]> {
-  const text = decisionText.trim();
-  if (text.length === 0) return [];
-  const hits = await searchMemex(memexId, text, {
-    kind: "issue",
-    provider,
-    // Pull a few extra so the ratio trim has a population to cut against, then
-    // trim to `limit` after thresholding.
-    limit: Math.max(limit * 2, limit),
-  });
-  if (hits.length === 0) return [];
-  // searchMemex already drops resolved-Spec / archived noise at the doc level;
-  // exclude resolved Issues so a closed bug/todo never resurfaces as "related".
-  // The relevance gate: the hit must carry a real lexical overlap (FTS), not be
-  // a vector-only rank artefact (every embedded Issue rides the vector arm).
-  const related = hits.filter(
-    (h) => h.status !== "resolved" && h.strategies.includes("fts"),
-  );
-  if (related.length === 0) return [];
-  const top = related[0].score;
-  const floor = top * RELATED_ISSUE_SCORE_RATIO;
-  return related.filter((h) => h.score >= floor).slice(0, limit);
-}
-
-// Compose the informational JIT-nudge tail that lists related Issues by their
-// cross-Spec canonical ref (hit.path). Returns "" when there are none above
-// threshold, so callers can append unconditionally. Informational only.
-export function relatedIssuesNudge(
-  hits: import("../../services/memex-search.js").MemexSearchHit[],
-): string {
-  if (hits.length === 0) return "";
-  const lines = hits.map((h) => {
-    const typeTag = h.issueType ? `${h.issueType}` : "issue";
-    return `  - ${h.path} — "${h.title}" (${typeTag}, ${h.status})`;
-  });
-  return (
-    `\n\nRelated Issues (informational — may inform this decision; nothing was changed):\n` +
-    lines.join("\n") +
-    `\nReview with \`get_issue({ ref: '<one of the above>' })\`; pull one into the work with \`create_task\` if it bears on this decision.`
-  );
-}
-
-export async function resolveRefArg(
-  ctx: ToolCtx,
-  ref: string,
-  argName = "ref",
-): Promise<ResolvedRef> {
-  if (typeof ref !== "string" || ref.length === 0) {
-    throw new ValidationError(`${argName} is required.`);
-  }
-  assertRefNotUuid(ref, argName);
-  return ctx.resolveRef(ref);
 }

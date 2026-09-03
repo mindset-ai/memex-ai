@@ -39,14 +39,16 @@ import {
   ValidationError,
 } from "../../types/errors.js";
 import {
-  VERBOSE_FIELD,
   formatState,
   fullDocState,
+} from "./doc-state.js";
+import {
+  VERBOSE_FIELD,
   isDocLikeKind,
   reqCtx,
   resolveRefArg,
   type ToolSpec,
-} from "./shared.js";
+} from "./tool-contract.js";
 
 export const sectionsTools: ToolSpec[] = [
   {

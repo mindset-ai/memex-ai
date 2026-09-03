@@ -42,15 +42,19 @@ import {
 import { requireBallotForMemex, decisionBallotTrueFacets } from "../../services/facet-ballot.js";
 import { parseBallotArg, storeRouteAndReadout, routeAndReadout } from "../../services/facet-consume.js";
 import {
-  VERBOSE_FIELD,
   formatState,
   fullDocState,
-  isDocLikeKind,
+} from "./doc-state.js";
+import {
   relatedIssuesForDecision,
+} from "./related-issues.js";
+import {
+  VERBOSE_FIELD,
+  isDocLikeKind,
   reqCtx,
   resolveRefArg,
   type ToolSpec,
-} from "./shared.js";
+} from "./tool-contract.js";
 
 export const decisionsTools: ToolSpec[] = [
   {

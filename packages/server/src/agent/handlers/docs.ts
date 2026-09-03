@@ -79,17 +79,21 @@ import {
   type Phase,
 } from "@memex/shared";
 import {
-  MEMEX_DESC,
-  VERBOSE_FIELD,
   formatState,
   fullDocState,
+} from "./doc-state.js";
+import {
   handoffInterpolationContext,
+} from "./guidance-envelope.js";
+import {
+  MEMEX_DESC,
+  VERBOSE_FIELD,
   isDocLikeKind,
   reqCtx,
   resolveRefArg,
   type ToolCtx,
   type ToolSpec,
-} from "./shared.js";
+} from "./tool-contract.js";
 
 // spec-448 t-5 (ac-8, ac-37): mutating a doc counts as "seeing" it — advance the
 // caller's doc_views marker to the doc's current version so a self-authored

@@ -32,7 +32,12 @@ import {
   type MemexSkillGroup,
 } from "../../services/skills/skills-service.js";
 import type { SkillCapabilities } from "../../services/skills/skill-capabilities.js";
-import { MEMEX_DESC, VERBOSE_FIELD, reqCtx, type ToolSpec } from "./shared.js";
+import {
+  MEMEX_DESC,
+  VERBOSE_FIELD,
+  reqCtx,
+  type ToolSpec,
+} from "./tool-contract.js";
 
 // ── Local helpers ─────────────────────────────────────────────────────────────
 

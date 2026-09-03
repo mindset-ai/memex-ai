@@ -11,18 +11,23 @@ import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
-// spec-366: renderFooterSignal + composeGuidanceEnvelope (the sole footer-prose
-// authors) now live in agent/handlers/shared.ts; the per-tool handlers live in
-// agent/handlers/*.ts. Scan shared.ts (carrying the confinement window) FIRST,
-// then append every other handler module so any handler that reaches for a prose
-// builder directly is flagged as an offender outside the window.
+// spec-366 / spec-546: renderFooterSignal + composeGuidanceEnvelope (the sole
+// footer-prose authors) live together in ONE module under agent/handlers/; the
+// per-tool handlers live in agent/handlers/*.ts. Concatenate every handler module
+// so any handler that reaches for a prose builder directly is flagged as an
+// offender outside the confinement window.
+//
+// spec-546: this used to read shared.ts by name FIRST, so the window's two
+// anchors would appear in order. That is no longer needed — both anchors live in
+// the same file, so their order is preserved by the file itself whatever order
+// the directory is read in. Sorted for determinism: readdirSync order is
+// filesystem-dependent, and this guard's window is computed from positions.
 const HANDLERS_DIR = join(__dirname, "..", "agent", "handlers");
-const SHARED_SRC = readFileSync(join(HANDLERS_DIR, "shared.ts"), "utf-8");
-const OTHER_HANDLERS = readdirSync(HANDLERS_DIR)
-  .filter((n) => n.endsWith(".ts") && n !== "shared.ts")
+const SRC = readdirSync(HANDLERS_DIR)
+  .filter((n) => n.endsWith(".ts"))
+  .sort()
   .map((n) => readFileSync(join(HANDLERS_DIR, n), "utf-8"))
   .join("\n");
-const SRC = `${SHARED_SRC}\n${OTHER_HANDLERS}`;
 
 // renderFooterSignal's body spans from its header to the next top-level function
 // (composeGuidanceEnvelope, which we place immediately after it). Span by anchor,

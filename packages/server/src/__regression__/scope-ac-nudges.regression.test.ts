@@ -28,7 +28,9 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { toolSpecs } from "../agent/tool-specs.js";
-import { renderFooterSignal } from "../agent/handlers/shared.js";
+import {
+  renderFooterSignal,
+} from "../agent/handlers/guidance-envelope.js";
 
 const AC6 = "mindset-prod/memex-building-itself/specs/spec-392/acs/ac-6";
 

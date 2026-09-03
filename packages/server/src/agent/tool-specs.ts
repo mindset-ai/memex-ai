@@ -6,7 +6,8 @@
 // `./handlers/*` (schema + handler + MCP annotations + rich descriptions) into
 // the single `toolSpecs` catalogue both surfaces (MCP `mcp/tools.ts` + the React
 // agent `agent/tools.ts`) wrap. The shared handler infrastructure (ToolCtx,
-// helpers, the guidance envelope) lives in `./handlers/shared.ts` (std-12).
+// helpers, the guidance envelope) lives in `./handlers/tool-contract.ts` and
+// its siblings (std-12); spec-546 named them for their contents.
 //
 // `list_memexes` is the one tool registered inline in `mcp/tools.ts` (not here),
 // so `manifestVsSpecsDiff` (below) excludes it from the manifest cross-check.
@@ -16,7 +17,9 @@
 // tool-manifest.ts`; the b-67 regression test asserts the two stay in lockstep.
 
 import { toolManifest } from "@memex/shared";
-import type { ToolSpec } from "./handlers/shared.js";
+import type {
+  ToolSpec,
+} from "./handlers/tool-contract.js";
 
 // spec-366: re-export the shared infra symbols external modules/tests import
 // from this file, so no import site moved (std-16 contract unchanged).
@@ -35,28 +38,34 @@ import type { ToolSpec } from "./handlers/shared.js";
 // while asserting NOTHING and the "one author of footer prose" invariant goes
 // unguarded, in green. Only its `sanity:` test pins the two window anchors.
 export {
-  composeGuidanceEnvelope,
-  craftActivityBlock,
-  composeStatusOverview,
-  formatAcCoverageSummary,
-  relatedIssuesForDecision,
-  relatedIssuesNudge,
-  suggestActiveSpecsForIssue,
   buildNudgeOrgBlocksGetter,
-  COMPLETION_NUDGE,
   // spec-366: re-exported because tool-specs.audit.integration.test.ts imports
   // VERBOSE_FIELD from here to assert the shared-instance identity contract.
   VERBOSE_FIELD,
   MEMEX_DESC,
-} from "./handlers/shared.js";
+} from "./handlers/tool-contract.js";
+export {
+  composeGuidanceEnvelope,
+  craftActivityBlock,
+  composeStatusOverview,
+  formatAcCoverageSummary,
+  COMPLETION_NUDGE,
+} from "./handlers/guidance-envelope.js";
+export {
+  relatedIssuesForDecision,
+  relatedIssuesNudge,
+  suggestActiveSpecsForIssue,
+} from "./handlers/related-issues.js";
+export type {
+  StatusFacts,
+} from "./handlers/guidance-envelope.js";
 export type {
   ToolCtx,
   ToolSpec,
   ResolvedRef,
   EntityKind,
   FooterSlot,
-  StatusFacts,
-} from "./handlers/shared.js";
+} from "./handlers/tool-contract.js";
 
 
 // spec-366: the per-domain handler modules. tool-specs.ts composes their

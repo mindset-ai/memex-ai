@@ -51,15 +51,17 @@ import {
   assessCommentsStatus,
 } from "../../services/comment-assessment.js";
 import {
-  MEMEX_DESC,
-  VERBOSE_FIELD,
   formatState,
   fullDocState,
+} from "./doc-state.js";
+import {
+  MEMEX_DESC,
+  VERBOSE_FIELD,
   isDocLikeKind,
   reqCtx,
   resolveRefArg,
   type ToolSpec,
-} from "./shared.js";
+} from "./tool-contract.js";
 
 // ── Moved here from shared.ts by spec-546 t-2: this file is the symbol's only
 // consumer, so it lives with its consumer and is private [per std-51].

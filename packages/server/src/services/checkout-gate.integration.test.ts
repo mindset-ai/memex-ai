@@ -6,7 +6,9 @@ import { makeTestMemex } from "./test-helpers.js";
 import { upsertUserByEmail } from "./users.js";
 import { enforceCheckoutGate } from "./checkout-gate.js";
 import { getCheckout, stampCheckout, CHECKOUT_COLLISION_WINDOW_MS } from "./checkout.js";
-import type { ToolCtx } from "../agent/handlers/shared.js";
+import type {
+  ToolCtx,
+} from "../agent/handlers/tool-contract.js";
 
 const NS = "mindset-prod/memex-building-itself/specs/spec-371/acs";
 const AC_20 = `${NS}/ac-20`; // the gate decision tree

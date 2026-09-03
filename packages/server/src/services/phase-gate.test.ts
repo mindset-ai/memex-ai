@@ -11,7 +11,9 @@ import { describe, it, expect } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { PHASE_GATING_CATALOG, type SpecPhase } from "@memex/shared";
 import { enforcePhaseGate } from "./phase-gate.js";
-import type { ToolCtx } from "../agent/handlers/shared.js";
+import type {
+  ToolCtx,
+} from "../agent/handlers/tool-contract.js";
 
 const AC = (n: number) =>
   `mindset-prod/memex-building-itself/specs/spec-464/acs/ac-${n}`;
