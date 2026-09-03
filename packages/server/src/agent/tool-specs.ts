@@ -20,6 +20,20 @@ import type { ToolSpec } from "./handlers/shared.js";
 
 // spec-366: re-export the shared infra symbols external modules/tests import
 // from this file, so no import site moved (std-16 contract unchanged).
+//
+// spec-546 dec-2: this façade STAYS, permanently. It is not a compatibility
+// shim — it is the actual interface. 49 files import from here, and for six of
+// the symbols below the façade is the ONLY route out of handlers/:
+// composeGuidanceEnvelope, renderFooterSignal, craftActivityBlock,
+// composeStatusOverview, StatusFacts, relatedIssuesNudge.
+//
+// Do NOT "fix" those six by moving them here under std-51's single-consumer
+// rule. guidance-authoring-confined.regression.test.ts scans ONLY
+// agent/handlers/ — it never reads this file — and its per-builder loop is
+// `let idx = SRC.indexOf(call); while (idx !== -1) { … }`. A call token that
+// leaves that directory makes the loop body never run, so the test passes
+// while asserting NOTHING and the "one author of footer prose" invariant goes
+// unguarded, in green. Only its `sanity:` test pins the two window anchors.
 export {
   composeGuidanceEnvelope,
   craftActivityBlock,

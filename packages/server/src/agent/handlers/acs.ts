@@ -41,9 +41,31 @@ import {
   isDocLikeKind,
   reqCtx,
   resolveRefArg,
-  verificationStateForAc,
   type ToolSpec,
 } from "./shared.js";
+
+// ── Moved here from shared.ts by spec-546 t-2: this file is the symbol's only
+// consumer, so it lives with its consumer and is private [per std-51].
+/**
+ * Resolve the current verification state of one AC (spec-127) so the
+ * discontinue/restore write tools can report the badge result inline — the
+ * agent sees immediately whether the retire cleared the red. Best-effort: any
+ * lookup miss reports "unknown" rather than failing the (already-committed)
+ * mutation.
+ */
+async function verificationStateForAc(
+  memexId: string,
+  briefId: string,
+  acId: string,
+): Promise<string> {
+  try {
+    const rows = await listAcsForBriefWithVerification(memexId, briefId);
+    return rows.find((r) => r.ac.id === acId)?.verificationState ?? "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
 
 export const acsTools: ToolSpec[] = [
   {

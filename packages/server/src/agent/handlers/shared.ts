@@ -26,7 +26,7 @@
 import { z, type ZodRawShape } from "zod";
 import { eq, } from "drizzle-orm";
 import { db } from "../../db/connection.js";
-import { documents, docSections, taskDeps } from "../../db/schema.js";
+import { documents } from "../../db/schema.js";
 import {
   formatReplacesLead,
   formatSupersessionLead,
@@ -34,8 +34,6 @@ import {
 } from "../../services/supersession.js";
 import {
   assertRefNotUuid,
-  buildChildRef,
-  memexSlugsById,
 } from "../../mcp/refs.js";
 import type { ResolvedEntity } from "../../services/resolver.js";
 import {
@@ -44,11 +42,6 @@ import {
 import {
   listCommentsForDoc,
 } from "../../services/comments.js";
-import {
-  COMMENT_TYPES,
-  isCommentType,
-  type CommentType,
-} from "../../types/roles.js";
 import {
   listDecisions,
 } from "../../services/decisions.js";
@@ -59,7 +52,6 @@ import {
 } from "../../services/acs.js";
 import {
   listTasks,
-  getTask,
 } from "../../services/tasks.js";
 import type { RequestCtx } from "../../services/mutate.js";
 import type { AccessibleMemex } from "../../services/skills/skills-service.js";
@@ -68,7 +60,6 @@ import { facetKeysByTask, facetKeysByDecision } from "../../services/facet-ballo
 import { resolveTestEventActors } from "../../services/who-resolver.js";
 import { stripUuids, containsUuid } from "../../services/shared/identifiers.js";
 import { listPresent } from "../../services/presence.js";
-import { getUserByEmail, getUserById } from "../../services/users.js";
 import {
   listDocTags,
 } from "../../services/tags.js";
@@ -135,7 +126,7 @@ export interface ResolvedRef {
  * owns every WORD. New event shapes get a new variant here — never prose in a
  * handler.
  */
-export type FooterSignal =
+type FooterSignal =
   | {
       kind: "decision_resolved";
       decRef: string;
@@ -354,7 +345,7 @@ export function buildNudgeOrgBlocksGetter(
 // carry `title`, `readOnlyHint`, and `destructiveHint`. Misclassifying a
 // destructive tool as readOnly means Claude calls it without confirmation, so
 // these are kept verbatim in `__regression__/tools-annotations.regression.test.ts`.
-export interface ToolAnnotations {
+interface ToolAnnotations {
   /** Human-readable display name shown in tool pickers. */
   title: string;
   /** True if the tool does not modify any state. */
@@ -404,14 +395,6 @@ export const VERBOSE_FIELD = z
       "Default false returns a terse confirmation.",
   );
 
-export const COMMENT_TYPE_DESC =
-  `Comment taxonomy. Pick one of: ${COMMENT_TYPES.join(", ")}. ` +
-  "Use `plan` before coding, `progress` for in-flight notes, `issue` for blockers, `deferred` for skipped work, " +
-  "`question` when you need a human, `cross_reference` for observations whose action lives elsewhere (combine with exactly one of referenceBriefId / referenceStandardId / referenceDecisionId / referenceTaskId), " +
-  "`readiness_check` for execution-plan READY/NOT READY assessments, `plan_revision` after re-submitting a plan, `drift` for standard drift findings.";
-
-export const TASK_STATUS = ["not_started", "in_progress", "complete"] as const;
-
 export const COMPLETION_NUDGE =
   "Leave a `progress` comment for whoever picks this up next: what landed, the contract it honours, any surprises, and what is left for downstream.";
 
@@ -419,7 +402,7 @@ export const COMPLETION_NUDGE =
 // Helpers
 // ══════════════════════════════════════
 
-export interface FullDocState {
+interface FullDocState {
   doc: Awaited<ReturnType<typeof getDoc>>;
   // spec-445 dec-2 — each decision/task carries its stored true facet keys, surfaced on
   // the read (get_doc) as context.
@@ -429,112 +412,6 @@ export interface FullDocState {
   // spec-136 t-4: the Spec's tags, rendered inline by formatFullDocState so any
   // doc-state response (get_doc, every mutation) carries them.
   tags: Awaited<ReturnType<typeof listDocTags>>;
-}
-
-/**
- * Build the canonical ref for a comment that landed on a standard SECTION
- * (flag_drift / propose_standard_change). The tools take a canonical section
- * ref and resolve it to the section UUID server-side (see
- * resolveStandardSectionRef, spec-143 ac-14); the resulting comment lives under
- * the standard's `std-N` handle and so also has a canonical ref. Returns null
- * only if the section/standard or memex slugs can't be resolved (in which case
- * the handler omits the `ref:` line entirely rather than leaking a raw UUID).
- */
-export async function buildStandardCommentRef(
-  memexId: string,
-  standardSectionId: string,
-  commentSeq: number,
-): Promise<string | null> {
-  const section = await db.query.docSections.findFirst({
-    where: eq(docSections.id, standardSectionId),
-  });
-  if (!section) return null;
-  const standard = await db.query.documents.findFirst({
-    where: eq(documents.id, section.docId),
-  });
-  if (!standard) return null;
-  const slugs = await memexSlugsById(memexId);
-  if (!slugs) return null;
-  return buildChildRef(slugs, standard, { type: "comments", seq: commentSeq });
-}
-
-/**
- * Resolve a standard-section `ref` arg (e.g.
- * `<ns>/<mx>/standards/std-N/sections/s-M`) to its owning memex + raw section
- * UUID, for the standards-drift verbs (`flag_drift` / `propose_standard_change`).
- *
- * spec-143 ac-14: these verbs used to take a raw section UUID via
- * `resolveMemexFromEntity("section", …)`, but the read surface only ever emits
- * `s-N` section refs (see `formatStandard` — `Section #N | ref: …/sections/s-N`),
- * never a section UUID, so the UUID-only contract made them uncallable from MCP
- * and contradicted the "UUIDs are not accepted on the MCP boundary" invariant.
- * They now take the canonical ref and resolve it server-side, exactly like
- * `update_section` / `edit_clause`. `resolveRefArg` rejects a raw UUID up front
- * via `assertRefNotUuid`.
- */
-export async function resolveStandardSectionRef(
-  ctx: ToolCtx,
-  ref: string,
-): Promise<{ memexId: string; sectionId: string }> {
-  const resolved = await resolveRefArg(ctx, ref);
-  if (resolved.entity.kind !== "section") {
-    throw new ValidationError(
-      `Expected a standard section ref (e.g. \`<ns>/<mx>/standards/std-N/sections/s-M\`); got ${resolved.entity.kind}.`,
-    );
-  }
-  if (resolved.doc.docType !== "standard") {
-    throw new ValidationError(
-      `\`${ref}\` is a section on a ${resolved.doc.docType}, not a standard. flag_drift / propose_standard_change only operate on standard sections.`,
-    );
-  }
-  return { memexId: resolved.memexId, sectionId: resolved.entity.row.id };
-}
-
-/**
- * Resolve a canonical DECISION ref (e.g. `<ns>/<mx>/specs/spec-N/decisions/dec-M`)
- * to its memexId + decision id, rejecting a raw UUID up front (std-10). spec-497
- * dec-3: used by flag_drift's optional `decisionRef` so an agent can link the drift
- * it flags to the decision that prompted it. When `expectMemexId` is supplied the
- * decision MUST belong to that memex — a cross-tenant ref is a 404-shaped
- * ValidationError, never a silent accept (std-7 spirit).
- */
-export async function resolveDecisionRefArg(
-  ctx: ToolCtx,
-  ref: string,
-  expectMemexId?: string,
-): Promise<{ memexId: string; decisionId: string }> {
-  const resolved = await resolveRefArg(ctx, ref, "decisionRef");
-  if (resolved.entity.kind !== "decision") {
-    throw new ValidationError(
-      `Expected a decision ref (e.g. \`<ns>/<mx>/specs/spec-N/decisions/dec-M\`); got ${resolved.entity.kind}.`,
-    );
-  }
-  if (expectMemexId !== undefined && resolved.memexId !== expectMemexId) {
-    throw new ValidationError(
-      `decisionRef \`${ref}\` is not in the same Memex as the standard section being flagged.`,
-    );
-  }
-  return { memexId: resolved.memexId, decisionId: resolved.entity.row.id };
-}
-
-/**
- * Resolve the current verification state of one AC (spec-127) so the
- * discontinue/restore write tools can report the badge result inline — the
- * agent sees immediately whether the retire cleared the red. Best-effort: any
- * lookup miss reports "unknown" rather than failing the (already-committed)
- * mutation.
- */
-export async function verificationStateForAc(
-  memexId: string,
-  briefId: string,
-  acId: string,
-): Promise<string> {
-  try {
-    const rows = await listAcsForBriefWithVerification(memexId, briefId);
-    return rows.find((r) => r.ac.id === acId)?.verificationState ?? "unknown";
-  } catch {
-    return "unknown";
-  }
 }
 
 export async function fullDocState(memexId: string, docIdOrHandle: string): Promise<FullDocState> {
@@ -627,7 +504,7 @@ export async function formatState(
  * Best-effort: never throws — a guidance-policy failure must not cost the tool
  * its result.
  */
-export interface GuidanceEnvelope {
+interface GuidanceEnvelope {
   header?: string;
   footer?: string;
 }
@@ -648,7 +525,7 @@ export interface GuidanceEnvelope {
  * per-tool steers (create_doc's scope-AC push, resolve_decision's impl-AC push,
  * …) into this one map; this is the seam they land on.
  */
-export const STEER_BY_TOOL: Partial<Record<string, (phase: Phase) => string | undefined>> = {
+const STEER_BY_TOOL: Partial<Record<string, (phase: Phase) => string | undefined>> = {
   // After editing a section while shaping the plan, the surgical next move is to
   // keep the narrative honest against the decisions. No other surface says this
   // per-tool, and update_section parks no slot nugget — so no echo.
@@ -664,7 +541,7 @@ export const STEER_BY_TOOL: Partial<Record<string, (phase: Phase) => string | un
  * handler slot). This is the single read of the transition map (ac-5: the
  * per-tool nudge notion has exactly one author, the seat).
  */
-export function composeToolSteer(toolName: string | undefined, phase: Phase): string | undefined {
+function composeToolSteer(toolName: string | undefined, phase: Phase): string | undefined {
   if (!toolName) return undefined;
   return STEER_BY_TOOL[toolName]?.(phase);
 }
@@ -817,7 +694,7 @@ export async function renderFooterSignal(
  * Returns undefined when neither applies, which is the overwhelmingly common case,
  * so an ordinary read pays one indexed lookup and gains no text.
  */
-export async function composeSupersessionHeader(
+async function composeSupersessionHeader(
   memexId: string,
   docId: string,
 ): Promise<string | undefined> {
@@ -1059,11 +936,11 @@ export async function composeGuidanceEnvelope(
 // an ADVISORY collision line when another session is materially advancing the
 // spec (an AC delta, a phase move, or task churn by a DIFFERENT actor recently).
 // Advisory only — never blocks, never aborts; best-effort, never throws.
-export const ACTIVITY_RECENT_LIMIT = 8;
-export const MATERIAL_WINDOW_MS = 10 * 60 * 1000; // "recently" for the collision predicate
+const ACTIVITY_RECENT_LIMIT = 8;
+const MATERIAL_WINDOW_MS = 10 * 60 * 1000; // "recently" for the collision predicate
 // Kinds whose appearance is MATERIAL advancement (vs. a comment / read). A phase
 // move shows up as an activity_log status_changed row (kind 'activity_log').
-export const MATERIAL_KINDS: ReadonlySet<string> = new Set([
+const MATERIAL_KINDS: ReadonlySet<string> = new Set([
   "ac",
   "task",
   "decision",
@@ -1081,12 +958,12 @@ export const MATERIAL_KINDS: ReadonlySet<string> = new Set([
 //
 // A resolved actor name that contains a raw UUID (an unattributed actor_raw,
 // say) is not a name — drop it so the caller falls back to "someone".
-export function sanitizeActorName(name: string | null): string | null {
+function sanitizeActorName(name: string | null): string | null {
   if (!name) return null;
   return containsUuid(name) ? null : name;
 }
 
-export function agoLabel(at: Date, now: number): string {
+function agoLabel(at: Date, now: number): string {
   const ms = Math.max(0, now - at.getTime());
   const mins = Math.round(ms / 60000);
   if (mins < 1) return "just now";
@@ -1174,7 +1051,7 @@ export async function craftActivityBlock(
  * test yet, named, with the methodology push. Returns null when there are none
  * (nothing worth saying → no footer). Best-effort; never throws.
  */
-export async function craftUntestedAcNag(
+async function craftUntestedAcNag(
   memexId: string,
   docId: string,
 ): Promise<string | null> {
@@ -1211,7 +1088,7 @@ export async function craftUntestedAcNag(
  *  point — the overview just needs to be emitted for them, on terse AND verbose.
  *  A named set so the surface is one edit to widen. Mutations are deliberately
  *  excluded: the overview is read-path only and never touches a mutation footer. */
-export const ORIENT_READ_TOOLS: ReadonlySet<string> = new Set([
+const ORIENT_READ_TOOLS: ReadonlySet<string> = new Set([
   "get_doc",
   "list_acs",
   "assess_spec",
@@ -1244,7 +1121,7 @@ export interface StatusFacts {
  * in any phase and outranks everything; then phase-shaped progression. When the
  * spec is done it offers no forward action.
  */
-export function statusNextAction(f: StatusFacts): string {
+function statusNextAction(f: StatusFacts): string {
   // spec-521 dec-5 (ac-7) — a superseded Spec's open decisions and incomplete tasks
   // STOP COUNTING AS COMMITMENTS. This short-circuits above the failing-AC rule
   // deliberately: even a red test on a superseded Spec is not work to pick up, and
@@ -1317,7 +1194,7 @@ export function composeStatusOverview(f: StatusFacts): string {
  * rather than costing the tool its result. Called ONLY from
  * composeGuidanceEnvelope (ac-6: the single seat).
  */
-export async function craftStatusOverview(
+async function craftStatusOverview(
   memexId: string,
   docId: string,
   state: FullDocState,
@@ -1474,7 +1351,7 @@ export function formatAcCoverageSummary(
  * verbose doc-state dump. Returns "" when the Spec has no ACs (no signal),
  * or when the doc isn't a Spec.
  */
-export async function formatCoverageHeader(
+async function formatCoverageHeader(
   memexId: string,
   briefId: string,
   docType: string,
@@ -1488,134 +1365,6 @@ export async function formatCoverageHeader(
   } catch {
     return "";
   }
-}
-
-export async function loadSpec(memexId: string, missionId: string) {
-  const doc = await getDoc(memexId, missionId);
-  if (doc.docType !== "spec") {
-    throw new ValidationError(
-      `Document ${doc.handle} is a ${doc.docType}, not a Spec.`,
-    );
-  }
-  return doc;
-}
-
-// Per dec-1 of doc-20: terse update_task on addBlocker/removeBlocker reports
-// the resulting [READY] / [BLOCKED-by-...] marker so the agent doesn't need a
-// follow-up `list_tasks` call to learn the new state.
-export function formatTaskReadyMarker(t: {
-  blockedByDecisions: { seq: number }[];
-  blockedByTasks: { seq: number }[];
-}): string {
-  const handles = [
-    ...t.blockedByDecisions.map((d) => `D-${d.seq}`),
-    ...t.blockedByTasks.map((bt) => `T-${bt.seq}`),
-  ];
-  return handles.length === 0 ? "[READY]" : `[BLOCKED-by-${handles.join(",")}]`;
-}
-
-// Per dec-1 of doc-20: terse update_task(status='complete') reports
-// dependents that JUST became unblocked by this completion. Returns the
-// fresh blocker state (`getTask`) for each dependent and filters to the
-// ones whose blocker set is now empty.
-export async function findNewlyUnblockedDependents(
-  memexId: string,
-  completedTaskId: string,
-): Promise<{ id: string; seq: number }[]> {
-  const dependentRows = await db
-    .select({ taskId: taskDeps.taskId })
-    .from(taskDeps)
-    .where(eq(taskDeps.dependsOnId, completedTaskId));
-  if (dependentRows.length === 0) return [];
-  const fresh = await Promise.all(
-    dependentRows.map((row) => getTask(memexId, row.taskId).catch(() => null)),
-  );
-  return fresh
-    .filter((t): t is NonNullable<typeof t> => t !== null && !t.blocked)
-    .map((t) => ({ id: t.id, seq: t.seq }));
-}
-
-// Per dec-4 of doc-20: terse `list_comments` emits one line per comment with
-// the canonical ref + type + status + a 50-char content snippet. Per b-36 T-2
-// comments are path-addressable (`.../comments/c-N`), so the ref is the stable
-// reference an agent pastes back into a follow-up call.
-export const COMMENT_SNIPPET_LEN = 50;
-
-export function formatTerseComment(
-  c: {
-    seq: number;
-    commentType: string;
-    resolvedAt: Date | null;
-    content: string;
-  },
-  slugs: { namespace: string; memex: string } | null,
-  doc: import("../../db/schema.js").Doc,
-): string {
-  const status = c.resolvedAt ? "resolved" : "open";
-  const oneLine = c.content.replace(/\s+/g, " ").trim();
-  const snippet =
-    oneLine.length > COMMENT_SNIPPET_LEN
-      ? `${oneLine.slice(0, COMMENT_SNIPPET_LEN)}…`
-      : oneLine;
-  const ref = slugs
-    ? buildChildRef(slugs, doc, { type: "comments", seq: c.seq })
-    : `c-${c.seq}`;
-  return `(ref: ${ref}) [${c.commentType}, ${status}] "${snippet}"`;
-}
-
-export function formatDocCommentsTerse(
-  result: {
-    sections: {
-      section: { sectionType: string; title?: string | null; id: string };
-      comments: { seq: number; commentType: string; resolvedAt: Date | null; content: string }[];
-    }[];
-    decisions: {
-      decision: { seq: number };
-      comments: { seq: number; commentType: string; resolvedAt: Date | null; content: string }[];
-    }[];
-    tasks: {
-      task: { seq: number };
-      comments: { seq: number; commentType: string; resolvedAt: Date | null; content: string }[];
-    }[];
-  },
-  slugs: { namespace: string; memex: string } | null,
-  doc: import("../../db/schema.js").Doc,
-): string[] {
-  const lines: string[] = [];
-  for (const sg of result.sections) {
-    const label = `section ${sg.section.title ?? sg.section.sectionType}`;
-    for (const c of sg.comments) {
-      lines.push(`- ${formatTerseComment(c, slugs, doc)} on ${label}`);
-    }
-  }
-  for (const dg of result.decisions) {
-    const label = `dec-${dg.decision.seq}`;
-    for (const c of dg.comments) {
-      lines.push(`- ${formatTerseComment(c, slugs, doc)} on ${label}`);
-    }
-  }
-  for (const tg of result.tasks) {
-    const label = `t-${tg.task.seq}`;
-    for (const c of tg.comments) {
-      lines.push(`- ${formatTerseComment(c, slugs, doc)} on ${label}`);
-    }
-  }
-  return lines;
-}
-
-export function parseTypeFilter(value?: string | string[]): CommentType[] | undefined {
-  if (value === undefined) return undefined;
-  const list = Array.isArray(value) ? value : [value];
-  const cleaned = list.flatMap((s) => s.split(",")).map((s) => s.trim()).filter(Boolean);
-  if (cleaned.length === 0) return undefined;
-  for (const v of cleaned) {
-    if (!isCommentType(v)) {
-      throw new ValidationError(
-        `Invalid comment type '${v}'. Must be one of: ${COMMENT_TYPES.join(", ")}`,
-      );
-    }
-  }
-  return cleaned as CommentType[];
 }
 
 // `pathLikeForDomain` removed per doc-24 dec-1 — only the codebase-intelligence
@@ -1641,7 +1390,6 @@ export function parseTypeFilter(value?: string | string[]): CommentType[] | unde
 // is the one tool registered inline in `mcp/tools.ts` (not in this array), so
 // the cross-check below excludes it — see `manifestVsSpecsDiff`.
 
-
 // ══════════════════════════════════════
 // Internal helper: canonical-ref resolution at tool boundary
 // ══════════════════════════════════════
@@ -1662,8 +1410,8 @@ export function parseTypeFilter(value?: string | string[]): CommentType[] | unde
 //   - comment verbs (`update_comment`) expect kind === 'comment'.
 //   - `add_comment` / `list_comments` accept any of {section, decision, task}.
 
-export type DocLikeKind = "spec" | "doc" | "standard" | "execution-plan";
-export const DOC_LIKE_KINDS = new Set<DocLikeKind>(["spec", "doc", "standard", "execution-plan"]);
+type DocLikeKind = "spec" | "doc" | "standard" | "execution-plan";
+const DOC_LIKE_KINDS = new Set<DocLikeKind>(["spec", "doc", "standard", "execution-plan"]);
 
 export function isDocLikeKind(kind: ResolvedEntity["kind"]): kind is DocLikeKind {
   return DOC_LIKE_KINDS.has(kind as DocLikeKind);
@@ -1716,8 +1464,8 @@ export async function suggestActiveSpecsForIssue(
 // overlap — and, among those, we keep hits whose score is at least
 // RELATED_ISSUE_SCORE_RATIO of the top FTS-backed hit (a secondary trim that
 // drops far-weaker partial matches). Below the gate, nothing is appended.
-export const RELATED_ISSUE_SCORE_RATIO = 0.5;
-export const RELATED_ISSUE_LIMIT = 3;
+const RELATED_ISSUE_SCORE_RATIO = 0.5;
+const RELATED_ISSUE_LIMIT = 3;
 
 // Search Issues across the whole Memex (cross-Spec) for ones whose text overlaps
 // the decision, keeping only those above the relevance threshold. Exported so the
@@ -1781,30 +1529,3 @@ export async function resolveRefArg(
   assertRefNotUuid(ref, argName);
   return ctx.resolveRef(ref);
 }
-
-// spec-118: resolve a tool's USER target. Tools accept either an email
-// (contains '@' — resolved against the users table) or a user UUID (looked up
-// to confirm it exists). There is no separate user-lookup tool; callers pass an
-// email or id directly. A miss is a ValidationError so Claude can correct the
-// argument rather than silently mutating the wrong user.
-// Resolve an email-or-uuid user argument to the user record. Returns id + email
-// so callers can render the EMAIL in terse output — std-10 forbids raw UUIDs in
-// the response body, so handlers must never echo the resolved id.
-export async function resolveUserArg(
-  value: string,
-  argName: string,
-): Promise<{ id: string; email: string | null }> {
-  if (typeof value !== "string" || value.trim().length === 0) {
-    throw new ValidationError(`${argName} is required.`);
-  }
-  const trimmed = value.trim();
-  if (trimmed.includes("@")) {
-    const user = await getUserByEmail(trimmed);
-    if (!user) throw new ValidationError(`No user found for email '${trimmed}'.`);
-    return { id: user.id, email: user.email };
-  }
-  const user = await getUserById(trimmed);
-  if (!user) throw new ValidationError(`No user found for id '${trimmed}'.`);
-  return { id: user.id, email: user.email };
-}
-

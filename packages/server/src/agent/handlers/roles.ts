@@ -27,9 +27,38 @@ import {
   VERBOSE_FIELD,
   reqCtx,
   resolveRefArg,
-  resolveUserArg,
   type ToolSpec,
 } from "./shared.js";
+import { getUserByEmail, getUserById } from "../../services/users.js";
+
+// ── Moved here from shared.ts by spec-546 t-2: this file is the symbol's only
+// consumer, so it lives with its consumer and is private [per std-51].
+// spec-118: resolve a tool's USER target. Tools accept either an email
+// (contains '@' — resolved against the users table) or a user UUID (looked up
+// to confirm it exists). There is no separate user-lookup tool; callers pass an
+// email or id directly. A miss is a ValidationError so Claude can correct the
+// argument rather than silently mutating the wrong user.
+// Resolve an email-or-uuid user argument to the user record. Returns id + email
+// so callers can render the EMAIL in terse output — std-10 forbids raw UUIDs in
+// the response body, so handlers must never echo the resolved id.
+async function resolveUserArg(
+  value: string,
+  argName: string,
+): Promise<{ id: string; email: string | null }> {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new ValidationError(`${argName} is required.`);
+  }
+  const trimmed = value.trim();
+  if (trimmed.includes("@")) {
+    const user = await getUserByEmail(trimmed);
+    if (!user) throw new ValidationError(`No user found for email '${trimmed}'.`);
+    return { id: user.id, email: user.email };
+  }
+  const user = await getUserById(trimmed);
+  if (!user) throw new ValidationError(`No user found for id '${trimmed}'.`);
+  return { id: user.id, email: user.email };
+}
+
 
 export const rolesTools: ToolSpec[] = [
   {

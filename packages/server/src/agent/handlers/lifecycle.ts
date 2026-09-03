@@ -56,11 +56,23 @@ import {
   formatState,
   fullDocState,
   isDocLikeKind,
-  loadSpec,
   reqCtx,
   resolveRefArg,
   type ToolSpec,
 } from "./shared.js";
+
+// ── Moved here from shared.ts by spec-546 t-2: this file is the symbol's only
+// consumer, so it lives with its consumer and is private [per std-51].
+async function loadSpec(memexId: string, missionId: string) {
+  const doc = await getDoc(memexId, missionId);
+  if (doc.docType !== "spec") {
+    throw new ValidationError(
+      `Document ${doc.handle} is a ${doc.docType}, not a Spec.`,
+    );
+  }
+  return doc;
+}
+
 
 export const lifecycleTools: ToolSpec[] = [
   {
