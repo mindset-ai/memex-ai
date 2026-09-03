@@ -20,7 +20,10 @@ import { upsertUserByEmail } from "../../services/users.js";
 import { createDocDraft } from "../../services/documents.js";
 import { memexSlugsById } from "../../mcp/refs.js";
 import { docsTools } from "./docs.js";
-import type { ResolvedRef, ToolCtx } from "./tool-contract.js";
+import type {
+  ResolvedRef,
+  ToolCtx,
+} from "./tool-contract.js";
 
 const AC_8 = "mindset-prod/memex-building-itself/specs/spec-448/acs/ac-8";
 const AC_37 = "mindset-prod/memex-building-itself/specs/spec-448/acs/ac-37";

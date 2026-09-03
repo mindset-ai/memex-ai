@@ -11,7 +11,10 @@ import { db } from "../db/connection.js";
 import { memexes } from "../db/schema.js";
 import { makeTestMemex } from "../services/test-helpers.js";
 import { toolSpecs } from "./tool-specs.js";
-import type { ToolCtx, ToolSpec } from "./handlers/tool-contract.js";
+import type {
+  ToolCtx,
+  ToolSpec,
+} from "./handlers/tool-contract.js";
 import { createSkill } from "../services/skills/skills-service.js";
 import { formatSkillCatalogueAppendix } from "../services/skills/skill-catalogue.js";
 import { reconstructSkillMd } from "../services/skills/reconstruct-skill-md.js";

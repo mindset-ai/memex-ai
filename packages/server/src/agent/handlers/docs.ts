@@ -79,11 +79,15 @@ import {
   type Phase,
 } from "@memex/shared";
 import {
-  MEMEX_DESC,
-  VERBOSE_FIELD,
   formatState,
   fullDocState,
+} from "./doc-state.js";
+import {
   handoffInterpolationContext,
+} from "./guidance-envelope.js";
+import {
+  MEMEX_DESC,
+  VERBOSE_FIELD,
   isDocLikeKind,
   reqCtx,
   resolveRefArg,

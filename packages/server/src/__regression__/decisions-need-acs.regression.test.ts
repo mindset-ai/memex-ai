@@ -26,7 +26,9 @@ import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { BASE_SCAFFOLD } from "@memex/shared";
-import { renderFooterSignal } from "../agent/handlers/tool-contract.js";
+import {
+  renderFooterSignal,
+} from "../agent/handlers/guidance-envelope.js";
 import { db } from "../db/connection.js";
 import { documents, acs, decisions } from "../db/schema.js";
 import { createDocDraft } from "../services/documents.js";

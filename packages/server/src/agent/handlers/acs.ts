@@ -36,8 +36,10 @@ import {
   ValidationError,
 } from "../../types/errors.js";
 import {
-  VERBOSE_FIELD,
   formatAcCoverageSummary,
+} from "./guidance-envelope.js";
+import {
+  VERBOSE_FIELD,
   isDocLikeKind,
   reqCtx,
   resolveRefArg,

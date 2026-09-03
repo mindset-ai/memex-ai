@@ -39,9 +39,11 @@ import {
   ValidationError,
 } from "../../types/errors.js";
 import {
-  VERBOSE_FIELD,
   formatState,
   fullDocState,
+} from "./doc-state.js";
+import {
+  VERBOSE_FIELD,
   isDocLikeKind,
   reqCtx,
   resolveRefArg,

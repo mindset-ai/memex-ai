@@ -38,11 +38,13 @@ import {
   resolveEmbeddingProvider,
 } from "../../services/embedding-provider.js";
 import {
+  suggestActiveSpecsForIssue,
+} from "./related-issues.js";
+import {
   MEMEX_DESC,
   VERBOSE_FIELD,
   reqCtx,
   resolveRefArg,
-  suggestActiveSpecsForIssue,
   type ToolSpec,
 } from "./tool-contract.js";
 

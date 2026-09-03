@@ -31,7 +31,12 @@ import {
   parseTagInput,
 } from "../../services/tags.js";
 import { NotFoundError } from "../../types/errors.js";
-import { MEMEX_DESC, VERBOSE_FIELD, reqCtx, type ToolSpec } from "./tool-contract.js";
+import {
+  MEMEX_DESC,
+  VERBOSE_FIELD,
+  reqCtx,
+  type ToolSpec,
+} from "./tool-contract.js";
 
 // The tag-identity argument description — one string, shared by all three tools so
 // the `scope::value`/flat convention reads identically everywhere. Deliberately

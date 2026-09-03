@@ -51,10 +51,12 @@ import {
   assessCommentsStatus,
 } from "../../services/comment-assessment.js";
 import {
-  MEMEX_DESC,
-  VERBOSE_FIELD,
   formatState,
   fullDocState,
+} from "./doc-state.js";
+import {
+  MEMEX_DESC,
+  VERBOSE_FIELD,
   isDocLikeKind,
   reqCtx,
   resolveRefArg,

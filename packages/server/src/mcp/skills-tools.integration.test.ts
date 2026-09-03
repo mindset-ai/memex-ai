@@ -24,7 +24,10 @@ import {
 } from "./auth.js";
 import { skillsTools } from "../agent/handlers/skills.js";
 import { toolSpecs, manifestVsSpecsDiff } from "../agent/tool-specs.js";
-import type { ToolCtx, ToolSpec } from "../agent/handlers/tool-contract.js";
+import type {
+  ToolCtx,
+  ToolSpec,
+} from "../agent/handlers/tool-contract.js";
 import { reconstructSkillMd } from "../services/skills/reconstruct-skill-md.js";
 
 const AC = (n: number) =>

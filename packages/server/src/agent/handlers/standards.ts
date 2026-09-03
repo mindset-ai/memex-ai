@@ -24,10 +24,12 @@ import {
   ValidationError,
 } from "../../types/errors.js";
 import {
-  MEMEX_DESC,
-  VERBOSE_FIELD,
   fullDocState,
   formatState,
+} from "./doc-state.js";
+import {
+  MEMEX_DESC,
+  VERBOSE_FIELD,
   reqCtx,
   resolveRefArg,
   type ToolSpec,

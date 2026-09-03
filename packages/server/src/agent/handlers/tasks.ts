@@ -35,9 +35,11 @@ import {
   formatDocStatusHeader,
 } from "../../formatting/formatters.js";
 import {
-  VERBOSE_FIELD,
   formatState,
   fullDocState,
+} from "./doc-state.js";
+import {
+  VERBOSE_FIELD,
   isDocLikeKind,
   reqCtx,
   resolveRefArg,

@@ -16,7 +16,9 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
-import { formatState } from "../agent/handlers/tool-contract.js";
+import {
+  formatState,
+} from "../agent/handlers/doc-state.js";
 import { RESPONSE_BODY_BUDGET_CHARS } from "../mcp/response-budget.js";
 import type { Doc, DocSection } from "../db/schema.js";
 
@@ -98,7 +100,7 @@ describe("the budget lives at the funnel, so every caller inherits it (ac-15)", 
     expect(handlerFiles.length).toBeGreaterThan(0);
 
     for (const { file, text } of handlerFiles) {
-      if (file.endsWith("tool-contract.ts")) continue; // spec-546: the funnel lives here now
+      if (file.endsWith("doc-state.ts")) continue; // spec-546: doc-state.ts IS the funnel
       expect(
         text.includes("formatFullDocState("),
         `${file} renders doc state without going through formatState`,
@@ -119,7 +121,7 @@ describe("a thirtieth caller cannot bypass the bound by accident (ac-16)", () =>
     // Any new entry here is a caller that skipped `formatState` — the exact
     // regression this guard exists to catch. Adding one is allowed, but it must
     // be a conscious edit to this list in the same change, not a silent arrival.
-    expect(callers).toEqual(["agent/handlers/tool-contract.ts"]);
+    expect(callers).toEqual(["agent/handlers/doc-state.ts"]);
   });
 
   it("the funnel still asks for a budget — nobody removed the allocation and kept the shape", () => {
