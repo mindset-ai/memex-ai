@@ -21,7 +21,12 @@
 
 import { describe, it, expect } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
-import { EmissionGate, resolveGateMode, DEFAULT_GATE_MODE } from "./emission-gate.js";
+import {
+  EmissionGate,
+  resolveGateMode,
+  DEFAULT_GATE_MODE,
+  SHED_CAUSES,
+} from "./emission-gate.js";
 
 const SPEC = "mindset-prod/memex-building-itself/specs/spec-525/acs";
 const AC_SHADOW = `${SPEC}/ac-17`; // refuses nothing, counts what it would have refused
@@ -126,10 +131,14 @@ describe("spec-525 ac-14: the shadow count says WHY, in the enforcing vocabulary
     await gate.acquire("a"); // "a" already holds its whole slice → slice
     await new Promise((r) => setTimeout(r, 40));
 
+    // Both named causes must be exercised — that IS the claim here (shadow labels with
+    // the enforcing vocabulary), so naming them is right.
     expect(gate.wouldShed.requestsByCause.instance_ceiling_full).toBeGreaterThan(0);
     expect(gate.wouldShed.requestsByCause.key_slice_full).toBeGreaterThan(0);
+    // The RECONCILIATION, however, sums over the vocabulary (ac-26): a third cause would
+    // leave a named-pair sum passing while it counted two of three.
     expect(gate.wouldShed.requests).toBe(
-      gate.wouldShed.requestsByCause.instance_ceiling_full + gate.wouldShed.requestsByCause.key_slice_full,
+      SHED_CAUSES.reduce((acc, cause) => acc + gate.wouldShed.requestsByCause[cause], 0),
     );
     held.forEach((r) => r.ok && r.release());
   });

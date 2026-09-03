@@ -24,7 +24,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
-import { EmissionGate } from "./emission-gate.js";
+import { EmissionGate, SHED_CAUSES, type ShedCause } from "./emission-gate.js";
 import {
   startEmissionGateHeartbeat,
   _resetEmissionGateHeartbeat,
@@ -75,14 +75,22 @@ describe("spec-525 ac-14: the shadow counter separates EMISSIONS from REQUESTS",
     // the instance ceiling with the occupant, so the refusal is `instance_ceiling_full`,
     // not `key_slice_full`. Hardcoding the cause tested the fixture rather than the split —
     // and it is the same confusion prod showed, where 100% of refusals were the OTHER cause.
+    //
+    // And summed over the VOCABULARY rather than over a named pair (ac-26). Naming both
+    // causes looked like the general form and was not: dec-6 adds a third, and this
+    // assertion would have kept PASSING while counting two of three — a green test
+    // certifying a wrong total, which is worse than the defect it was written to catch.
     const e = gate.wouldShed.eventsByCause;
     const r = gate.wouldShed.requestsByCause;
-    expect(e.key_slice_full + e.instance_ceiling_full).toBe(7);
-    expect(r.key_slice_full + r.instance_ceiling_full).toBe(1);
+    const sumOverCauses = (byCause: Record<ShedCause, number>): number =>
+      SHED_CAUSES.reduce((acc, cause) => acc + byCause[cause], 0);
+
+    expect(sumOverCauses(e)).toBe(7);
+    expect(sumOverCauses(r)).toBe(1);
     // Each split must reconcile with its own axis total, or one of them is bookkeeping
     // that nobody maintains.
-    expect(e.key_slice_full + e.instance_ceiling_full).toBe(gate.wouldShed.events);
-    expect(r.key_slice_full + r.instance_ceiling_full).toBe(gate.wouldShed.requests);
+    expect(sumOverCauses(e)).toBe(gate.wouldShed.events);
+    expect(sumOverCauses(r)).toBe(gate.wouldShed.requests);
   });
 
   it("the two axes agree only when every shed is a single-event POST", async () => {
