@@ -37,11 +37,6 @@ import { createHash } from "node:crypto";
 import { resolvePoolMax } from "../../db/pool-size.js";
 
 /**
- * Why an emission was refused. These mean opposite things and demand opposite responses
- * — one credential over-emitting, versus the instance genuinely saturated — so t-5's
- * counter labels by this rather than reporting an undifferentiated total (ac-14).
- */
-/**
  * The marker header naming the gate's effective mode (spec-525 dec-5, ac-20).
  *
  * IT LIVES HERE, not in the middleware, for a reason that cost an int deploy on
@@ -61,16 +56,20 @@ export const EMISSION_GATE_HEADER = "x-memex-emission-gate";
  * Why a shed happened — the vocabulary, as DATA rather than as a bare type union.
  *
  * A union cannot be iterated at runtime, so every consumer enumerated its members by
- * hand: two zero maps here, a zero map and a hand-written per-cause delta in
- * `emission-shed-log.ts`, and sum assertions in five test files. dec-6 adds a cause, and
- * against that shape each site fails differently and none of them fails loudly — the
- * heartbeat would simply stop mentioning the new cause, and the tests would keep passing
- * while summing a subset. So the array is the source of truth and the type derives from
- * it: adding a member moves every count with it (ac-26).
+ * hand: two zero maps here, a zero map plus a hand-written per-cause delta in
+ * `emission-shed-log.ts`, a duplicated union in `observability/otel/index.ts`, and
+ * literals or named-pair sums in three test files. dec-6 adds a cause, and against that
+ * shape each site fails differently — the literals and the duplicated union go red under
+ * `tsc`, but a sum over two keys of a three-key record is perfectly well typed, so it
+ * keeps PASSING on a wrong total, and the heartbeat simply stops mentioning the new cause
+ * at all. So the array is the source of truth and the type derives from it: adding a
+ * member moves every count with it (ac-26). Full tally in
+ * `emission-shed-causes.spec-525.test.ts`.
  *
- * Order is display order, and the enforcing path's own precedence: the per-key slice is
- * tested first (see {@link EmissionGate.tryAcquire}), so a loud credential is told it
- * filled its own share rather than that the instance is saturated.
+ * Order is display order AND the precedence `#take` applies. The per-key slice is tested
+ * first, so a loud credential is told it filled its own share rather than that the
+ * instance is saturated; dec-6's events budget is tested LAST, so the split t-13 measured
+ * over 8 days of production (99.0% / 1.0%) stays comparable across the change.
  */
 export const SHED_CAUSES = [
   "key_slice_full",
@@ -276,18 +275,6 @@ export function derivePerKeySlice(ceiling: number): number {
 export const DEFAULT_EVENT_BUDGET = 20_000;
 
 /**
- * Read the events budget from the environment.
- *
- * Configurable without a code change, like every other knob (ac-18) — t-10 turns it from
- * the canonical `memex-<env>-deploy-env` secret. Junk falls back rather than yielding
- * `NaN`: a bound whose every comparison is false is not a bound, which is the trap
- * `Number(process.env.DB_POOL_MAX ?? 5)` set for the pool before t-1.
- */
-export function resolveEventBudget(env: Env = process.env): number {
-  return positiveIntOr(env.MEMEX_EMISSION_EVENT_BUDGET, DEFAULT_EVENT_BUDGET);
-}
-
-/**
  * How many callers may be queued for a slot at once.
  *
  * DERIVED, not picked: it is what the gate can actually drain inside the interval
@@ -327,6 +314,18 @@ function positiveIntOr<T>(raw: string | undefined, fallback: T): number | T {
  * shadow-mode data: the second deploy of the rollout is meant to be configuration only.
  * A value compiled in as a literal would make it a code change instead.
  */
+/**
+ * Read the events budget from the environment.
+ *
+ * Configurable without a code change, like every other knob (ac-18) — t-10 turns it from
+ * the canonical `memex-<env>-deploy-env` secret. Junk falls back rather than yielding
+ * `NaN`: a bound whose every comparison is false is not a bound, which is the trap
+ * `Number(process.env.DB_POOL_MAX ?? 5)` set for the pool before t-1.
+ */
+export function resolveEventBudget(env: Env = process.env): number {
+  return positiveIntOr(env.MEMEX_EMISSION_EVENT_BUDGET, DEFAULT_EVENT_BUDGET);
+}
+
 export function resolveWaitConfig(env: Env = process.env): WaitConfig {
   return {
     waitMs: positiveIntOr(env.MEMEX_EMISSION_WAIT_MS, DEFAULT_WAIT_MS),
@@ -676,20 +675,28 @@ export class EmissionGate {
           resolve(a);
         },
         timer: setTimeout(() => {
-          // Report the bound that is blocking it NOW, not the one that blocked it on
-          // arrival — they can differ, and the label drives the operator's response.
-          waiter.settle({ ok: false, cause: this.#blockingCause(key), waited: true });
+          // ONE LAST TAKE, rather than a second opinion about why it cannot be served.
+          //
+          // This replaces a `#blockingCause(key)` helper that re-implemented `#take`'s
+          // precedence in a second place — and got it wrong the moment dec-6 added a
+          // third bound: it never saw `weight`, so a caller refused for the EVENTS budget
+          // was labelled `instance_ceiling_full`, sending an operator to resize a pool
+          // over a memory bound. A valid-but-wrong cause is the one failure `tsc` cannot
+          // catch, and it is exactly what ac-14's labels exist to prevent.
+          //
+          // Taking again makes the label structurally correct — it comes from the same
+          // code that refuses — and it can only help the caller: if a slot freed in the
+          // last instant of the interval, it is served instead of refused.
+          const lastChance = this.#take(key, weight);
+          waiter.settle(
+            lastChance.ok
+              ? { ok: true, release: lastChance.release, waited: true }
+              : { ok: false, cause: lastChance.cause, waited: true },
+          );
         }, this.waitMs),
       };
       this.#queue.push(waiter);
     });
-  }
-
-  /** Which bound would refuse this key right now. */
-  #blockingCause(key: string): ShedCause {
-    return (this.#held.get(key) ?? 0) >= this.perKeySlice
-      ? "key_slice_full"
-      : "instance_ceiling_full";
   }
 
   /** The bounds check + increment, shared by the sync and waiting paths. */

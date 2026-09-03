@@ -147,6 +147,74 @@ describe("spec-525 ac-22: the events budget refuses on its own axis", () => {
     held.forEach((h) => h.ok && h.release());
   });
 
+  it("does not let a big queued batch block a small one behind it", async () => {
+    tagAc(AC_EVENT_BUDGET);
+
+    // THE HEAD-OF-LINE CASE, and it is here because the pump's comment CLAIMS to avoid it
+    // — a claim is not a test. On a weighted queue the freed room can be too small for
+    // the waiter at the head and ample for the one behind it, so `event_budget_full` has
+    // to fall THROUGH to the next waiter, exactly as `key_slice_full` does. Returning
+    // there (which is what the request ceiling correctly does) would starve every small
+    // caller behind one 500-event batch.
+    //
+    // IT IS TIMED, and that is the whole design of this test rather than a detail. A
+    // first version asserted only that the small caller was eventually served — and a
+    // mutant that made the pump `return` on `event_budget_full` still passed it, because
+    // the waiter's own timeout takes one last shot at a slot and served it there instead.
+    // Same outcome, ~400 ms later, through a completely different path: a test that
+    // cannot tell the pump from the timeout does not test the pump. Measuring the LATENCY
+    // separates them, and it is also the property that actually matters to a caller.
+    //
+    // Red-capability proven, not assumed: with the pump returning on `event_budget_full`,
+    // the small caller resolves at ~waitMs and this test fails on the elapsed assertion.
+    const WAIT_MS = 400; // generous, so "served by the pump" and "served by the timeout"
+    //                      cannot overlap on a loaded CI machine
+    const gate = new EmissionGate({
+      poolMax: 8, // ceiling 4 — the request cap stays out of the way throughout
+      mode: "enforcing",
+      waitMs: WAIT_MS,
+      serviceMs: 30,
+      eventBudget: 10,
+    });
+
+    // Fill the budget exactly, across two credentials so no per-key share interferes.
+    const big = gate.tryAcquire("holder-a", 8);
+    const small = gate.tryAcquire("holder-b", 2);
+    expect(big.ok && small.ok).toBe(true);
+    expect(gate.inFlightEvents).toBe(10);
+
+    // Both of these are refused on arrival and therefore QUEUE — the head carrying 5
+    // events, the one behind it carrying 1.
+    const startedAt = Date.now();
+    const head = gate.acquire("head", 5);
+    const behind = gate.acquire("behind", 1);
+
+    // Free exactly 2 events: too few for the head (8 + 5 > 10), enough for the one behind
+    // it (8 + 1 <= 10).
+    if (small.ok) small.release();
+
+    const behindResult = await behind;
+    const behindElapsed = Date.now() - startedAt;
+
+    // THE ASSERTION. Served, and served by the RELEASE rather than by its own timeout —
+    // which is the difference between the pump scanning past an unservable head and the
+    // caller simply waiting out the full interval for the same answer.
+    expect(behindResult.ok).toBe(true);
+    if (behindResult.ok) {
+      expect(behindResult.waited).toBe(true); // from the queue, not on arrival
+      behindResult.release();
+    }
+    expect(behindElapsed).toBeLessThan(WAIT_MS / 2);
+
+    // And the head, which that release could not satisfy, is refused when its wait
+    // expires — with the cause that names the bound that actually blocked it.
+    const headResult = await head;
+    expect(headResult.ok).toBe(false);
+    if (!headResult.ok) expect(headResult.cause).toBe("event_budget_full");
+
+    if (big.ok) big.release();
+  });
+
   it("defaults to a budget that cannot refuse anything at today's ceiling", () => {
     tagAc(AC_EVENT_BUDGET);
 
