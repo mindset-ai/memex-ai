@@ -6,7 +6,8 @@
 // `./handlers/*` (schema + handler + MCP annotations + rich descriptions) into
 // the single `toolSpecs` catalogue both surfaces (MCP `mcp/tools.ts` + the React
 // agent `agent/tools.ts`) wrap. The shared handler infrastructure (ToolCtx,
-// helpers, the guidance envelope) lives in `./handlers/shared.ts` (std-12).
+// helpers, the guidance envelope) lives in `./handlers/tool-contract.ts` and
+// its siblings (std-12); spec-546 named them for their contents.
 //
 // `list_memexes` is the one tool registered inline in `mcp/tools.ts` (not here),
 // so `manifestVsSpecsDiff` (below) excludes it from the manifest cross-check.
@@ -16,33 +17,70 @@
 // tool-manifest.ts`; the b-67 regression test asserts the two stay in lockstep.
 
 import { toolManifest } from "@memex/shared";
-import type { ToolSpec } from "./handlers/shared.js";
+import type {
+  ToolSpec,
+} from "./handlers/tool-contract.js";
 
 // spec-366: re-export the shared infra symbols external modules/tests import
 // from this file, so no import site moved (std-16 contract unchanged).
+//
+// spec-546 dec-2: this façade STAYS, permanently. It is not a compatibility
+// shim — it is the actual interface. Dozens of files import from here, and for
+// five of the symbols below it is the ONLY route out of handlers/:
+// composeGuidanceEnvelope, renderFooterSignal, craftActivityBlock,
+// composeStatusOverview, StatusFacts.
+//
+// Do NOT "fix" those five by moving them here under std-51's single-consumer
+// rule. Their DEFINITIONS staying in agent/handlers/ is what keeps
+// guidance-authoring-confined.regression.test.ts able to see them; republishing
+// a symbol from here is fine, relocating its definition is not.
+//
+// spec-548 narrowed the reason, and removed two names from this block.
+// dec-1: that guard's per-builder loop was `let idx = SRC.indexOf(call); while
+// (idx !== -1) { … }`, so a call token that left the scanned directory made the
+// body never run and the test passed while asserting NOTHING — in green. It now
+// asserts each token is PRESENT before scanning, and floors the list length, so
+// a vanished builder reds and names itself. dec-3: the guard's corpus is now
+// agent/handlers/*.ts PLUS this file, so prose authored in the façade is an
+// offender rather than invisible — which is why the completion nudge and the
+// related-issues nudge are no longer re-exported here. Their only consumers were
+// four tests, now importing from the handler modules directly (std-51: an
+// export exists for a production caller or it does not exist). A guard that
+// forbids USING the prose outside renderFooterSignal while this file
+// DISTRIBUTED it was contradicting itself.
+//
+// Named in prose, not spelled, deliberately: the guard scans raw TEXT, so a
+// comment carrying a builder's token is flagged like a use. (Only tokens with
+// no trailing paren are comment-sensitive this way.) The alternative — teaching
+// the guard to skip comment lines — widens what it tolerates to fix a comment,
+// and dec-3 already declined the same shape of concession for re-export lines.
+export {
+  buildNudgeOrgBlocksGetter,
+  // spec-366: re-exported because tool-specs.audit.integration.test.ts imports
+  // VERBOSE_FIELD from here to assert the shared-instance identity contract.
+  VERBOSE_FIELD,
+  MEMEX_DESC,
+} from "./handlers/tool-contract.js";
 export {
   composeGuidanceEnvelope,
   craftActivityBlock,
   composeStatusOverview,
   formatAcCoverageSummary,
+} from "./handlers/guidance-envelope.js";
+export {
   relatedIssuesForDecision,
-  relatedIssuesNudge,
   suggestActiveSpecsForIssue,
-  buildNudgeOrgBlocksGetter,
-  COMPLETION_NUDGE,
-  // spec-366: re-exported because tool-specs.audit.integration.test.ts imports
-  // VERBOSE_FIELD from here to assert the shared-instance identity contract.
-  VERBOSE_FIELD,
-  MEMEX_DESC,
-} from "./handlers/shared.js";
+} from "./handlers/related-issues.js";
+export type {
+  StatusFacts,
+} from "./handlers/guidance-envelope.js";
 export type {
   ToolCtx,
   ToolSpec,
   ResolvedRef,
   EntityKind,
   FooterSlot,
-  StatusFacts,
-} from "./handlers/shared.js";
+} from "./handlers/tool-contract.js";
 
 
 // spec-366: the per-domain handler modules. tool-specs.ts composes their

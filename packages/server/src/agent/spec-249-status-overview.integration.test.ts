@@ -17,6 +17,8 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { eq, inArray } from "drizzle-orm";
 import { readFileSync, readdirSync } from "node:fs";
+const AC_SCAN_NON_VACUOUS = "mindset-prod/memex-building-itself/specs/spec-548/acs/ac-5";
+
 import { join } from "node:path";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { db } from "../db/connection.js";
@@ -168,17 +170,21 @@ describe("ac-7 — no new tool/flag; verbose stays full state; read-path only", 
 });
 
 describe("ac-6 — the overview is composed in the single seat (source guard)", () => {
-  // spec-366: composeGuidanceEnvelope + craftStatusOverview moved to
-  // agent/handlers/shared.ts; the per-tool handlers to agent/handlers/*.ts. Scan
-  // shared.ts (the seat) FIRST, then append the other handlers so any handler
+  // spec-366 / spec-546: composeGuidanceEnvelope + craftStatusOverview live
+  // together in ONE module under agent/handlers/; the per-tool handlers are the
+  // other agent/handlers/*.ts. Concatenate every handler module so any handler
   // referencing craftStatusOverview directly is flagged outside the seat.
+  //
+  // spec-546: this used to read shared.ts by name FIRST so the seat's anchors
+  // appeared in order. Unnecessary now that both live in the same file, which
+  // preserves their order itself. Sorted for determinism — readdirSync order is
+  // filesystem-dependent and the seat is computed from positions.
   const handlersDir = join(__dirname, "handlers");
-  const SRC = [
-    readFileSync(join(handlersDir, "shared.ts"), "utf-8"),
-    ...readdirSync(handlersDir)
-      .filter((n) => n.endsWith(".ts") && n !== "shared.ts")
-      .map((n) => readFileSync(join(handlersDir, n), "utf-8")),
-  ].join("\n");
+  const SRC = readdirSync(handlersDir)
+    .filter((n) => n.endsWith(".ts"))
+    .sort()
+    .map((n) => readFileSync(join(handlersDir, n), "utf-8"))
+    .join("\n");
 
   it("craftStatusOverview is referenced only inside composeGuidanceEnvelope (or its own def)", () => {
     tagAc(AC(6));
@@ -193,6 +199,16 @@ describe("ac-6 — the overview is composed in the single seat (source guard)", 
     const call = "craftStatusOverview(";
     const defLine = /async function craftStatusOverview\(/;
     const offenders: number[] = [];
+    tagAc(AC_SCAN_NON_VACUOUS);
+    // spec-548 ac-5: every claim this scan makes is absence-shaped, so an empty
+    // corpus would report compliance it never checked. Prove the scan looked. This file rebuilds the same
+    // agent/handlers/ corpus guidance-authoring-confined scans, and carries the
+    // same purely-absence claim that let a dead entry there read green.
+    expect(
+      SRC.indexOf("craftStatusOverview"),
+      "craftStatusOverview occurs nowhere in the scanned handlers corpus — the loop below would never run and this test would pass having checked nothing",
+    ).toBeGreaterThan(-1);
+
     let idx = SRC.indexOf(call);
     while (idx !== -1) {
       const withinSeat = idx >= seatStart && idx < seatEnd;

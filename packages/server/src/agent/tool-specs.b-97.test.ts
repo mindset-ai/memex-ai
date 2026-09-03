@@ -13,6 +13,8 @@
 //     schema accepts the four restorable statuses but NOT `deleted`.
 
 import { readFileSync, readdirSync } from "node:fs";
+const AC_SCAN_NON_VACUOUS = "mindset-prod/memex-building-itself/specs/spec-548/acs/ac-5";
+
 import { join } from "node:path";
 import { describe, it, expect } from "vitest";
 import type { ZodTypeAny } from "zod";
@@ -43,6 +45,14 @@ describe("b-97 ac-5 — no hard-delete code path for decisions", () => {
       );
 
     const offenders: { file: string; line: number; text: string }[] = [];
+    tagAc(AC_SCAN_NON_VACUOUS);
+    // spec-548 ac-5: every claim this scan makes is absence-shaped, so an empty
+    // corpus would report compliance it never checked. Prove the scan looked.
+    expect(
+      productionTsFiles.length,
+      "the services directory scan matched no production files, so the offender list below proves nothing",
+    ).toBeGreaterThan(10);
+
     for (const file of productionTsFiles) {
       const path = join(SERVICES_DIR, file);
       const lines = readFileSync(path, "utf8").split("\n");

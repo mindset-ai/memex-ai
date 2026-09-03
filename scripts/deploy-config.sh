@@ -241,6 +241,13 @@ fi
 #                               client-side truncation (ac-18).
 #   MEMEX_EMISSION_MAX_WAITERS  how many callers may queue at once. Unset means DERIVED
 #                               (ceiling × waitMs / serviceMs) — prefer the derivation.
+#   MEMEX_EMISSION_EVENT_BUDGET EMISSIONS in flight allowed at once — dec-6's second term,
+#                               the one that bounds what a queued request actually costs
+#                               (a parsed body, 1.1–1.5× its wire bytes; c-18). Default
+#                               20000, deliberately unreachable at today's ceiling of 2
+#                               (2 × 500 events max), so it cannot refuse before t-10 has
+#                               measured. Read the value to set from the heartbeat's
+#                               `inFlightEvents`, not from a guess.
 #
 # The CEILING is deliberately absent: ac-12 requires it computed from the resolved pool,
 # so it follows DB_POOL_MAX. A hand-set ceiling is a number someone raises during a busy
@@ -260,6 +267,9 @@ if [ -n "${MEMEX_EMISSION_WAIT_MS+set}" ]; then
 fi
 if [ -n "${MEMEX_EMISSION_MAX_WAITERS+set}" ]; then
   export MEMEX_EMISSION_MAX_WAITERS
+fi
+if [ -n "${MEMEX_EMISSION_EVENT_BUDGET+set}" ]; then
+  export MEMEX_EMISSION_EVENT_BUDGET
 fi
 
 # STORAGE_PROVIDER / STORAGE_GCS_BUCKET — spec-300: the blob backend for Skills'

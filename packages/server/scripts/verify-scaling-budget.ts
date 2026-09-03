@@ -57,6 +57,9 @@ import {
   computeBudget,
   decideOutcome,
   formatBudgetReport,
+  declarationWarnings,
+  undeclaredServices,
+  DECLARATION_VAR,
   isProd,
   parseRevisionScaling,
   parseServingRevisions,
@@ -251,8 +254,13 @@ function readLiveServices(): LiveService[] {
         maxInstances: revision.maxInstances ?? CLOUD_RUN_DEFAULT_MAX_INSTANCES,
         minInstances: revision.minInstances,
         dbPoolMax: revision.dbPoolMax,
+        // The service's own COMPLETE per-instance declaration, when it publishes one
+        // (spec-525 t-15). Read beside dbPoolMax and never compared to it: the coherent
+        // relation differs per service, which is why declarations exist at all.
+        declaredPerInstance: revision.declaredPerInstance,
         // Only our own service's pool default is knowable from this codebase; anything else is
-        // counted at the postgres-js default, because over-counting fails safe.
+        // counted at the postgres-js default, because over-counting fails safe. Retired with
+        // the inference branches when phase B flips.
         ownCode: name === SERVICE,
       },
     });
@@ -339,12 +347,42 @@ async function main(): Promise<void> {
     budget = computeBudget({ services, usable });
     console.log(`  budget (${mode === "plan" ? "values about to be applied" : "values in force"}):`);
     for (const line of formatBudgetReport(budget)) console.log(line);
+
+    // PHASE A (spec-525 t-15): name every service whose figure was INFERRED rather than
+    // read. Its audience is not this deploy's reader — it is whoever decides when phase B
+    // can be switched on: FLIP IT WHEN THIS GOES QUIET. Without it, that call rests on
+    // memory, and a near-miss on the contract string prints the pre-declaration line
+    // unchanged, which reads as success.
+    const undeclared = declarationWarnings(budget);
+    if (undeclared.length > 0) {
+      console.log("");
+      console.log("  declarations (spec-525 t-15) — inferred, not read:");
+      for (const line of undeclared) console.log(`  ${line}`);
+    } else {
+      console.log("");
+      console.log(
+        `  ✓ every service declares ${DECLARATION_VAR} — phase B's switch ` +
+          `(REQUIRE_CONNECTION_DECLARATIONS=1) can be turned on`,
+      );
+    }
   }
 
   const outcome = decideOutcome({ env: ENV, budget, comparison, revision });
 
   // A read failure is "nobody checked", which is the condition this guard exists to end.
   const failures = [...outcome.failures];
+
+  // PHASE B — OFF BY DEFAULT, and that is not timidity. Every service is undeclared the day
+  // this lands, so an on-by-default refusal would abort memex-api's own deploys: the guard
+  // working exactly as designed and stopping all work. Turn it on when phase A's list above
+  // is empty.
+  if (budget) {
+    for (const refusal of undeclaredServices(budget, {
+      requireDeclarations: process.env.REQUIRE_CONNECTION_DECLARATIONS === "1",
+    })) {
+      failures.push(refusal);
+    }
+  }
   const warnings = [...outcome.warnings];
   for (const f of readFailures) {
     if (isProd(ENV)) failures.push(`guard could not verify: ${f}`);

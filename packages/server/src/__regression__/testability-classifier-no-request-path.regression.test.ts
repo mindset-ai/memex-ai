@@ -13,6 +13,8 @@
 
 import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
+const AC_SCAN_NON_VACUOUS = "mindset-prod/memex-building-itself/specs/spec-548/acs/ac-5";
+
 import { resolve, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tagAc } from "@memex-ai-ac/vitest";
@@ -48,6 +50,21 @@ function walk(dir: string): string[] {
 describe("testability classifier is never on a request path (spec-151 dec-6)", () => {
   it("no file under routes/agent/mcp/middleware imports services/testability-classifier (ac-18)", () => {
     tagAc(AC(18));
+    tagAc(AC_SCAN_NON_VACUOUS);
+    // spec-548 ac-5: every claim this scan makes is absence-shaped, so an empty
+    // corpus would report compliance it never checked. Prove the scan looked.
+    const scanned = REQUEST_PATH_DIRS.reduce((n, d) => {
+      try {
+        return n + walk(join(SRC, d)).length;
+      } catch {
+        return n;
+      }
+    }, 0);
+    expect(
+      scanned,
+      "the request-path scan matched NO files — the directories were renamed or emptied, so the offender list below proves nothing",
+    ).toBeGreaterThan(20);
+
     const offenders: string[] = [];
     for (const d of REQUEST_PATH_DIRS) {
       const dir = join(SRC, d);

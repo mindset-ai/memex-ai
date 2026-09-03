@@ -38,15 +38,89 @@ import {
   formatDocStatusHeader,
 } from "../../formatting/formatters.js";
 import {
-  COMMENT_TYPE_DESC,
   VERBOSE_FIELD,
-  formatDocCommentsTerse,
-  formatTerseComment,
   isDocLikeKind,
   reqCtx,
   resolveRefArg,
   type ToolSpec,
-} from "./shared.js";
+} from "./tool-contract.js";
+
+// ── Moved here from shared.ts by spec-546 t-2: this file is the symbol's only
+// consumer, so it lives with its consumer and is private [per std-51].
+const COMMENT_TYPE_DESC =
+  `Comment taxonomy. Pick one of: ${COMMENT_TYPES.join(", ")}. ` +
+  "Use `plan` before coding, `progress` for in-flight notes, `issue` for blockers, `deferred` for skipped work, " +
+  "`question` when you need a human, `cross_reference` for observations whose action lives elsewhere (combine with exactly one of referenceBriefId / referenceStandardId / referenceDecisionId / referenceTaskId), " +
+  "`readiness_check` for execution-plan READY/NOT READY assessments, `plan_revision` after re-submitting a plan, `drift` for standard drift findings.";
+
+// Per dec-4 of doc-20: terse `list_comments` emits one line per comment with
+// the canonical ref + type + status + a 50-char content snippet. Per b-36 T-2
+// comments are path-addressable (`.../comments/c-N`), so the ref is the stable
+// reference an agent pastes back into a follow-up call.
+const COMMENT_SNIPPET_LEN = 50;
+
+function formatTerseComment(
+  c: {
+    seq: number;
+    commentType: string;
+    resolvedAt: Date | null;
+    content: string;
+  },
+  slugs: { namespace: string; memex: string } | null,
+  doc: import("../../db/schema.js").Doc,
+): string {
+  const status = c.resolvedAt ? "resolved" : "open";
+  const oneLine = c.content.replace(/\s+/g, " ").trim();
+  const snippet =
+    oneLine.length > COMMENT_SNIPPET_LEN
+      ? `${oneLine.slice(0, COMMENT_SNIPPET_LEN)}…`
+      : oneLine;
+  const ref = slugs
+    ? buildChildRef(slugs, doc, { type: "comments", seq: c.seq })
+    : `c-${c.seq}`;
+  return `(ref: ${ref}) [${c.commentType}, ${status}] "${snippet}"`;
+}
+
+function formatDocCommentsTerse(
+  result: {
+    sections: {
+      section: { sectionType: string; title?: string | null; id: string };
+      comments: { seq: number; commentType: string; resolvedAt: Date | null; content: string }[];
+    }[];
+    decisions: {
+      decision: { seq: number };
+      comments: { seq: number; commentType: string; resolvedAt: Date | null; content: string }[];
+    }[];
+    tasks: {
+      task: { seq: number };
+      comments: { seq: number; commentType: string; resolvedAt: Date | null; content: string }[];
+    }[];
+  },
+  slugs: { namespace: string; memex: string } | null,
+  doc: import("../../db/schema.js").Doc,
+): string[] {
+  const lines: string[] = [];
+  for (const sg of result.sections) {
+    const label = `section ${sg.section.title ?? sg.section.sectionType}`;
+    for (const c of sg.comments) {
+      lines.push(`- ${formatTerseComment(c, slugs, doc)} on ${label}`);
+    }
+  }
+  for (const dg of result.decisions) {
+    const label = `dec-${dg.decision.seq}`;
+    for (const c of dg.comments) {
+      lines.push(`- ${formatTerseComment(c, slugs, doc)} on ${label}`);
+    }
+  }
+  for (const tg of result.tasks) {
+    const label = `t-${tg.task.seq}`;
+    for (const c of tg.comments) {
+      lines.push(`- ${formatTerseComment(c, slugs, doc)} on ${label}`);
+    }
+  }
+  return lines;
+}
+
 
 export const commentsTools: ToolSpec[] = [
   {

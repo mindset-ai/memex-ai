@@ -15,6 +15,7 @@
  */
 import type { Counter } from "@opentelemetry/api";
 import type { MeterProvider } from "@opentelemetry/sdk-metrics";
+import type { ShedCause } from "../../services/admission/emission-gate.js";
 import { type OtelConfig, readOtelConfig } from "./config.js";
 import {
   type DbInstruments,
@@ -130,8 +131,13 @@ let emissionShedRequests: Counter | null = null;
 
 /** The label set. Bounded and low-cardinality BY CONSTRUCTION — see recordEmissionShed. */
 export interface EmissionShedLabels {
-  /** Which bound refused: the credential's own slice, or the instance ceiling. */
-  readonly cause: "key_slice_full" | "instance_ceiling_full";
+  /**
+   * Which bound refused. Typed from the gate's own vocabulary rather than re-listing it:
+   * this was a THIRD hand-written copy of the union, and a copy in another module is one
+   * the next cause silently diverges from (ac-26). Type-only import, so the gate's
+   * zero-dependency property is untouched.
+   */
+  readonly cause: ShedCause;
   /**
    * Whether the request waited before being refused. Not decoration: a refusal AFTER
    * waiting means the instance was busy for the whole interval (accidental overload,

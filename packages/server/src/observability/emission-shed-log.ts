@@ -36,6 +36,22 @@ import type {
   ShedCause,
   WouldShedCount,
 } from "../services/admission/emission-gate.js";
+import { SHED_CAUSES, zeroByCause } from "../services/admission/emission-gate.js";
+
+/**
+ * Per-cause delta over the whole vocabulary (ac-26).
+ *
+ * Kept here rather than exported from the gate: the heartbeat is its only consumer, and a
+ * symbol with one consumer belongs in that consumer [per std-51].
+ */
+function deltaByCause(
+  now: Record<ShedCause, number>,
+  before: Record<ShedCause, number>,
+): Record<ShedCause, number> {
+  const out = zeroByCause();
+  for (const cause of SHED_CAUSES) out[cause] = now[cause] - before[cause];
+  return out;
+}
 
 /** One refused (or, in shadow, would-be refused) request. */
 export interface ShedRecord {
@@ -88,6 +104,15 @@ export interface GateSnapshotSource {
   readonly ceiling: number;
   readonly perKeySlice: number;
   readonly inFlight: number;
+  /**
+   * dec-6's second axis. Published because t-10 cannot set the events budget without it:
+   * a knob whose governed quantity is not observable is a number someone guesses, which
+   * is the defect dec-3 exists to prevent. Not derivable from `inFlight` — two requests
+   * can be 2 events or 1 000.
+   */
+  readonly inFlightEvents: number;
+  /** The budget those events are measured against, so a window is readable on its own. */
+  readonly eventBudget: number;
   readonly trackedKeys: number;
   readonly wouldShed: WouldShedCount;
 }
@@ -141,9 +166,13 @@ export function startEmissionGateHeartbeat(opts: {
     try {
       const g = opts.gate();
       const now = g.wouldShed;
-      const zero = { key_slice_full: 0, instance_ceiling_full: 0 };
       const before =
-        previous ?? { events: 0, requests: 0, eventsByCause: zero, requestsByCause: zero };
+        previous ?? {
+          events: 0,
+          requests: 0,
+          eventsByCause: zeroByCause(),
+          requestsByCause: zeroByCause(),
+        };
       previous = {
         events: now.events,
         requests: now.requests,
@@ -162,24 +191,24 @@ export function startEmissionGateHeartbeat(opts: {
           ceiling: g.ceiling,
           perKeySlice: g.perKeySlice,
           inFlight: g.inFlight,
+          // dec-6's second term: the occupancy and the budget it is measured against.
+          // t-10 sets the budget from these two, the same way it sets the ceiling from
+          // `inFlight` — a bound whose governed quantity is unpublished can only be
+          // guessed at.
+          inFlightEvents: g.inFlightEvents,
+          eventBudget: g.eventBudget,
           trackedKeys: g.trackedKeys,
           // BOTH axes, each named for its unit (t-12). A single `wouldShed` field is what
           // let a request count be read as an emission count for twelve hours of window:
           // measured at ~8.1 emissions per refused request, batches up to 261.
           wouldShedEvents: now.events - before.events,
           wouldShedRequests: now.requests - before.requests,
-          wouldShedEventsByCause: {
-            key_slice_full: now.eventsByCause.key_slice_full - before.eventsByCause.key_slice_full,
-            instance_ceiling_full:
-              now.eventsByCause.instance_ceiling_full - before.eventsByCause.instance_ceiling_full,
-          },
-          wouldShedRequestsByCause: {
-            key_slice_full:
-              now.requestsByCause.key_slice_full - before.requestsByCause.key_slice_full,
-            instance_ceiling_full:
-              now.requestsByCause.instance_ceiling_full -
-              before.requestsByCause.instance_ceiling_full,
-          },
+          // Built by ITERATING the vocabulary, never by naming its members (ac-26). The
+          // hand-written form this replaces named both causes, so a third one would have
+          // been dropped from the published window outright — no error, no gap, no clue,
+          // in the one instrument t-10 reads to set the bounds.
+          wouldShedEventsByCause: deltaByCause(now.eventsByCause, before.eventsByCause),
+          wouldShedRequestsByCause: deltaByCause(now.requestsByCause, before.requestsByCause),
           wouldShedEventsTotal: now.events,
           wouldShedRequestsTotal: now.requests,
           // t-13 — the ceiling-alone counterfactual, an UPPER BOUND (see WouldShedCount).

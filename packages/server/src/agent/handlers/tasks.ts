@@ -35,17 +35,59 @@ import {
   formatDocStatusHeader,
 } from "../../formatting/formatters.js";
 import {
-  TASK_STATUS,
-  VERBOSE_FIELD,
-  findNewlyUnblockedDependents,
   formatState,
-  formatTaskReadyMarker,
   fullDocState,
+} from "./doc-state.js";
+import {
+  VERBOSE_FIELD,
   isDocLikeKind,
   reqCtx,
   resolveRefArg,
   type ToolSpec,
-} from "./shared.js";
+} from "./tool-contract.js";
+import { eq } from "drizzle-orm";
+import { db } from "../../db/connection.js";
+import { taskDeps } from "../../db/schema.js";
+
+// ── Moved here from shared.ts by spec-546 t-2: this file is the symbol's only
+// consumer, so it lives with its consumer and is private [per std-51].
+const TASK_STATUS = ["not_started", "in_progress", "complete"] as const;
+
+// Per dec-1 of doc-20: terse update_task on addBlocker/removeBlocker reports
+// the resulting [READY] / [BLOCKED-by-...] marker so the agent doesn't need a
+// follow-up `list_tasks` call to learn the new state.
+function formatTaskReadyMarker(t: {
+  blockedByDecisions: { seq: number }[];
+  blockedByTasks: { seq: number }[];
+}): string {
+  const handles = [
+    ...t.blockedByDecisions.map((d) => `D-${d.seq}`),
+    ...t.blockedByTasks.map((bt) => `T-${bt.seq}`),
+  ];
+  return handles.length === 0 ? "[READY]" : `[BLOCKED-by-${handles.join(",")}]`;
+}
+
+// Per dec-1 of doc-20: terse update_task(status='complete') reports
+// dependents that JUST became unblocked by this completion. Returns the
+// fresh blocker state (`getTask`) for each dependent and filters to the
+// ones whose blocker set is now empty.
+async function findNewlyUnblockedDependents(
+  memexId: string,
+  completedTaskId: string,
+): Promise<{ id: string; seq: number }[]> {
+  const dependentRows = await db
+    .select({ taskId: taskDeps.taskId })
+    .from(taskDeps)
+    .where(eq(taskDeps.dependsOnId, completedTaskId));
+  if (dependentRows.length === 0) return [];
+  const fresh = await Promise.all(
+    dependentRows.map((row) => getTask(memexId, row.taskId).catch(() => null)),
+  );
+  return fresh
+    .filter((t): t is NonNullable<typeof t> => t !== null && !t.blocked)
+    .map((t) => ({ id: t.id, seq: t.seq }));
+}
+
 
 export const tasksTools: ToolSpec[] = [
   {

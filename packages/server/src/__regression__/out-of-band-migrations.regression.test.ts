@@ -11,6 +11,8 @@
 
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
+const AC_SCAN_NON_VACUOUS = "mindset-prod/memex-building-itself/specs/spec-548/acs/ac-5";
+
 import { resolve } from "node:path";
 
 const AC_OUT_OF_BAND = "mindset-prod/memex-building-itself/specs/spec-520/acs/ac-39";
@@ -29,6 +31,14 @@ describe("spec-520 ac-39: out-of-band index builds stay out of the transactional
     tagAc(AC_CONCURRENT_INDEX);
     // Exactly the runner's own glob: readdirSync (non-recursive) filtered to .sql.
     const applied = readdirSync(drizzleDir).filter((f) => f.endsWith(".sql"));
+    tagAc(AC_SCAN_NON_VACUOUS);
+    // spec-548 ac-5: every claim this scan makes is absence-shaped, so an empty
+    // corpus would report compliance it never checked. Prove the scan looked.
+    expect(
+      applied,
+      "the applied-migrations glob came back empty, so the CONCURRENTLY check below inspected nothing",
+    ).toContain("0111_test_events_retention_and_memex_id.sql");
+
     const offenders = applied.filter((f) => {
       // STRIP `--` COMMENT LINES FIRST. 0125 and 0131 both DISCUSS CONCURRENTLY at length —
       // explaining why they correctly chose a plain inline CREATE INDEX instead — and that

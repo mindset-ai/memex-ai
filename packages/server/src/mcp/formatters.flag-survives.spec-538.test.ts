@@ -14,7 +14,9 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
-import { formatState } from "../agent/handlers/shared.js";
+import {
+  formatState,
+} from "../agent/handlers/doc-state.js";
 import { formatFullDocState } from "./formatters.js";
 import { RESPONSE_BODY_BUDGET_CHARS } from "./response-budget.js";
 import type { Doc, DocSection, Decision } from "../db/schema.js";
