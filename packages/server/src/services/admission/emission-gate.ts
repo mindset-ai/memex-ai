@@ -57,7 +57,42 @@ import { resolvePoolMax } from "../../db/pool-size.js";
  */
 export const EMISSION_GATE_HEADER = "x-memex-emission-gate";
 
-export type ShedCause = "key_slice_full" | "instance_ceiling_full";
+/**
+ * Why a shed happened — the vocabulary, as DATA rather than as a bare type union.
+ *
+ * A union cannot be iterated at runtime, so every consumer enumerated its members by
+ * hand: two zero maps here, a zero map and a hand-written per-cause delta in
+ * `emission-shed-log.ts`, and sum assertions in five test files. dec-6 adds a cause, and
+ * against that shape each site fails differently and none of them fails loudly — the
+ * heartbeat would simply stop mentioning the new cause, and the tests would keep passing
+ * while summing a subset. So the array is the source of truth and the type derives from
+ * it: adding a member moves every count with it (ac-26).
+ *
+ * Order is display order, and the enforcing path's own precedence: the per-key slice is
+ * tested first (see {@link EmissionGate.tryAcquire}), so a loud credential is told it
+ * filled its own share rather than that the instance is saturated.
+ */
+export const SHED_CAUSES = [
+  "key_slice_full",
+  "instance_ceiling_full",
+  "event_budget_full",
+] as const;
+
+export type ShedCause = (typeof SHED_CAUSES)[number];
+
+/**
+ * A per-cause counter map with every member at zero.
+ *
+ * The only sanctioned way to build one. A literal is what goes stale when the vocabulary
+ * grows, and it goes stale silently: a missing key reads `undefined`, and `undefined + 1`
+ * is NaN, which then propagates through every comparison downstream without throwing.
+ */
+export function zeroByCause(): Record<ShedCause, number> {
+  return Object.fromEntries(SHED_CAUSES.map((cause) => [cause, 0])) as Record<
+    ShedCause,
+    number
+  >;
+}
 
 export type Acquisition =
   | { readonly ok: true; readonly release: () => void; readonly waited: boolean }
@@ -218,6 +253,41 @@ export function derivePerKeySlice(ceiling: number): number {
 }
 
 /**
+ * The events budget — dec-6's second term, and the one that bounds what actually costs.
+ *
+ * The request ceiling above rations slots in the connection pool. It cannot see the
+ * resource a QUEUED request consumes, which c-18 measured: a queued request retains its
+ * parsed body at 1.1–1.5x its wire bytes (not the 3–5x c-17 asserted), so 80 concurrent
+ * worst-case batches — 500 events x 4 KB of metadata — would retain ~181 MB against
+ * prod's ~149 MB of headroom, while the observed shape (~8 events per batch) retains
+ * ~2.9 MB. **Exactly one shape is dangerous, and it is the simultaneous maximum of every
+ * dimension.** A request count reads two 500-event batches as less load than three
+ * single-event POSTs; this term does not.
+ *
+ * DEFAULT DELIBERATELY INERT, the same discipline {@link DEFAULT_GATE_MODE} follows.
+ * dec-6 leaves the values to t-10's shadow A/B — two readings of one instrument share the
+ * unknown denominator, so it cancels — which means the compiled-in default must not be
+ * able to refuse anything before anyone has measured. At prod's ceiling of 2 the most
+ * events that can ever be in flight is `2 x MAX_BATCH_EVENTS = 1 000`, so this is
+ * provably unreachable today; it becomes load-bearing only when the ceiling rises.
+ * c-18's own figure for a ~100 MB heap allowance is of the order of 20 000 concurrent
+ * events, which is where this sits.
+ */
+export const DEFAULT_EVENT_BUDGET = 20_000;
+
+/**
+ * Read the events budget from the environment.
+ *
+ * Configurable without a code change, like every other knob (ac-18) — t-10 turns it from
+ * the canonical `memex-<env>-deploy-env` secret. Junk falls back rather than yielding
+ * `NaN`: a bound whose every comparison is false is not a bound, which is the trap
+ * `Number(process.env.DB_POOL_MAX ?? 5)` set for the pool before t-1.
+ */
+export function resolveEventBudget(env: Env = process.env): number {
+  return positiveIntOr(env.MEMEX_EMISSION_EVENT_BUDGET, DEFAULT_EVENT_BUDGET);
+}
+
+/**
  * How many callers may be queued for a slot at once.
  *
  * DERIVED, not picked: it is what the gate can actually drain inside the interval
@@ -293,6 +363,8 @@ export interface EmissionGateOptions {
   readonly maxWaiters?: number;
   /** Assumed slot occupancy per write, used to derive the waiter bound. */
   readonly serviceMs?: number;
+  /** Events in flight allowed at once (dec-6's second term). Defaults to the resolved env. */
+  readonly eventBudget?: number;
   /** Shadow (count only) or enforcing. Defaults to the resolved environment. */
   readonly mode?: GateMode;
   /**
@@ -312,6 +384,12 @@ export interface EmissionGateOptions {
 
 interface Waiter {
   readonly key: string;
+  /**
+   * EMISSIONS this caller is carrying. Held on the waiter because the events budget is
+   * re-tested when the pump reaches it: a batch that did not fit on arrival may still not
+   * fit when a slot frees, and the pump cannot know that from the request count alone.
+   */
+  readonly weight: number;
   readonly settle: (a: Acquisition) => void;
   readonly timer: ReturnType<typeof setTimeout>;
   done: boolean;
@@ -332,9 +410,14 @@ export class EmissionGate {
   /** Backstop cap on tracked keys; see {@link MAX_TRACKED_KEYS}. */
   readonly maxTrackedKeys: number;
 
+  /** Events in flight allowed at once — dec-6's second term. See {@link DEFAULT_EVENT_BUDGET}. */
+  readonly eventBudget: number;
+
   /** hashed key → slots currently held. An entry exists only while its count is > 0. */
   readonly #held = new Map<string, number>();
   #inFlight = 0;
+  /** EMISSIONS in flight — the sum of admitted weights, not a request count. */
+  #inFlightEvents = 0;
 
   /** How long a caller may be held before being refused. */
   readonly waitMs: number;
@@ -354,6 +437,7 @@ export class EmissionGate {
     this.ceiling = deriveCeiling(poolMax);
     this.perKeySlice = derivePerKeySlice(this.ceiling);
     this.maxTrackedKeys = options.maxTrackedKeys ?? MAX_TRACKED_KEYS;
+    this.eventBudget = options.eventBudget ?? resolveEventBudget();
     // Clamped, never obeyed blindly — see MAX_WAIT_MS.
     this.waitMs = Math.min(options.waitMs ?? env.waitMs, MAX_WAIT_MS);
     const serviceMs = options.serviceMs ?? env.serviceMs;
@@ -405,20 +489,15 @@ export class EmissionGate {
   #ceilingOnlyInFlight = 0;
   #ceilingOnlyEvents = 0;
   #ceilingOnlyRequests = 0;
-  #wouldShedEventsByCause: Record<ShedCause, number> = {
-    key_slice_full: 0,
-    instance_ceiling_full: 0,
-  };
-  #wouldShedRequestsByCause: Record<ShedCause, number> = {
-    key_slice_full: 0,
-    instance_ceiling_full: 0,
-  };
+  #wouldShedEventsByCause: Record<ShedCause, number> = zeroByCause();
+  #wouldShedRequestsByCause: Record<ShedCause, number> = zeroByCause();
 
   // Real occupancy, tracked separately ONLY in shadow — where the caller is admitted
   // regardless of what the simulation decided, so the two diverge. In enforcing they
   // would be identical, so the gate does not keep them.
   readonly #realHeld = new Map<string, number>();
   #realInFlight = 0;
+  #realInFlightEvents = 0;
 
   /**
    * Slots currently held across all credentials — what is ACTUALLY in flight.
@@ -428,6 +507,19 @@ export class EmissionGate {
    */
   get inFlight(): number {
     return this.mode === "shadow" ? this.#realInFlight : this.#inFlight;
+  }
+
+  /**
+   * EMISSIONS currently in flight — dec-6's second axis, and not derivable from
+   * {@link inFlight}. Two requests can be 2 events or 1 000; that difference is the
+   * entire reason this term exists.
+   *
+   * Mirrors {@link inFlight}'s shadow/enforcing split for the same reason: in shadow the
+   * caller is admitted regardless of what the simulation decided, so real occupancy and
+   * simulated occupancy diverge, and the real one is what an operator is looking at.
+   */
+  get inFlightEvents(): number {
+    return this.mode === "shadow" ? this.#realInFlightEvents : this.#inFlightEvents;
   }
 
   /** Distinct credentials currently holding at least one slot. */
@@ -444,7 +536,7 @@ export class EmissionGate {
    * saturation would send someone to resize the wrong thing.
    */
   tryAcquire(presentedToken: string, weight = 1): Acquisition {
-    const taken = this.#take(keyOf(presentedToken));
+    const taken = this.#take(keyOf(presentedToken), weight);
     if (taken.ok) return { ok: true, release: taken.release, waited: false };
     this.#reportShed(weight, taken.cause, false);
     return { ok: false, cause: taken.cause, waited: false };
@@ -468,7 +560,7 @@ export class EmissionGate {
     const key = keyOf(presentedToken);
     return this.mode === "shadow"
       ? this.#admitAndSimulate(key, weight)
-      : this.#decide(key).then((a) => {
+      : this.#decide(key, weight).then((a) => {
           if (!a.ok) this.#reportShed(weight, a.cause, a.waited);
           return a;
         });
@@ -493,6 +585,7 @@ export class EmissionGate {
    */
   #admitAndSimulate(key: string, weight = 1): Promise<Acquisition> {
     this.#realInFlight += 1;
+    this.#realInFlightEvents += weight;
     this.#realHeld.set(key, (this.#realHeld.get(key) ?? 0) + 1);
 
     // t-13 — the ceiling-alone counterfactual, evaluated on arrival against its OWN
@@ -513,7 +606,7 @@ export class EmissionGate {
     let simRelease: (() => void) | null = null;
     let callerReleased = false;
 
-    void this.#decide(key).then((simulated) => {
+    void this.#decide(key, weight).then((simulated) => {
       if (simulated.ok) {
         // Give the slot straight back if the real request is already finished — otherwise
         // the simulation would hold state for a request that no longer exists, and the
@@ -539,6 +632,7 @@ export class EmissionGate {
       released = true;
       callerReleased = true;
       this.#realInFlight -= 1;
+      this.#realInFlightEvents -= weight;
       // Give the counterfactual's slot back on the caller's own lifetime — in shadow the
       // caller is admitted regardless, so that IS the true occupancy duration. Leaking it
       // would drift the counter toward "refuses everything" over hours and silently argue
@@ -555,8 +649,8 @@ export class EmissionGate {
   }
 
   /** The decision itself: bounds, then a bounded wait, then a refusal. */
-  #decide(key: string): Promise<Acquisition> {
-    const immediate = this.#take(key);
+  #decide(key: string, weight: number): Promise<Acquisition> {
+    const immediate = this.#take(key, weight);
     if (immediate.ok) {
       return Promise.resolve({ ok: true, release: immediate.release, waited: false });
     }
@@ -571,6 +665,7 @@ export class EmissionGate {
     return new Promise<Acquisition>((resolve) => {
       const waiter: Waiter = {
         key,
+        weight,
         done: false,
         settle: (a) => {
           if (waiter.done) return;
@@ -598,7 +693,10 @@ export class EmissionGate {
   }
 
   /** The bounds check + increment, shared by the sync and waiting paths. */
-  #take(key: string): { ok: true; release: () => void } | { ok: false; cause: ShedCause } {
+  #take(
+    key: string,
+    weight: number,
+  ): { ok: true; release: () => void } | { ok: false; cause: ShedCause } {
     const heldByKey = this.#held.get(key) ?? 0;
 
     if (heldByKey >= this.perKeySlice) {
@@ -606,6 +704,13 @@ export class EmissionGate {
     }
     if (this.#inFlight >= this.ceiling) {
       return { ok: false, cause: "instance_ceiling_full" };
+    }
+    // dec-6's second term, appended LAST on purpose. Placing it ahead of the two above
+    // would re-label the shadow window t-13 already read (99.0% key_slice_full / 1.0%
+    // instance_ceiling_full), and that comparability is what makes the before/after ratio
+    // legible without the denominator nobody has.
+    if (this.#inFlightEvents + weight > this.eventBudget) {
+      return { ok: false, cause: "event_budget_full" };
     }
     // Unreachable while entries are deleted at zero (size ≤ ceiling ≪ cap); the backstop
     // is here so a future change that retains state cannot grow without limit unnoticed.
@@ -615,14 +720,20 @@ export class EmissionGate {
 
     this.#held.set(key, heldByKey + 1);
     this.#inFlight += 1;
+    this.#inFlightEvents += weight;
 
     // Idempotent: a middleware with an error path can plausibly release twice, and a
     // gate that decremented twice would drift OPEN under exactly the load it guards.
+    //
+    // On the event axis that drift is WEIGHTED — one doubled release on a 500-event batch
+    // opens 500 events of room that is not there — so the events total must live inside
+    // this same guard rather than beside it (ac-25).
     let released = false;
     const release = (): void => {
       if (released) return;
       released = true;
       this.#inFlight -= 1;
+      this.#inFlightEvents -= weight;
       const remaining = (this.#held.get(key) ?? 1) - 1;
       if (remaining <= 0) {
         // Drop the entry rather than leaving a zero. This is what makes the structure's
@@ -652,13 +763,18 @@ export class EmissionGate {
     for (const waiter of [...this.#queue]) {
       if (waiter.done) continue;
       if (this.#inFlight >= this.ceiling) return;
-      const taken = this.#take(waiter.key);
+      const taken = this.#take(waiter.key, waiter.weight);
       if (taken.ok) {
         waiter.settle({ ok: true, release: taken.release, waited: true });
       } else if (taken.cause === "instance_ceiling_full") {
         return;
       }
       // key_slice_full → this waiter cannot be served yet; try the next one.
+      // event_budget_full → likewise, and for the same reason it is not a `return`: the
+      // freed room may be too small for THIS waiter's batch and ample for the next one's
+      // single event, so stopping the scan here would hold a servable caller behind an
+      // unservable one. Head-of-line blocking on a weighted queue, which is what the
+      // per-waiter weight exists to avoid.
     }
   }
 

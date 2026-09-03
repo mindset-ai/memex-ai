@@ -34,6 +34,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
 import {
+  zeroByCause,
+  DEFAULT_EVENT_BUDGET,
+} from "../services/admission/emission-gate.js";
+import {
   startEmissionGateHeartbeat,
   _resetEmissionGateHeartbeat,
   GATE_WINDOW_EVENT,
@@ -57,12 +61,19 @@ function fakeGate(over: Partial<GateSnapshotSource> = {}): GateSnapshotSource {
     ceiling: 2,
     perKeySlice: 1,
     inFlight: 0,
+    // dec-6's second axis. Published so t-10 can set the budget from data rather than
+    // from a guess (ac-22).
+    inFlightEvents: 0,
+    eventBudget: DEFAULT_EVENT_BUDGET,
     trackedKeys: 0,
     wouldShed: {
       events: 0,
       requests: 0,
-      eventsByCause: { key_slice_full: 0, instance_ceiling_full: 0 },
-      requestsByCause: { key_slice_full: 0, instance_ceiling_full: 0 },
+      // Built from the vocabulary, not from a literal pair (ac-26): a literal is what
+      // goes stale when a cause is added — and here the compiler DOES catch it, which is
+      // the difference between this site and the sum assertions it cannot see.
+      eventsByCause: zeroByCause(),
+      requestsByCause: zeroByCause(),
       ceilingOnlyEvents: 0,
       ceilingOnlyRequests: 0,
     },
@@ -138,8 +149,8 @@ describe("spec-525 ac-21: the heartbeat reports per-window deltas that survive i
           wouldShed: {
             events,
             requests,
-            eventsByCause: { key_slice_full: events, instance_ceiling_full: 0 },
-            requestsByCause: { key_slice_full: requests, instance_ceiling_full: 0 },
+            eventsByCause: { ...zeroByCause(), key_slice_full: events },
+            requestsByCause: { ...zeroByCause(), key_slice_full: requests },
             ceilingOnlyEvents: 0,
             ceilingOnlyRequests: 0,
           },
