@@ -57,10 +57,24 @@ export const CUTOVER_REVISION_FACTOR = 2;
  * What to assume for a service that sets no explicit pool cap and is NOT our image.
  *
  * postgres-js defaults to `max: 10`. Our own services default to {@link DEFAULT_POOL_MAX} (5),
- * read from the code rather than restated here so the guard's number cannot drift from what the
- * pool really does. For anything else, assume the library default: over-counting a foreign
- * service costs headroom, under-counting it is the defect this guard exists to catch — an
- * unconfigured consumer contributing ZERO to the arithmetic while consuming connections.
+ * imported rather than restated here. For anything else, assume the library default:
+ * over-counting a foreign service costs headroom, under-counting it is the defect this guard
+ * exists to catch — an unconfigured consumer contributing ZERO to the arithmetic while
+ * consuming connections.
+ *
+ * **This comment used to claim the imported default meant "the guard's number cannot drift
+ * from what the pool really does". That was false** (spec-525 t-15). Importing the constant
+ * only pins the DEFAULT; prod's pool is **4**, set by the env override, so the
+ * `our-code-default` branch would say 5 where reality is 4. It has only ever been masked by
+ * the `applied` branch winning on our own service. Both branches are inferences, and phase B
+ * retires them together — removing `applied` alone would just promote `our-code-default` to
+ * being the lying one.
+ *
+ * **All three inference branches are RAMP scaffolding, not steady state.** `foreign-default`
+ * and `our-code-default` are the safe branches while the fleet is still adopting
+ * {@link DECLARATION_VAR}; they are not permanent fallbacks. If either is kept as
+ * defence-in-depth for a switched-off phase B, say so explicitly at that point — otherwise
+ * the next reader takes an unreachable branch for a stationary one.
  */
 export const FOREIGN_SERVICE_DEFAULT_POOL = 10;
 
@@ -71,6 +85,22 @@ export const FOREIGN_SERVICE_DEFAULT_POOL = 10;
  * than a guess. It is a reserve, not a cap — nothing enforces it on those sessions.
  */
 export const ADMIN_SESSION_RESERVE = 5;
+
+/**
+ * The ONE string every service and this guard must match, byte for byte.
+ *
+ * Settled by `memex-backstage` spec-19 dec-5, and named here so the guard and its warnings
+ * cannot drift from each other. No `POOL` token, because it states both facts the guard
+ * needs: it counts CONNECTIONS, and it counts them PER INSTANCE. `DB_POOL_TOTAL` was
+ * rejected — a declared figure is every pool summed PLUS any long-lived connection outside
+ * a pool, so that name would be true only by coincidence.
+ *
+ * A near-miss on this string is why phase A warns rather than staying silent: write
+ * `DB_CONNECTION_PER_INSTANCE` (singular) and the guard finds nothing, falls back, and
+ * prints the line it printed before declarations existed. Not a silent failure — a SUCCESS
+ * SIGNAL, on the one string that IS the contract (spec-525 t-15).
+ */
+export const DECLARATION_VAR = "DB_CONNECTIONS_PER_INSTANCE";
 
 /**
  * Cloud Run's own default when a service carries no `maxScale` annotation. Not a value anyone
@@ -122,20 +152,42 @@ export type ServiceObservation = {
   minInstances?: number;
   /** `undefined` = the running revision carries no `DB_POOL_MAX`, so a default applies. */
   dbPoolMax?: number;
+  /**
+   * The service's own declaration of its COMPLETE per-instance footprint, from
+   * {@link DECLARATION_VAR} — every pool the instance opens, plus any long-lived connection
+   * outside a pool. When present it is used AS IS: nothing is added on top, because there is
+   * nothing left for the guard to infer.
+   */
+  declaredPerInstance?: number;
   /** `true` when this service runs OUR image, whose pool default is knowable from the code. */
   ownCode?: boolean;
 };
 
-export type PoolSource = "applied" | "our-code-default" | "foreign-default";
+/**
+ * Where a per-instance figure came from. `declared` is the only one that is a READING;
+ * the other three are inferences of decreasing confidence, and phase B retires two of them.
+ */
+export type PoolSource = "declared" | "applied" | "our-code-default" | "foreign-default";
 
 export type ServiceTerm = {
   service: string;
   revision?: string;
   maxInstances: number;
-  poolMax: number;
+  /**
+   * The per-POOL figure, when one was inferred. **Absent for a declared service**, because a
+   * declaration is a whole-instance total and calling it a pool max would be the
+   * counted-vs-real confusion this task removes, wearing a different field name.
+   */
+  poolMax?: number;
   poolSource: PoolSource;
-  /** pool + the relay LISTEN. */
+  /** The whole per-instance footprint the budget counts. */
   perInstance: number;
+  /**
+   * Whether {@link RELAY_LISTEN_PER_INSTANCE} was added on top. False for a declaration —
+   * and load-bearing rather than decorative, because `formatBudgetReport` printed
+   * `+ 1 relay LISTEN` on every line regardless, which is a lie for a complete declaration.
+   */
+  relayCounted: boolean;
   /** One revision at full scale. */
   steady: number;
   /** Both revisions at full scale — what a cutover can actually demand. */
@@ -153,19 +205,78 @@ function resolvePool(obs: ServiceObservation): { poolMax: number; poolSource: Po
 }
 
 export function serviceTerm(obs: ServiceObservation): ServiceTerm {
-  const { poolMax, poolSource } = resolvePool(obs);
-  const perInstance = poolMax + RELAY_LISTEN_PER_INSTANCE;
+  const declared = obs.declaredPerInstance;
+  const hasDeclaration = declared !== undefined && Number.isFinite(declared) && declared >= 1;
+
+  // A DECLARATION IS COMPLETE, so the guard adds nothing to it — not the relay LISTEN, not
+  // a second pool it cannot see. The `+1` below belongs to what the guard COMPUTES, never
+  // to what a service OPENS: backstage has no relay LISTEN at all (its UI polls), and it
+  // opens TWO pools the guard has no way to count. That is the whole reason declarations
+  // exist, and adding to one would put the inference back (spec-525 t-15, ac-27).
+  //
+  // No coherence check against `dbPoolMax`, deliberately, even when both are present: the
+  // coherent relation differs per service — memex-api's total is pool + relay (5 = 4+1),
+  // backstage's is 2 x pool — and the guard cannot know which form applies. A check would
+  // be the guessing this removes, wearing an equals sign.
+  const perInstance = hasDeclaration
+    ? Math.floor(declared)
+    : resolvePool(obs).poolMax + RELAY_LISTEN_PER_INSTANCE;
   const steady = obs.maxInstances * perInstance;
-  return {
+
+  const base = {
     service: obs.service,
     revision: obs.revision,
     maxInstances: obs.maxInstances,
-    poolMax,
-    poolSource,
     perInstance,
     steady,
     peak: steady * CUTOVER_REVISION_FACTOR,
   };
+
+  return hasDeclaration
+    ? { ...base, poolSource: "declared" as const, relayCounted: false }
+    : { ...base, ...resolvePool(obs), relayCounted: true };
+}
+
+/**
+ * Every service whose figure was INFERRED rather than read — phase A's warning.
+ *
+ * Its value is not to the reader of one deploy; it is to whoever decides when phase B can
+ * be switched on. **Flip it when this goes quiet**, rather than when someone remembers.
+ * A switch that is off by default and gated on memory is a TODO, and phase B is the half
+ * that prevents recurrence (`memex-backstage` spec-19 dec-2 §5).
+ */
+export function declarationWarnings(budget: Budget): string[] {
+  return budget.terms
+    .filter((t) => t.poolSource !== "declared")
+    .map(
+      (t) =>
+        `⚠ ${t.service}: no declaration found (expected ${DECLARATION_VAR}), ` +
+        `counting ${t.poolSource} ${t.poolMax} + ${RELAY_LISTEN_PER_INSTANCE} relay LISTEN ` +
+        `= ${t.perInstance} per instance`,
+    );
+}
+
+/**
+ * PHASE B — the same list, as refusals rather than warnings. **Off by default.**
+ *
+ * Every service is undeclared the day this lands, so an on-by-default refusal would abort
+ * memex-api's own deploys: the guard working exactly as designed and stopping all work.
+ * The switch is what lets phase B ship before the fleet is ready for it.
+ */
+export function undeclaredServices(
+  budget: Budget,
+  opts: { requireDeclarations?: boolean } = {},
+): string[] {
+  if (!opts.requireDeclarations) return [];
+  return budget.terms
+    .filter((t) => t.poolSource !== "declared")
+    .map(
+      (t) =>
+        `${t.service} declares no ${DECLARATION_VAR} — refusing rather than inferring. ` +
+        `Used ${t.poolSource} (${t.poolMax} per pool) because that is all the revision ` +
+        `published. Set ${DECLARATION_VAR} to the COMPLETE per-instance total: every pool ` +
+        `the instance opens, plus any long-lived connection outside one.`,
+    );
 }
 
 // ── The budget ────────────────────────────────────────────────────────────────
@@ -449,12 +560,19 @@ export function planEmissions({
 
 /** The enumeration a reader needs to spot a term that should be there and isn't. */
 export function formatBudgetReport(budget: Budget): string[] {
-  const lines = budget.terms.map(
-    (t) =>
+  // The per-term line states WHERE its number came from, and — since t-15 — no longer
+  // claims a relay LISTEN it did not add. Printing `+ 1 relay LISTEN` on a line counted
+  // from a complete declaration was the counted-vs-real confusion removed from the
+  // arithmetic and left standing in what a human reads (spec-525 t-15).
+  const lines = budget.terms.map((t) => {
+    const shape = t.relayCounted
+      ? `(pool ${t.poolMax} [${t.poolSource}] + ${RELAY_LISTEN_PER_INSTANCE} relay LISTEN)`
+      : `(${t.perInstance} per instance [${t.poolSource}])`;
+    return (
       `    ${t.service}${t.revision ? ` (${t.revision})` : ""}: ` +
-      `maxInstances ${t.maxInstances} × (pool ${t.poolMax} [${t.poolSource}] + ${RELAY_LISTEN_PER_INSTANCE} relay LISTEN) ` +
-      `= ${t.steady} steady, ${t.peak} at cutover`,
-  );
+      `maxInstances ${t.maxInstances} × ${shape} = ${t.steady} steady, ${t.peak} at cutover`
+    );
+  });
   lines.push(`    admin / migration reserve: ${budget.adminReserve}`);
   lines.push(
     `    TOTAL: ${budget.steadyTotal} steady, ${budget.peakTotal} at cutover, against ${budget.usable} usable ` +
@@ -477,6 +595,8 @@ export type RevisionScaling = {
   minInstances: number;
   /** `undefined` = no `DB_POOL_MAX` on the revision, so a code default applies. */
   dbPoolMax?: number;
+  /** `undefined` = the revision declares no {@link DECLARATION_VAR}, so a default branch applies. */
+  declaredPerInstance?: number;
   cloudSqlInstances: string[];
 };
 
@@ -502,6 +622,9 @@ export function parseRevisionScaling(json: unknown): RevisionScaling {
   const first = Array.isArray(containers) ? asRecord(containers[0]) : {};
   const env = Array.isArray(first.env) ? first.env.map(asRecord) : [];
   const pool = env.find((e) => e.name === "DB_POOL_MAX");
+  // Read beside DB_POOL_MAX, not instead of it: a service may publish both, and the guard
+  // deliberately does not compare them (see serviceTerm).
+  const declared = env.find((e) => e.name === DECLARATION_VAR);
 
   return {
     revision: typeof metadata.name === "string" ? metadata.name : undefined,
@@ -510,6 +633,7 @@ export function parseRevisionScaling(json: unknown): RevisionScaling {
     // Cloud Run drops the annotation at minScale 0, which is int's live shape.
     minInstances: asNumber(annotations[MIN_SCALE]) ?? 0,
     dbPoolMax: asNumber(pool?.value),
+    declaredPerInstance: asNumber(declared?.value),
     cloudSqlInstances: String(annotations[CLOUD_SQL] ?? "")
       .split(",")
       .map((s) => s.trim())
