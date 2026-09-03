@@ -23,6 +23,9 @@
 
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
+import { tagAc } from "@memex-ai-ac/vitest";
+const AC_SCAN_NON_VACUOUS = "mindset-prod/memex-building-itself/specs/spec-548/acs/ac-5";
+
 import { join, relative } from "node:path";
 
 const SRC_DIR = join(__dirname, "..");
@@ -100,6 +103,14 @@ describe("build script copies every src/ asset directory into dist/", () => {
     };
 
     const missing: string[] = [];
+    tagAc(AC_SCAN_NON_VACUOUS);
+    // spec-548 ac-5: every claim this scan makes is absence-shaped, so an empty
+    // corpus would report compliance it never checked. Prove the scan looked.
+    expect(
+      assetDirs.size,
+      "no asset directories found under src/, so the dist-copy comparison below has nothing to compare",
+    ).toBeGreaterThan(0);
+
     for (const dir of assetDirs) {
       if (dir in TS_IMPORT_ONLY_DIRS) continue;
       if (coveredByRecursive(dir)) continue;

@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
+import { tagAc } from "@memex-ai-ac/vitest";
+const AC_SCAN_NON_VACUOUS = "mindset-prod/memex-building-itself/specs/spec-548/acs/ac-5";
+
 import { join, resolve } from "node:path";
 
 // t-7 / dec-4 in doc-5: the tasks → tasks rename was reverted
@@ -103,6 +106,14 @@ describe("regression: no 'task' naming outside whitelisted history", () => {
 
   it("no source/markdown file outside the whitelist matches /work[ _]?item/i", () => {
     const offending: string[] = [];
+    tagAc(AC_SCAN_NON_VACUOUS);
+    // spec-548 ac-5: every claim this scan makes is absence-shaped, so an empty
+    // corpus would report compliance it never checked. Prove the scan looked.
+    expect(
+      [...walk(repoRoot)].length,
+      "the repo walk matched no files at all, so the naming check below inspected nothing",
+    ).toBeGreaterThan(200);
+
     for (const file of walk(repoRoot)) {
       if (whitelist.some((frag) => file.includes(frag))) continue;
       let content;

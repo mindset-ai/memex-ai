@@ -18,6 +18,11 @@ const AC_LIST_FLOOR = "mindset-prod/memex-building-itself/specs/spec-548/acs/ac-
 const AC_FACADE_CORPUS = "mindset-prod/memex-building-itself/specs/spec-548/acs/ac-6";
 const AC_WINDOW = "mindset-prod/memex-building-itself/specs/spec-548/acs/ac-8";
 const AC_FACADE_CLOSED = "mindset-prod/memex-building-itself/specs/spec-548/acs/ac-7";
+// Scope ACs, verified by the same evidence as the implementation ACs beneath them —
+// one test may carry both, and leaving an outcome commitment untested when its proof
+// already runs is exactly the silent gap this Spec is about.
+const AC_SCOPE_GUARD_LOOKS = "mindset-prod/memex-building-itself/specs/spec-548/acs/ac-10";
+const AC_SCOPE_WHOLE_VIEW = "mindset-prod/memex-building-itself/specs/spec-548/acs/ac-12";
 
 // spec-366 / spec-546: renderFooterSignal + composeGuidanceEnvelope (the sole
 // footer-prose authors) live together in ONE module under agent/handlers/; the
@@ -142,6 +147,7 @@ describe("the corpus reaches the façade", () => {
   // spec-548 ac-6.
   it("a prose reference in the appended façade portion is reported as an offender", () => {
     tagAc(AC_FACADE_CORPUS);
+    tagAc(AC_SCOPE_WHOLE_VIEW);
     const handlers = ["line one", "async function renderFooterSignal(", "  SOME_NUDGE", "}"].join("\n");
     const facade = ["export { SOME_NUDGE } from './handlers/x.js';"].join("\n");
     const src = `${handlers}\n${facade}`;
@@ -161,6 +167,7 @@ describe("the corpus reaches the façade", () => {
   // confinement check, because a re-export line is not a "use".
   it("the façade does not republish the prose builders", () => {
     tagAc(AC_FACADE_CLOSED);
+    tagAc(AC_SCOPE_WHOLE_VIEW);
     const facade = readFileSync(FACADE_PATH, "utf-8");
     const code = facade
       .split("\n")
@@ -178,6 +185,7 @@ describe("the corpus reaches the façade", () => {
   // spec-548 ac-7, the consumer half.
   it("the four former façade consumers import from the handler modules", () => {
     tagAc(AC_FACADE_CLOSED);
+    tagAc(AC_SCOPE_WHOLE_VIEW);
     const SERVER_SRC = join(__dirname, "..");
     const consumers: [string, string][] = [
       ["agent/decision-related-issues.integration.test.ts", "handlers/related-issues.js"],
@@ -201,6 +209,7 @@ describe("the corpus reaches the façade", () => {
 
   it("the real façade file is actually part of SRC", () => {
     tagAc(AC_FACADE_CORPUS);
+    tagAc(AC_SCOPE_WHOLE_VIEW);
     expect(SRC.length).toBeGreaterThan(FACADE_OFFSET);
     expect(SRC.slice(FACADE_OFFSET)).toContain("tools");
   });
@@ -210,6 +219,7 @@ describe("footer prose builders are confined to renderFooterSignal", () => {
   for (const { call, defLine } of PROSE_BUILDERS) {
     it(`${call} is referenced only inside renderFooterSignal (or its own def/import)`, () => {
       tagAc(AC_PRESENCE);
+      tagAc(AC_SCOPE_GUARD_LOOKS);
       // spec-548 ac-1 — the loop below is vacuous for a token that isn't there:
       // indexOf returns -1, the body never runs, `offenders` stays [], and the
       // assertion passes. "Found it, all confined" and "never found it" were

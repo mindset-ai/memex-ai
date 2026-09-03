@@ -17,6 +17,8 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { eq, inArray } from "drizzle-orm";
 import { readFileSync, readdirSync } from "node:fs";
+const AC_SCAN_NON_VACUOUS = "mindset-prod/memex-building-itself/specs/spec-548/acs/ac-5";
+
 import { join } from "node:path";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { db } from "../db/connection.js";
@@ -197,6 +199,16 @@ describe("ac-6 — the overview is composed in the single seat (source guard)", 
     const call = "craftStatusOverview(";
     const defLine = /async function craftStatusOverview\(/;
     const offenders: number[] = [];
+    tagAc(AC_SCAN_NON_VACUOUS);
+    // spec-548 ac-5: every claim this scan makes is absence-shaped, so an empty
+    // corpus would report compliance it never checked. Prove the scan looked. This file rebuilds the same
+    // agent/handlers/ corpus guidance-authoring-confined scans, and carries the
+    // same purely-absence claim that let a dead entry there read green.
+    expect(
+      SRC.indexOf("craftStatusOverview"),
+      "craftStatusOverview occurs nowhere in the scanned handlers corpus — the loop below would never run and this test would pass having checked nothing",
+    ).toBeGreaterThan(-1);
+
     let idx = SRC.indexOf(call);
     while (idx !== -1) {
       const withinSeat = idx >= seatStart && idx < seatEnd;

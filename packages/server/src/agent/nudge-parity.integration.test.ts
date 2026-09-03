@@ -25,6 +25,8 @@
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { readFileSync } from "node:fs";
+
+const AC_SCAN_NON_VACUOUS = "mindset-prod/memex-building-itself/specs/spec-548/acs/ac-5";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { eq, inArray } from "drizzle-orm";
@@ -206,6 +208,15 @@ describe("b-68 t-8 ac-29: both surfaces compose nudges via the same `toNudge` fr
       }
       return acc;
     }
+    tagAc(AC_SCAN_NON_VACUOUS);
+    // spec-548 ac-5: every claim this scan makes is absence-shaped, so an empty
+    // corpus would report compliance it never checked. Prove the scan looked. The floor further down in this
+    // file bounds a scaffold-data array, not this walk.
+    expect(
+      walk(SERVER_SRC).length,
+      "the server-source walk matched no files, so the inline-toNudge scan below proves nothing",
+    ).toBeGreaterThan(200);
+
     const offenders: string[] = [];
     for (const file of walk(SERVER_SRC)) {
       const raw = readFileSync(file, "utf8");
