@@ -235,20 +235,44 @@ export function deriveCeiling(poolMax: number): number {
 }
 
 /**
- * How much of the ceiling ONE credential may hold.
+ * One credential's share of the ceiling, and its floor — dec-7.
  *
- * Strictly below the ceiling, which is exactly what ac-10 requires: a key that has
- * saturated its own slice must still leave room for a second credential in the same
- * window. `ceiling - 1` is the most generous value satisfying that, so this rations as
- * little as fairness allows.
+ * `max(1, ceiling - 1)` was a DECREMENT, and a decrement collapses at small ceilings: at
+ * prod's ceiling of 2 it yields 1, so a credential's second concurrent request is refused
+ * — 99.0% of every would-be refusal in t-13's 8-day window. It also mis-rations at the
+ * other end, handing one credential nearly the whole room at a large ceiling, which is
+ * fairness dissolving exactly where there is most to share.
  *
- * A consequence worth knowing at prod's numbers: pool 4 → ceiling 2 → slice 1, so a
- * single dominant emitter gets one write in flight per instance rather than two. With
- * t-2's bounded wait that costs latency, not events. Whether it costs anything that
- * matters is a question for t-10's shadow measurement, not for a guess here.
+ * A share fixes both ends. The floor of 2 stops the collapse — and it is capped by
+ * `ceiling - 1` below, because **ac-10 is not negotiable**: a key that has saturated its
+ * share must still leave room for another credential. dec-7 records that the two cannot
+ * both hold at a ceiling of 2 (2 > 2 - 1), and chose ac-10.
+ */
+const PER_KEY_SHARE_OF_CEILING = 0.5;
+const MIN_PER_KEY_SLICE = 2;
+
+/**
+ * How much of the ceiling ONE credential may hold — a bounded share (dec-7, ac-24).
+ *
+ * Three bounds, each load-bearing:
+ *   - `ceiling - 1` outermost-but-one — ac-10, never traded. A saturated key leaves room.
+ *   - {@link MIN_PER_KEY_SLICE} inside — ac-24, so the share cannot collapse to 1 where
+ *     the ceiling permits more.
+ *   - `max(1, …)` outermost — an allowance of 0 does not ration the route, it CLOSES it,
+ *     and `min(ceiling - 1, …)` yields 0 at a ceiling of 1 (a pool of 1 or 2, a real
+ *     deployment shape).
+ *
+ * At prod's numbers — pool 4 → ceiling 2 → **slice 1** — this is identical to the
+ * decrement it replaces. That is dec-7's recorded cost, not an oversight: at two slots
+ * ac-10 and ac-24 admit no common value, and the 99.0% t-13 measured is the arithmetic of
+ * a two-slot room in which fairness keeps one slot free. The improvement arrives when the
+ * ceiling reaches 3 — `DB_POOL_MAX >= 6`, spec-518's call, already inside the budget.
  */
 export function derivePerKeySlice(ceiling: number): number {
-  return Math.max(1, ceiling - 1);
+  return Math.max(
+    1,
+    Math.min(ceiling - 1, Math.max(MIN_PER_KEY_SLICE, Math.floor(ceiling * PER_KEY_SHARE_OF_CEILING))),
+  );
 }
 
 /**
