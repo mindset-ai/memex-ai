@@ -25,7 +25,7 @@ import {
 } from "../db/schema.js";
 import { createMcpServer } from "../mcp/tools.js";
 import { createDocDraft } from "./documents.js";
-import { COMPLETION_NUDGE } from "../agent/tool-specs.js";
+import { COMPLETION_NUDGE } from "../agent/handlers/guidance-envelope.js";
 import { splitToolResult } from "../mcp/footer-delimiter.js";
 
 const AC = (n: number) =>

@@ -25,18 +25,35 @@ import type {
 // from this file, so no import site moved (std-16 contract unchanged).
 //
 // spec-546 dec-2: this façade STAYS, permanently. It is not a compatibility
-// shim — it is the actual interface. 49 files import from here, and for six of
-// the symbols below the façade is the ONLY route out of handlers/:
+// shim — it is the actual interface. Dozens of files import from here, and for
+// five of the symbols below it is the ONLY route out of handlers/:
 // composeGuidanceEnvelope, renderFooterSignal, craftActivityBlock,
-// composeStatusOverview, StatusFacts, relatedIssuesNudge.
+// composeStatusOverview, StatusFacts.
 //
-// Do NOT "fix" those six by moving them here under std-51's single-consumer
-// rule. guidance-authoring-confined.regression.test.ts scans ONLY
-// agent/handlers/ — it never reads this file — and its per-builder loop is
-// `let idx = SRC.indexOf(call); while (idx !== -1) { … }`. A call token that
-// leaves that directory makes the loop body never run, so the test passes
-// while asserting NOTHING and the "one author of footer prose" invariant goes
-// unguarded, in green. Only its `sanity:` test pins the two window anchors.
+// Do NOT "fix" those five by moving them here under std-51's single-consumer
+// rule. Their DEFINITIONS staying in agent/handlers/ is what keeps
+// guidance-authoring-confined.regression.test.ts able to see them; republishing
+// a symbol from here is fine, relocating its definition is not.
+//
+// spec-548 narrowed the reason, and removed two names from this block.
+// dec-1: that guard's per-builder loop was `let idx = SRC.indexOf(call); while
+// (idx !== -1) { … }`, so a call token that left the scanned directory made the
+// body never run and the test passed while asserting NOTHING — in green. It now
+// asserts each token is PRESENT before scanning, and floors the list length, so
+// a vanished builder reds and names itself. dec-3: the guard's corpus is now
+// agent/handlers/*.ts PLUS this file, so prose authored in the façade is an
+// offender rather than invisible — which is why the completion nudge and the
+// related-issues nudge are no longer re-exported here. Their only consumers were
+// four tests, now importing from the handler modules directly (std-51: an
+// export exists for a production caller or it does not exist). A guard that
+// forbids USING the prose outside renderFooterSignal while this file
+// DISTRIBUTED it was contradicting itself.
+//
+// Named in prose, not spelled, deliberately: the guard scans raw TEXT, so a
+// comment carrying a builder's token is flagged like a use. (Only tokens with
+// no trailing paren are comment-sensitive this way.) The alternative — teaching
+// the guard to skip comment lines — widens what it tolerates to fix a comment,
+// and dec-3 already declined the same shape of concession for re-export lines.
 export {
   buildNudgeOrgBlocksGetter,
   // spec-366: re-exported because tool-specs.audit.integration.test.ts imports
@@ -49,11 +66,9 @@ export {
   craftActivityBlock,
   composeStatusOverview,
   formatAcCoverageSummary,
-  COMPLETION_NUDGE,
 } from "./handlers/guidance-envelope.js";
 export {
   relatedIssuesForDecision,
-  relatedIssuesNudge,
   suggestActiveSpecsForIssue,
 } from "./handlers/related-issues.js";
 export type {
