@@ -35,6 +35,8 @@
 
 import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
+const AC_SCAN_NON_VACUOUS = "mindset-prod/memex-building-itself/specs/spec-548/acs/ac-5";
+
 import { join, relative, sep } from "node:path";
 import { tagAc } from "@memex-ai-ac/vitest";
 import {
@@ -247,6 +249,14 @@ describe("b-68 drift-guard: prompt prose location (ac-20 (a))", () => {
     );
     // `.ORPHAN` suffix files are migration sentinels — also tolerated.
     const real = found.filter((p) => !p.endsWith(".ORPHAN"));
+    tagAc(AC_SCAN_NON_VACUOUS);
+    // spec-548 ac-5: every claim this scan makes is absence-shaped, so an empty
+    // corpus would report compliance it never checked. Prove the scan looked.
+    expect(
+      found.length,
+      "fewer .md files under phases/ than the allowlist names — an emptied or renamed directory yields an empty allowlist diff, i.e. green",
+    ).toBeGreaterThanOrEqual(ALLOWLISTED_PHASE_MDS.size);
+
     const unexpected = real.filter((p) => !ALLOWLISTED_PHASE_MDS.has(p));
     expect(
       unexpected,

@@ -32,7 +32,7 @@ import {
 } from "../db/schema.js";
 import { createMcpServer } from "./tools.js";
 import { tagAc } from "@memex-ai-ac/vitest";
-import { COMPLETION_NUDGE } from "../agent/tool-specs.js";
+import { COMPLETION_NUDGE } from "../agent/handlers/guidance-envelope.js";
 import { setAcReviewedVerification } from "../services/acs.js";
 
 interface ToolResult {

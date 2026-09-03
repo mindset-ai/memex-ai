@@ -18,6 +18,8 @@ import { tagAc } from "@memex-ai-ac/vitest";
 
 const SPEC = "mindset-prod/memex-building-itself/specs/spec-358";
 const MIGRATIONS_DIR = join(__dirname, "..", "..", "drizzle");
+const AC_SCAN_NON_VACUOUS = "mindset-prod/memex-building-itself/specs/spec-548/acs/ac-5";
+
 
 function migrationSql(): Array<{ file: string; sql: string }> {
   return readdirSync(MIGRATIONS_DIR)
@@ -35,6 +37,14 @@ function stripComments(sql: string): string {
 
 describe("spec-358: no migration un-hides, deletes, or rewrites historical test_events rows", () => {
   it("no migration performs a data mutation of test_events.hidden [ac-13][ac-14][ac-15]", () => {
+    tagAc(AC_SCAN_NON_VACUOUS);
+    // spec-548 ac-5: every claim this scan makes is absence-shaped, so an empty
+    // corpus would report compliance it never checked. Prove the scan looked.
+    expect(
+      migrationSql().length,
+      "the migrations directory scan came back empty — an empty drizzle/ would read as compliance",
+    ).toBeGreaterThan(100);
+
     tagAc(`${SPEC}/acs/ac-13`);
     tagAc(`${SPEC}/acs/ac-14`);
     tagAc(`${SPEC}/acs/ac-15`);

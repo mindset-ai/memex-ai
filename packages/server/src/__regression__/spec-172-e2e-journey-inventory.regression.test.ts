@@ -35,6 +35,8 @@
 import { describe, it, expect } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
+const AC_SCAN_NON_VACUOUS = "mindset-prod/memex-building-itself/specs/spec-548/acs/ac-5";
+
 import { join } from "node:path";
 
 const AC = "mindset-prod/memex-building-itself/specs/spec-172/acs";
@@ -97,6 +99,14 @@ describe("spec-172 ac-2: account-era journey dispositions stay recorded in the t
   it("the six deleted account-era journeys stay dead — no file resurrects their names", () => {
     tagAc(`${AC}/ac-2`);
     const present = specFiles();
+    tagAc(AC_SCAN_NON_VACUOUS);
+    // spec-548 ac-5: every claim this scan makes is absence-shaped, so an empty
+    // corpus would report compliance it never checked. Prove the scan looked.
+    expect(
+      present.length,
+      "the e2e directory listing came back empty — every 'is it gone?' claim below would pass vacuously",
+    ).toBeGreaterThan(10);
+
     for (const dead of DELETED_ACCOUNT_ERA) {
       const resurrected = present.filter((f) => f.startsWith(dead));
       expect(
