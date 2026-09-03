@@ -27,7 +27,7 @@ import { enforceCheckoutGate } from "../services/checkout-gate.js";
 import { GATED_SPEC_TOOLS } from "../services/checkout-gate.js";
 import { stampCheckout } from "../services/checkout.js";
 import { toolSpecs } from "./tool-specs.js";
-import type { ToolCtx } from "./handlers/shared.js";
+import type { ToolCtx } from "./handlers/tool-contract.js";
 
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-535/acs/ac-${n}`;
 const TOOL = "set_sensitive";

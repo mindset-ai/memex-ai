@@ -35,7 +35,7 @@ import {
   type PhaseGateGroup,
 } from "@memex/shared";
 import { isSpecStatus } from "../types/roles.js";
-import type { ToolCtx } from "../agent/handlers/shared.js";
+import type { ToolCtx } from "../agent/handlers/tool-contract.js";
 
 const manifestByName: ReadonlyMap<string, ToolManifestEntry> = new Map(
   toolManifest.map((e) => [e.name, e]),

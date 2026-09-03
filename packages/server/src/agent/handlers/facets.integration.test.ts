@@ -11,7 +11,7 @@ import { seedDefaultFacetsForOwner } from "../../services/default-facets.js";
 import { listFacetsForMemex } from "../../services/facet-vocab.js";
 import { facetsTools } from "./facets.js";
 import { toolSpecs } from "../tool-specs.js";
-import type { ToolCtx } from "./shared.js";
+import type { ToolCtx } from "./tool-contract.js";
 
 const SPEC = "mindset-prod/memex-building-itself/specs/spec-340";
 const AC = (n: number) => `${SPEC}/acs/ac-${n}`;

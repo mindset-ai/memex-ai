@@ -40,7 +40,7 @@ import {
 } from "@memex/shared";
 import {
   type ToolSpec,
-} from "./shared.js";
+} from "./tool-contract.js";
 
 export const scaffoldTools: ToolSpec[] = [
   // ── Scaffold assistant (spec-360) ─────────────────────────

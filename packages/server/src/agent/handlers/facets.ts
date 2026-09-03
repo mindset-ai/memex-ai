@@ -12,7 +12,7 @@
 import { z } from "zod";
 import { ValidationError } from "../../types/errors.js";
 import { listFacetsForMemex } from "../../services/facet-vocab.js";
-import { MEMEX_DESC, VERBOSE_FIELD, type ToolSpec } from "./shared.js";
+import { MEMEX_DESC, VERBOSE_FIELD, type ToolSpec } from "./tool-contract.js";
 
 export const facetsTools: ToolSpec[] = [
   {

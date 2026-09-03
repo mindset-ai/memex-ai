@@ -28,7 +28,7 @@ import {
   reqCtx,
   resolveRefArg,
   type ToolSpec,
-} from "./shared.js";
+} from "./tool-contract.js";
 import { getUserByEmail, getUserById } from "../../services/users.js";
 
 // ── Moved here from shared.ts by spec-546 t-2: this file is the symbol's only

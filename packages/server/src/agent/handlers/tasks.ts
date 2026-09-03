@@ -42,7 +42,7 @@ import {
   reqCtx,
   resolveRefArg,
   type ToolSpec,
-} from "./shared.js";
+} from "./tool-contract.js";
 import { eq } from "drizzle-orm";
 import { db } from "../../db/connection.js";
 import { taskDeps } from "../../db/schema.js";

@@ -44,7 +44,7 @@ import {
   resolveRefArg,
   suggestActiveSpecsForIssue,
   type ToolSpec,
-} from "./shared.js";
+} from "./tool-contract.js";
 
 export const issuesTools: ToolSpec[] = [
   {

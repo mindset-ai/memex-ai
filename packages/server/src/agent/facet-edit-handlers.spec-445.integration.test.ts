@@ -26,7 +26,7 @@ import {
 import { executeServerTool } from "./tools.js";
 // get_doc (verbose) renders exactly formatState(url, await fullDocState(...)); test that
 // path directly since executeServerTool forces ctx.verbose=false.
-import { fullDocState, formatState } from "./handlers/shared.js";
+import { fullDocState, formatState } from "./handlers/tool-contract.js";
 
 const SPEC = "mindset-prod/memex-building-itself/specs/spec-445";
 const AC = (n: number) => `${SPEC}/acs/ac-${n}`;

@@ -19,7 +19,7 @@ import {
   stampCheckout,
   describeCollision,
 } from "./checkout.js";
-import type { ToolCtx } from "../agent/handlers/shared.js";
+import type { ToolCtx } from "../agent/handlers/tool-contract.js";
 
 // The spec-mutating tools subject to the gate. The checkout VERBS themselves
 // (claim_spec / unclaim_spec) are deliberately ABSENT — explicit checkout is never

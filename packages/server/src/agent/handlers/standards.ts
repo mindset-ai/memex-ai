@@ -32,7 +32,7 @@ import {
   resolveRefArg,
   type ToolSpec,
   type ToolCtx,
-} from "./shared.js";
+} from "./tool-contract.js";
 import { eq } from "drizzle-orm";
 import { db } from "../../db/connection.js";
 import { docSections, documents } from "../../db/schema.js";

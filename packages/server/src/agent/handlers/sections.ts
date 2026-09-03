@@ -46,7 +46,7 @@ import {
   reqCtx,
   resolveRefArg,
   type ToolSpec,
-} from "./shared.js";
+} from "./tool-contract.js";
 
 export const sectionsTools: ToolSpec[] = [
   {

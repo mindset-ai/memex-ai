@@ -54,7 +54,7 @@ import {
   MEMEX_DESC,
   VERBOSE_FIELD,
   type ToolSpec,
-} from "./shared.js";
+} from "./tool-contract.js";
 
 export const integrationsTools: ToolSpec[] = [
   {
