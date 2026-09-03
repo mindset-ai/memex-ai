@@ -24,9 +24,16 @@
 // a test of dec-7's resolution.
 //
 // WHERE THE IMPROVEMENT COMES FROM, since it is not from this file: the ceiling reaching 3,
-// which needs `DB_POOL_MAX >= 6` — spec-518's decision surface, and already inside today's
-// connection budget (2 x 8 x 7 = 112 of 148 available). Not t-15, which frees 4
-// connections and moves the achievable pool size not at all (c-23).
+// which needs `DB_POOL_MAX >= 6`. Two corrections on that, both from measurement rather
+// than from prose (c-23, c-24):
+//
+//   - NOT t-15, which frees 4 connections and moves the achievable pool size not at all.
+//   - NOT spec-518 either, which is `done` and never owned the pool. `db/connection.ts`
+//     names **spec-332**, which is alive in `specify` — and whose dec-3 has ALREADY
+//     resolved "REGIME 1 — Stopgap: REJECTED. DB_POOL_MAX stays at 5 (pre-MCP bump capped
+//     at ~6, marginal)". Its premise has moved since (it reasons against
+//     max_connections=50; prod has run 200 since 2026-08-12), so the path is a
+//     re-grounding of dec-3, not a raise anyone can ask for.
 
 import { describe, it, expect } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";

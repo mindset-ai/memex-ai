@@ -266,7 +266,10 @@ const MIN_PER_KEY_SLICE = 2;
  * decrement it replaces. That is dec-7's recorded cost, not an oversight: at two slots
  * ac-10 and ac-24 admit no common value, and the 99.0% t-13 measured is the arithmetic of
  * a two-slot room in which fairness keeps one slot free. The improvement arrives when the
- * ceiling reaches 3 — `DB_POOL_MAX >= 6`, spec-518's call, already inside the budget.
+ * ceiling reaches 3 — `DB_POOL_MAX >= 6`, which is **spec-332**'s decision surface (see
+ * `db/connection.ts`), and spec-332 dec-3 has already REJECTED a stopgap raise on a
+ * premise that has since moved (it reasons against max_connections=50; prod runs 200).
+ * So the unblocking path is a re-grounding there, not an ask. spec-525 c-24.
  */
 export function derivePerKeySlice(ceiling: number): number {
   return Math.max(
