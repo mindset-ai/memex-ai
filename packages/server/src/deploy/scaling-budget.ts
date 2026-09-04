@@ -100,6 +100,22 @@ export const ADMIN_SESSION_RESERVE = 5;
  * prints the line it printed before declarations existed. Not a silent failure — a SUCCESS
  * SIGNAL, on the one string that IS the contract (spec-525 t-15).
  */
+/**
+ * How to UNBLOCK a deploy this guard refused — carried in the refusal message itself.
+ *
+ * Not documentation-adjacent politeness. This refusal can be triggered by a change nobody
+ * on this repo made: the guard enumerates every Cloud Run service attached to the same
+ * Cloud SQL instance (from `gcloud`, deliberately not from a list here), so a NEW service
+ * someone else deploys, or another team renaming their own variable, stops OUR deploys —
+ * including a hotfix. The remedy is one variable, and a remedy that takes one word but is
+ * known to nobody costs hours at 3am. So the message states it rather than pointing at a
+ * standard somebody has to go and find.
+ */
+export const UNBLOCK_HINT =
+  "TO UNBLOCK NOW: unset REQUIRE_CONNECTION_DECLARATIONS in the deploy workflow's " +
+  "environment and re-run. That returns the guard to over-counting undeclared services, " +
+  "which is the safe direction — then fix the declaration without a deploy blocked on it.";
+
 export const DECLARATION_VAR = "DB_CONNECTIONS_PER_INSTANCE";
 
 /**
@@ -218,9 +234,10 @@ export function serviceTerm(obs: ServiceObservation): ServiceTerm {
   // coherent relation differs per service — memex-api's total is pool + relay (5 = 4+1),
   // backstage's is 2 x pool — and the guard cannot know which form applies. A check would
   // be the guessing this removes, wearing an equals sign.
-  const perInstance = hasDeclaration
-    ? Math.floor(declared)
-    : resolvePool(obs).poolMax + RELAY_LISTEN_PER_INSTANCE;
+  const inferred = hasDeclaration ? undefined : resolvePool(obs);
+  const perInstance = inferred
+    ? inferred.poolMax + RELAY_LISTEN_PER_INSTANCE
+    : Math.floor(declared as number);
   const steady = obs.maxInstances * perInstance;
 
   const base = {
@@ -232,9 +249,9 @@ export function serviceTerm(obs: ServiceObservation): ServiceTerm {
     peak: steady * CUTOVER_REVISION_FACTOR,
   };
 
-  return hasDeclaration
-    ? { ...base, poolSource: "declared" as const, relayCounted: false }
-    : { ...base, ...resolvePool(obs), relayCounted: true };
+  return inferred
+    ? { ...base, ...inferred, relayCounted: true }
+    : { ...base, poolSource: "declared" as const, relayCounted: false };
 }
 
 /**
@@ -275,7 +292,8 @@ export function undeclaredServices(
         `${t.service} declares no ${DECLARATION_VAR} — refusing rather than inferring. ` +
         `Used ${t.poolSource} (${t.poolMax} per pool) because that is all the revision ` +
         `published. Set ${DECLARATION_VAR} to the COMPLETE per-instance total: every pool ` +
-        `the instance opens, plus any long-lived connection outside one.`,
+        `the instance opens, plus any long-lived connection outside one.` +
+        `\n      ${UNBLOCK_HINT}`,
     );
 }
 

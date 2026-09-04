@@ -376,11 +376,27 @@ async function main(): Promise<void> {
   // this lands, so an on-by-default refusal would abort memex-api's own deploys: the guard
   // working exactly as designed and stopping all work. Turn it on when phase A's list above
   // is empty.
+  //
+  // TWO CONDITIONS on the refusal, both learned by asking what it would actually do:
+  //
+  // 1. `plan` MODE ONLY. This script runs twice — before the deploy (`plan`) and after the
+  //    cutover (`applied`). In `plan` a refusal PREVENTS the deploy. In `applied` traffic
+  //    has already moved, so it can only paint a successful deploy red after the fact, with
+  //    no rollback — and a red mark on a deploy that worked trains people to ignore red
+  //    marks. Post-cutover it is a warning, which is all it can honestly be.
+  //
+  // 2. FATAL ON PROD, WARNING ELSEWHERE — the posture spec-518 dec-5 already set for a blown
+  //    budget, followed here rather than diverged from in silence. The sequence still
+  //    protects prod: int warns first, and prod's refusal lands in `plan`, BEFORE any
+  //    revision is created. The cost is that a missing declaration is discovered at prod's
+  //    plan step rather than on int, and that is the trade dec-5 already made.
   if (budget) {
-    for (const refusal of undeclaredServices(budget, {
+    const refusals = undeclaredServices(budget, {
       requireDeclarations: process.env.REQUIRE_CONNECTION_DECLARATIONS === "1",
-    })) {
-      failures.push(refusal);
+    });
+    for (const refusal of refusals) {
+      if (mode === "plan" && isProd(ENV)) failures.push(refusal);
+      else warnings.push(`${refusal}\n      (non-fatal in mode=${mode} on ${ENV})`);
     }
   }
   const warnings = [...outcome.warnings];
