@@ -42,6 +42,7 @@ import {
   declarationWarnings,
   undeclaredServices,
   DECLARATION_VAR,
+  UNBLOCK_HINT,
   RELAY_LISTEN_PER_INSTANCE,
   CUTOVER_REVISION_FACTOR,
   FOREIGN_SERVICE_DEFAULT_POOL,
@@ -224,6 +225,15 @@ describe("spec-525 t-15 phase B: refusing the undeclared, behind a switch", () =
     // The names actually FOUND, so a near-miss is diagnosable from the failure alone rather
     // than by going and reading the revision.
     expect(message).toContain("foreign-default");
+
+    // AND ITS OWN OFF-SWITCH, in the message rather than in a standard someone has to find.
+    // This refusal can be triggered by a change nobody here made — the guard enumerates
+    // every service attached to the same Cloud SQL instance, so another team renaming their
+    // variable stops OUR deploys, including a hotfix. The remedy is one variable; a remedy
+    // that takes one word and is known to nobody costs hours at 3am.
+    expect(message).toContain(UNBLOCK_HINT);
+    expect(message).toContain("REQUIRE_CONNECTION_DECLARATIONS");
+    expect(UNBLOCK_HINT).toMatch(/unset|TO UNBLOCK/i);
   });
 
   it("closes the two-pools-one-variable under-count at ANY maxScale", () => {
