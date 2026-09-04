@@ -39,6 +39,7 @@ import {
   computeBudget,
   formatBudgetReport,
   parseRevisionScaling,
+  decideOutcome,
   declarationWarnings,
   undeclaredServices,
   DECLARATION_VAR,
@@ -266,5 +267,46 @@ describe("spec-525 t-15 phase B: refusing the undeclared, behind a switch", () =
       expect(refused.length).toBe(1);
       expect(refused[0]).toContain(DECLARATION_VAR);
     }
+  });
+});
+
+describe("spec-525 t-15: no message ever prints `undefined` for a declared service", () => {
+  it("survives an over-budget report where every term is declared", () => {
+    tagAc(AC_DECLARED);
+
+    // THE DEFECT THIS PINS, found in a live int deploy log rather than in review:
+    //
+    //   ⚠ connection budget exceeded: peak 41 > 22 usable
+    //     (memex-api 2×3×(undefined+1)=36 + admin 5)
+    //
+    // `decideOutcome`'s detail string read `t.poolMax` and hardcoded `+1` for EVERY term.
+    // Making `poolMax` optional (a declared service has no per-pool figure) fixed
+    // `formatBudgetReport`, which branches on `relayCounted` — and missed this second
+    // formatter, which does not. `tsc` cannot help: interpolating `number | undefined`
+    // into a template literal is perfectly legal.
+    //
+    // Asserted as a PROPERTY over every message this module produces, not at the one site.
+    // Naming the site would pin the bug I already know about; the property catches the next
+    // reader of an optional field — which is how this one got in.
+    const usable = 22; // int's db-f1-micro default (25) minus superuser_reserved (3)
+    const services = [
+      { service: "memex-api", revision: "rev-1", maxInstances: 3, declaredPerInstance: 6, ownCode: true },
+      { service: "other", revision: "rev-2", maxInstances: 2, declaredPerInstance: 10 },
+    ];
+    const budget = computeBudget({ services, usable });
+    expect(budget.withinBudget).toBe(false); // the fixture must actually blow the budget
+
+    const outcome = decideOutcome({ env: "int", budget, comparison: undefined, revision: undefined });
+    const everything = [
+      ...formatBudgetReport(budget),
+      ...declarationWarnings(budget),
+      ...undeclaredServices(budget, { requireDeclarations: true }),
+      ...outcome.failures,
+      ...outcome.warnings,
+    ].join("\n");
+
+    expect(everything.length).toBeGreaterThan(0);
+    expect(everything).not.toContain("undefined");
+    expect(everything).not.toContain("NaN");
   });
 });

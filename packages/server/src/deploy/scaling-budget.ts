@@ -477,7 +477,15 @@ export function decideOutcome({
     const detail =
       `connection budget exceeded: peak ${budget.peakTotal} > ${budget.usable} usable ` +
       `(${budget.terms
-        .map((t) => `${t.service} ${CUTOVER_REVISION_FACTOR}×${t.maxInstances}×(${t.poolMax}+1)=${t.peak}`)
+        // Branches on `relayCounted` for the same reason `formatBudgetReport` does: a
+        // declared service has no per-pool figure and no relay added, so `(poolMax+1)`
+        // would print `(undefined+1)` — which it did, in a live int deploy log, until this
+        // was the second reader of an optional field to be fixed rather than the first.
+        .map((t) =>
+          t.relayCounted
+            ? `${t.service} ${CUTOVER_REVISION_FACTOR}×${t.maxInstances}×(${t.poolMax}+1)=${t.peak}`
+            : `${t.service} ${CUTOVER_REVISION_FACTOR}×${t.maxInstances}×${t.perInstance}=${t.peak}`,
+        )
         .join(" + ")} + admin ${budget.adminReserve})`;
     if (isProd(env)) failures.push(detail);
     else warnings.push(`${detail} — non-fatal on ${env} per spec-518 dec-5`);
