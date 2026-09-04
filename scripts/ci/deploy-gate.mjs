@@ -54,12 +54,29 @@ import { appendFileSync } from "node:fs";
 const DEFAULTS = {
   testWorkflowFile: "test.yml",
   deployWorkflowFile: "deploy.yml",
-  pollTimeoutS: 900,
+  // THE INVARIANT NOBODY HAD WRITTEN DOWN: this gate's patience must EXCEED the test
+  // workflow's own worst-case budget, because it waits on that workflow's conclusion.
+  //
+  // At 900s it did not, and never had. `test.yml`'s `server` shards are allowed
+  // `timeout-minutes: 15` — 900s — each. So the gate's entire patience equalled ONE job's
+  // allowance, before queueing and before the twelve other jobs. A `server` shard
+  // legitimately taking 14 minutes has always been able to blow this, independently of how
+  // fast the runners happen to be.
+  //
+  // Today's slowness only revealed it: on develop@4c11e88d the gate abandoned at 15m11s
+  // and the test workflow concluded SUCCESS 84 seconds later. The deploy was skipped for a
+  // run that passed.
+  //
+  // 2400s (40 min) is chosen against the budget rather than against an observation: the
+  // longest single job allowance is 15 min, and this leaves room for queueing plus the rest
+  // of the graph. Raising it costs wall-clock on a genuinely stuck run and nothing else —
+  // the gate still fails CLOSED at the end, so a hung test suite never becomes a deploy.
+  pollTimeoutS: 2400,
   pollIntervalS: 15,
   intSmokeEnforce: "warn",
 };
 
-// ── Pure helpers (unit-tested by scripts/ci/deploy-gate.test.mjs) ──────────────
+// ── Pure helpers (unit-tested by packages/server/src/__regression__/deploy-gate.regression.test.ts) ──
 
 /**
  * Classify a list of workflow runs for a SHA into a gate verdict.
