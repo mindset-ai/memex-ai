@@ -20,6 +20,7 @@ import { listMemberships } from "../services/users.js";
 import { ArchivedDocError, NotFoundError, ValidationError } from "../types/errors.js";
 import { formatArchivedDocStub } from "../services/archived-docs.js";
 import { formatMemexList } from "./formatters.js";
+import { DECLARED_CLIENT_RESULT_CEILING_CHARS } from "./response-budget.js";
 import { listTopics } from "../services/guidance.js";
 import {
   McpAuthError,
@@ -554,6 +555,15 @@ export function createMcpServer(
         description: spec.description,
         inputSchema: z.looseObject(spec.schema as z.ZodRawShape),
         annotations: spec.annotations,
+        // spec-538 dec-9 option (c): declare the result ceiling instead of
+        // guessing at the client's. Uniform across every tool — this is a
+        // property of the transport, not a per-tool classification, which is why
+        // it is NOT a `toolManifest` field [per std-16: the manifest is the one
+        // source of the tool CONTRACT; `readOnlyHint` lives there because the
+        // mutate-coverage gate derives behaviour from it, and nothing here does].
+        _meta: {
+          "anthropic/maxResultSizeChars": DECLARED_CLIENT_RESULT_CEILING_CHARS,
+        },
       },
       handler,
     );

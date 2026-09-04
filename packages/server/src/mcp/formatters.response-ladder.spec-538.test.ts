@@ -11,7 +11,7 @@
 import { describe, it, expect } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { formatFullDocState } from "./formatters.js";
-import { RESPONSE_BODY_BUDGET_CHARS } from "./response-budget.js";
+import { RESPONSE_BUDGET_CHARS } from "./response-budget.js";
 import type { Doc, DocSection, Decision } from "../db/schema.js";
 
 const AC = (n: number) =>
@@ -127,7 +127,7 @@ describe("tier 1 — a Spec that fits is not reshaped (ac-11)", () => {
     // Background survives at tier 1 — only a budgeted render drops it.
     expect(out).toContain("Context: ");
     expect(out).not.toContain("shortened");
-    expect(out.length).toBeLessThan(RESPONSE_BODY_BUDGET_CHARS);
+    expect(out.length).toBeLessThan(RESPONSE_BUDGET_CHARS);
   });
 
   it("says so rather than leaving completeness to be inferred", () => {
@@ -150,7 +150,7 @@ describe("tier 2 — decisions are excerpted, and the excerpt is a door (ac-8)",
     // No decision's resolution survives whole…
     expect(out).not.toContain("R".repeat(8_000));
     // …and the whole response is inside the budget.
-    expect(out.length).toBeLessThanOrEqual(RESPONSE_BODY_BUDGET_CHARS);
+    expect(out.length).toBeLessThanOrEqual(RESPONSE_BUDGET_CHARS);
   });
 
   it("carries every decision's ref, so the shortened text has somewhere to lead", () => {
@@ -176,7 +176,7 @@ describe("tier 3 — section bodies are withheld whole, never mid-sentence (ac-1
     expect(out).toContain("body not included");
     expect(out).toContain("## 1. Overview");
     expect(out).toMatch(/Section #1 \| ref: s-1/);
-    expect(out.length).toBeLessThanOrEqual(RESPONSE_BODY_BUDGET_CHARS);
+    expect(out.length).toBeLessThanOrEqual(RESPONSE_BUDGET_CHARS);
   });
 
   it("omits the body whole — no section stops partway through as if that were its content", () => {
@@ -196,7 +196,7 @@ describe("signals survive every tier (ac-9, and the reason this Spec exists)", (
     expect(out).toContain("SENSITIVE");
     expect(out).toContain("the person who flagged it");
     // …in the response itself, not in a payload the client would spill.
-    expect(out.length).toBeLessThanOrEqual(RESPONSE_BODY_BUDGET_CHARS);
+    expect(out.length).toBeLessThanOrEqual(RESPONSE_BUDGET_CHARS);
   });
 });
 

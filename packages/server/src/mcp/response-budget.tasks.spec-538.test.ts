@@ -20,7 +20,7 @@
 import { describe, it, expect } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { formatFullDocState } from "./formatters.js";
-import { RESPONSE_BODY_BUDGET_CHARS } from "./response-budget.js";
+import { RESPONSE_BUDGET_CHARS } from "./response-budget.js";
 import type { Doc, DocSection, Decision } from "../db/schema.js";
 import type { TaskWithBlockers } from "../services/tasks.js";
 
@@ -143,7 +143,7 @@ describe("the tasks block is a measured region of the budget (ac-29)", () => {
   it("spec-538's own shape renders under the budget — the Spec that defines the bound loads itself", () => {
     tagAc(AC(29));
     const out = render(SPEC_538_PROSE, SPEC_538_DECISIONS, SPEC_538_TASKS);
-    expect(out.length).toBeLessThanOrEqual(RESPONSE_BODY_BUDGET_CHARS);
+    expect(out.length).toBeLessThanOrEqual(RESPONSE_BUDGET_CHARS);
   });
 });
 
@@ -182,8 +182,8 @@ describe("status decides what an item keeps (ac-30)", () => {
 
     expect(b.length).toBeGreaterThan(a.length);
     // …and both still fit.
-    expect(a.length).toBeLessThanOrEqual(RESPONSE_BODY_BUDGET_CHARS);
-    expect(b.length).toBeLessThanOrEqual(RESPONSE_BODY_BUDGET_CHARS);
+    expect(a.length).toBeLessThanOrEqual(RESPONSE_BUDGET_CHARS);
+    expect(b.length).toBeLessThanOrEqual(RESPONSE_BUDGET_CHARS);
   });
 
   it("an OPEN decision is kept where a resolved one is excerpted — the live defect in shipped code", () => {
@@ -215,7 +215,7 @@ describe("the bound holds by construction, not by typical sizes (ac-31)", () => 
     expect(fifty).toHaveLength(50);
 
     const out = render(SPEC_538_PROSE, SPEC_538_DECISIONS, fifty);
-    expect(out.length).toBeLessThanOrEqual(RESPONSE_BODY_BUDGET_CHARS);
+    expect(out.length).toBeLessThanOrEqual(RESPONSE_BUDGET_CHARS);
   });
 
   it("no task count blows the budget", () => {
@@ -226,7 +226,7 @@ describe("the bound holds by construction, not by typical sizes (ac-31)", () => 
       );
       const out = render(SPEC_538_PROSE, SPEC_538_DECISIONS, tasks);
       expect(out.length, `${n} tasks rendered ${out.length} chars`).toBeLessThanOrEqual(
-        RESPONSE_BODY_BUDGET_CHARS,
+        RESPONSE_BUDGET_CHARS,
       );
     }
   });
