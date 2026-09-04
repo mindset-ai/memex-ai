@@ -151,6 +151,36 @@ export function resolveGateMode(env: Record<string, string | undefined> = proces
  * 500 shed single POSTs are identical on the event axis and completely different
  * situations. Neither axis can be inferred from the other; keep both.
  */
+/**
+ * TOTAL ARRIVALS — the denominator (spec-525 t-14, ac-28).
+ *
+ * t-13's window measured 35 547 would-be refused requests carrying 135 801 emissions and
+ * had NOTHING to divide them by. ac-2 asks for a rate, and what fraction of traffic those
+ * refusals represent decides whether enforcing is viable at all.
+ *
+ * **It is unrecoverable retroactively**, verified rather than assumed (dec-6): the gate held
+ * no total, the heartbeat published 16 fields and none was one, Cloud Run's `request_count`
+ * carries no URL-path label, request logs are sampled, and `test_events` is trimmed INSIDE
+ * the emission transaction — so a row count measures what survived, not what arrived, and
+ * the ingest route keeps no second trace ("test_event is NOT persisted to activity_log").
+ * It can only be counted going forward.
+ *
+ * **BOTH AXES, not the one integer t-14 asked for.** A rate needs its denominator on the
+ * SAME axis as its numerator, and {@link WouldShedCount} is already split for the reason
+ * t-12 paid to learn: neither axis can be inferred from the other (~8.1 emissions per
+ * refused request on the live window, batches to 261). A single integer would leave the
+ * EVENTS-axis rate uncomputable — and events is the axis ac-13 states the unit is.
+ *
+ * A FLOW, not an occupancy: unlike {@link EmissionGate.inFlight} these never decrease, so
+ * a window's sheds divide by that window's arrivals.
+ */
+export interface ArrivalCount {
+  /** EMISSIONS presented — the sum of every arriving batch's weight. */
+  readonly events: number;
+  /** REQUESTS presented — one per call, whatever it weighed. */
+  readonly requests: number;
+}
+
 export interface WouldShedCount {
   /** EMISSIONS that would have been lost — the batch's weight. ac-13's unit. */
   readonly events: number;
@@ -498,6 +528,18 @@ export class EmissionGate {
 
   readonly #onShed?: (weight: number, cause: ShedCause, waited: boolean) => void;
 
+  /**
+   * ONE place increments, called first by both entry points.
+   *
+   * Two call sites duplicating `+= 1` / `+= weight` is how the axes drift apart — which is
+   * exactly the defect t-12 found in the shed counters, where one axis was incremented by
+   * 1 under a comment promising the other.
+   */
+  #countArrival(weight: number): void {
+    this.#arrivalRequests += 1;
+    this.#arrivalEvents += weight;
+  }
+
   /** Report a shed without letting a caller's throw escape into the request path. */
   #reportShed(weight: number, cause: ShedCause, waited: boolean): void {
     if (!this.#onShed) return;
@@ -507,6 +549,21 @@ export class EmissionGate {
       // Telemetry must never break admission. A counter that throws would turn every
       // shed into a 500 — the load-protection mechanism becoming the outage.
     }
+  }
+
+  #arrivalEvents = 0;
+  #arrivalRequests = 0;
+
+  /**
+   * Everything that reached the gate — see {@link ArrivalCount}.
+   *
+   * Counted at ARRIVAL, before any bound is evaluated and independent of mode. That last
+   * part is load-bearing: in shadow every caller is admitted, so counting admissions would
+   * make the denominator the numerator's complement and yield a rate of zero forever,
+   * which reads as good news.
+   */
+  get arrivals(): ArrivalCount {
+    return { events: this.#arrivalEvents, requests: this.#arrivalRequests };
   }
 
   #wouldShedEvents = 0;
@@ -562,6 +619,7 @@ export class EmissionGate {
    * saturation would send someone to resize the wrong thing.
    */
   tryAcquire(presentedToken: string, weight = 1): Acquisition {
+    this.#countArrival(weight);
     const taken = this.#take(keyOf(presentedToken), weight);
     if (taken.ok) return { ok: true, release: taken.release, waited: false };
     this.#reportShed(weight, taken.cause, false);
@@ -583,6 +641,7 @@ export class EmissionGate {
    * outcome rather than a conservative version of "wait".
    */
   acquire(presentedToken: string, weight = 1): Promise<Acquisition> {
+    this.#countArrival(weight);
     const key = keyOf(presentedToken);
     return this.mode === "shadow"
       ? this.#admitAndSimulate(key, weight)

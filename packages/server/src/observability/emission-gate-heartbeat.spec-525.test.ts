@@ -65,6 +65,9 @@ function fakeGate(over: Partial<GateSnapshotSource> = {}): GateSnapshotSource {
     // from a guess (ac-22).
     inFlightEvents: 0,
     eventBudget: DEFAULT_EVENT_BUDGET,
+    // The denominator (ac-28). A shed COUNT without it is what left t-13's window
+    // unusable for ac-2, so the heartbeat carries both axes.
+    arrivals: { events: 0, requests: 0 },
     trackedKeys: 0,
     wouldShed: {
       events: 0,
