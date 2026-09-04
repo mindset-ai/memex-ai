@@ -32,6 +32,7 @@
 // Re-judge if the window is extended or if enforcing mode runs indefinitely.
 
 import type {
+  ArrivalCount,
   GateMode,
   ShedCause,
   WouldShedCount,
@@ -115,6 +116,12 @@ export interface GateSnapshotSource {
   readonly eventBudget: number;
   readonly trackedKeys: number;
   readonly wouldShed: WouldShedCount;
+  /**
+   * TOTAL ARRIVALS — the denominator t-13's window did not have (spec-525 t-14, ac-28).
+   * Published on BOTH axes because a rate needs its denominator on the same axis as its
+   * numerator, and `wouldShed` is already split for that reason.
+   */
+  readonly arrivals: ArrivalCount;
 }
 
 export const GATE_WINDOW_EVENT = "emission_gate_window";
@@ -159,7 +166,13 @@ export function startEmissionGateHeartbeat(opts: {
   type DeltaState = Pick<
     WouldShedCount,
     "events" | "requests" | "eventsByCause" | "requestsByCause"
-  >;
+  > & {
+    // Arrivals are delta'd with the sheds, never reported only as a cumulative: a RATE
+    // divides a window's refusals by THAT window's arrivals. Two cumulative totals from
+    // different instances, or across a recycle, do not divide (spec-525 t-14, ac-28).
+    arrivalEvents: number;
+    arrivalRequests: number;
+  };
   let previous: DeltaState | null = null;
 
   heartbeat = setInterval(() => {
@@ -172,12 +185,16 @@ export function startEmissionGateHeartbeat(opts: {
           requests: 0,
           eventsByCause: zeroByCause(),
           requestsByCause: zeroByCause(),
+          arrivalEvents: 0,
+          arrivalRequests: 0,
         };
       previous = {
         events: now.events,
         requests: now.requests,
         eventsByCause: { ...now.eventsByCause },
         requestsByCause: { ...now.requestsByCause },
+        arrivalEvents: g.arrivals.events,
+        arrivalRequests: g.arrivals.requests,
       };
 
       console.log(
@@ -211,6 +228,16 @@ export function startEmissionGateHeartbeat(opts: {
           wouldShedRequestsByCause: deltaByCause(now.requestsByCause, before.requestsByCause),
           wouldShedEventsTotal: now.events,
           wouldShedRequestsTotal: now.requests,
+          // THE DENOMINATOR (spec-525 t-14, ac-28). t-13's window had 35 547 refused
+          // requests carrying 135 801 emissions and nothing to divide them by, and the
+          // quantity is unrecoverable retroactively — so it is counted going forward.
+          // Per-window deltas so `wouldShedRequests / arrivalRequests` is a rate within
+          // ONE window, plus cumulative totals because the counter is per-instance and
+          // dies on recycle (32 distinct instances in 12 h of prod).
+          arrivalEvents: g.arrivals.events - before.arrivalEvents,
+          arrivalRequests: g.arrivals.requests - before.arrivalRequests,
+          arrivalEventsTotal: g.arrivals.events,
+          arrivalRequestsTotal: g.arrivals.requests,
           // t-13 — the ceiling-alone counterfactual, an UPPER BOUND (see WouldShedCount).
           // Cumulative rather than a delta: this one is read once, at dec-6, not tracked
           // window by window, and a running total is what a single query wants.
