@@ -372,6 +372,7 @@ async function main(): Promise<void> {
   // A read failure is "nobody checked", which is the condition this guard exists to end.
   const failures = [...outcome.failures];
 
+  const warnings = [...outcome.warnings];
   // PHASE B — OFF BY DEFAULT, and that is not timidity. Every service is undeclared the day
   // this lands, so an on-by-default refusal would abort memex-api's own deploys: the guard
   // working exactly as designed and stopping all work. Turn it on when phase A's list above
@@ -399,7 +400,6 @@ async function main(): Promise<void> {
       else warnings.push(`${refusal}\n      (non-fatal in mode=${mode} on ${ENV})`);
     }
   }
-  const warnings = [...outcome.warnings];
   for (const f of readFailures) {
     if (isProd(ENV)) failures.push(`guard could not verify: ${f}`);
     else warnings.push(`guard could not verify: ${f} — non-fatal on ${ENV}`);
