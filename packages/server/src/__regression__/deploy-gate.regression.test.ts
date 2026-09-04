@@ -364,3 +364,74 @@ describe("spec-395 deploy gate — runGate end-to-end (fail-closed semantics, de
     expect(code).toBe(0);
   });
 });
+
+// ── The invariant nobody had written down (spec-395 dec-1, c-2) ───────────────
+//
+// dec-1 required "a bounded timeout that fails closed". `pollTimeoutS: 900` met that TO
+// THE LETTER and was never large enough, because the requirement never put the bound in a
+// relationship with the thing it bounds. The gate waits on `test.yml`'s conclusion, and
+// `test.yml`'s own `server` shards are each allowed `timeout-minutes: 15` — exactly 900s.
+// The gate's entire patience equalled ONE job's allowance, before queueing and before the
+// twelve other jobs.
+//
+// Observed 2026-09-04 on develop@4c11e88d: the gate abandoned at 15m11s with
+// `verdict is 'pending'`, and `test` concluded SUCCESS 84 seconds later. The deploy was
+// skipped for a run that passed.
+//
+// A COMMENT IS NOT A GUARD-RAIL, which is why this exists: nothing otherwise stops someone
+// raising a `server` shard to `timeout-minutes: 30` without touching the gate, and
+// recreating this exactly — where it would again arrive as a red DEPLOY on a SHA that
+// looks unverified.
+//
+// Deliberately UNTAGGED. This is a repository invariant, not a Spec's acceptance
+// criterion: spec-395 is `done` with all six of its ACs verified, and minting one there —
+// or hanging it off a Spec that does not own the gate — would misfile it. It still gates
+// every PR, because it runs in the `server` shards like every other regression test.
+
+describe("deploy gate — its patience must exceed the test workflow's worst-case budget", () => {
+  const testYml = readFileSync(resolve(repoRoot, ".github/workflows/test.yml"), "utf8");
+  const gateSrc = readFileSync(resolve(repoRoot, "scripts/ci/deploy-gate.mjs"), "utf8");
+
+  const budgetsMin = [...testYml.matchAll(/^\s*timeout-minutes:\s*(\d+)\s*$/gm)].map((m) =>
+    Number(m[1]),
+  );
+  const pollTimeoutS = Number(/pollTimeoutS:\s*(\d+)/.exec(gateSrc)?.[1]);
+
+  it("parsed both sides — a pattern that silently matches nothing reports success", () => {
+    // THE GUARD ON THE GUARD, and it is today's other lesson: a count can be
+    // syntactically right and semantically empty. Twice on 2026-09-04 a grep of mine
+    // returned 0 on a tree that had dozens of hits, and both times the only thing that
+    // caught it was printing the detail beside the count. A regex that stops matching
+    // here would make this whole invariant pass vacuously, forever.
+    expect(budgetsMin.length).toBeGreaterThanOrEqual(8); // test.yml has ~12 timeout-minutes
+    expect(Math.max(...budgetsMin)).toBeGreaterThanOrEqual(10);
+    expect(Number.isFinite(pollTimeoutS)).toBe(true);
+    expect(pollTimeoutS).toBeGreaterThan(0);
+  });
+
+  it("the gate outlasts the slowest job test.yml is allowed to run", () => {
+    const worstCaseS = Math.max(...budgetsMin) * 60;
+
+    // Strictly greater, not >=: at equality the gate can abandon the very run it is
+    // waiting for, which is precisely what happened. The message names both numbers
+    // because the fix depends on WHICH side moved — a job's allowance was raised, or the
+    // gate's patience was lowered.
+    expect(
+      pollTimeoutS,
+      `deploy-gate pollTimeoutS=${pollTimeoutS}s must exceed test.yml's worst-case job ` +
+        `budget of ${worstCaseS}s (max timeout-minutes = ${Math.max(...budgetsMin)}). ` +
+        `The gate waits on that workflow's CONCLUSION, so a patience at or below a single ` +
+        `job's allowance can abandon a run that was going to pass — it did, on ` +
+        `develop@4c11e88d, 84 seconds early. Raise pollTimeoutS in scripts/ci/deploy-gate.mjs, ` +
+        `or lower the job budget in .github/workflows/test.yml.`,
+    ).toBeGreaterThan(worstCaseS);
+  });
+
+  it("leaves real headroom, not a single second of it", () => {
+    // The whole workflow is a GRAPH, not one job: queueing, checkout, install and the
+    // other twelve jobs all sit between the push and the conclusion this gate reads. A
+    // bound that merely clears the slowest single job still has no room for the rest.
+    const worstCaseS = Math.max(...budgetsMin) * 60;
+    expect(pollTimeoutS).toBeGreaterThanOrEqual(worstCaseS * 1.5);
+  });
+});
