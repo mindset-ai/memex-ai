@@ -343,7 +343,21 @@ jobs:
   # composite action) which speeds the already-sharded server + e2e tiers.
   ui:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 20, not 10, and the asymmetry it corrects is the point: `server` runs across THREE
+    # shards at 15 minutes each, `e2e` across three — and `ui` is a SINGLE job running the
+    # whole UI suite plus the coverage gate, on the tightest budget in the file. It had the
+    # least parallelism and the smallest allowance.
+    #
+    # Measured 2026-09-04, same workflow, same runner image: 6m41s, 10m16s, 10m19s, and one
+    # more over 10 — four crossings in a day against a norm of ~5 minutes the day before,
+    # including 5m08s and 8m14s on the SAME commit. So the variance is the runner's, not the
+    # suite's, and a limit set at the observed maximum is a coin flip.
+    #
+    # Not one of those crossings caught a defect: the job was killed mid-run every time, and
+    # passed on rerun with no code change. What it did instead was turn `test` into
+    # `cancelled` with 12 of 13 jobs green, which fails the deploy gate closed — so a runner
+    # hiccup presented as a red DEPLOY, four times, inviting a search for a deployment bug.
+    timeout-minutes: 20
     env:
       # UI unit tests tag ACs too (std-35 Recipe A — "representative unit tests at
       # the track() sites"); emit them like the server / e2e / ac-emit jobs do.
