@@ -81,7 +81,21 @@ const REQUIRED_CEILING_MARGIN = 2_000;
  * `tools/list`, 70 carrying `anthropic/maxResultSizeChars: 70000`. The
  * source-text check above was green throughout — a grep cannot see a wire.
  */
-const KNOWN_UNDECLARED_TOOLS: readonly string[] = ["list_memexes"];
+/**
+ * Tools that legitimately ship no ceiling declaration. EMPTY, and it should stay
+ * that way — spec-538 issue-5 closed the one entry it ever held.
+ *
+ * `list_memexes` was registered through the positional
+ * `server.tool(name, description, shape, annotations, handler)` overload, which
+ * has no `_meta` parameter, so it shipped `_meta: null` while the other 70 tools
+ * carried the declaration. It is on `registerTool` now.
+ *
+ * Kept as a named empty list rather than deleted: the assertion below is an exact
+ * equality, so a tool added through the positional overload reds this test and
+ * whoever hits it needs somewhere to record a deliberate exemption — with its
+ * reason [per std-50 cl-6] — rather than weakening the assertion to a subset check.
+ */
+const KNOWN_UNDECLARED_TOOLS: readonly string[] = [];
 
 describe("the declaration replaces the guess, and it is the operative ceiling", () => {
   it("declares more room than the client's default, and far less than the maximum", () => {
