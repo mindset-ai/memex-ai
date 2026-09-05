@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
 import {
-  RESPONSE_BODY_BUDGET_CHARS,
+  RESPONSE_BUDGET_CHARS,
   STRUCTURAL_RESERVE_CHARS,
   MIN_EXCERPT_CHARS,
   allocateResponseBudget,
@@ -41,8 +41,8 @@ describe("allocateResponseBudget — the total is configured, the per-decision l
     });
 
     // Both are bounded by the SAME total…
-    expect(seven.budget).toBe(RESPONSE_BODY_BUDGET_CHARS);
-    expect(thirty.budget).toBe(RESPONSE_BODY_BUDGET_CHARS);
+    expect(seven.budget).toBe(RESPONSE_BUDGET_CHARS);
+    expect(thirty.budget).toBe(RESPONSE_BUDGET_CHARS);
 
     // …and the count is absorbed by the excerpt length, not by the total.
     expect(thirty.perDecisionChars).toBeLessThan(seven.perDecisionChars);
@@ -116,7 +116,7 @@ describe("allocateResponseBudget — signals come off the top and are never rati
     // is unchanged — signals and envelope come off the top before anything
     // negotiable — but the arithmetic now has three terms, not two.
     expect(a.remainingAfterFixed).toBe(
-      RESPONSE_BODY_BUDGET_CHARS - 1_200 - SMALL.envelopeChars - STRUCTURAL_RESERVE_CHARS,
+      RESPONSE_BUDGET_CHARS - 1_200 - SMALL.envelopeChars - STRUCTURAL_RESERVE_CHARS,
     );
   });
 
@@ -137,7 +137,7 @@ describe("allocateResponseBudget — signals come off the top and are never rati
     // after the fixed costs is exactly budget − signals − envelope, whatever
     // the content does.
     expect(a.remainingAfterFixed).toBe(
-      RESPONSE_BODY_BUDGET_CHARS -
+      RESPONSE_BUDGET_CHARS -
         SMALL.signalsChars -
         SMALL.envelopeChars -
         STRUCTURAL_RESERVE_CHARS,
@@ -184,7 +184,7 @@ describe("the budget is one constant, from one place (ac-10)", () => {
       -50_000,
     ]) {
       expect(effectiveBudget(bad as number | undefined)).toBe(
-        RESPONSE_BODY_BUDGET_CHARS,
+        RESPONSE_BUDGET_CHARS,
       );
     }
   });
@@ -194,8 +194,8 @@ describe("the budget is one constant, from one place (ac-10)", () => {
     // Only the client knows its own cap, so a smaller one is honoured…
     expect(effectiveBudget(10_000)).toBe(10_000);
     // …but an override cannot be used to escape the ceiling.
-    expect(effectiveBudget(RESPONSE_BODY_BUDGET_CHARS * 10)).toBe(
-      RESPONSE_BODY_BUDGET_CHARS,
+    expect(effectiveBudget(RESPONSE_BUDGET_CHARS * 10)).toBe(
+      RESPONSE_BUDGET_CHARS,
     );
   });
 });
