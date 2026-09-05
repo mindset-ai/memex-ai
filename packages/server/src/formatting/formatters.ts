@@ -7,6 +7,7 @@ import {
   allocateResponseBudget,
   effectiveBudget,
   boundRenderedList,
+  ENVELOPE_SEAT_ALLOWANCE_CHARS,
 } from "../mcp/response-budget.js";
 import type { DocSummary } from "../types/index.js";
 import type { TaskWithBlockers } from "../services/tasks.js";
@@ -156,6 +157,56 @@ function formatTagStrip(tags: Tag[] | undefined): string | null {
   return `Tags: ${tags.map(formatTag).join(", ")}`;
 }
 
+/**
+ * What this response's guidance envelope will cost, computed from the inputs the
+ * render already holds — spec-538 t-15 (dec-7's conclusion corrected).
+ *
+ * NOT exported: its only consumer is `formatFullDocState` below [per std-51 — a
+ * single-consumer symbol belongs in that consumer, and an export widened so a
+ * test can reach inside is the wrong shape]. Its behaviour is asserted through
+ * the rendered output and through the per-phase drift test.
+ *
+ * dec-7 justified `envelopeChars: 0` with "this one does not know it and must not
+ * pretend to". Half of that stands: the render cannot measure the COMPOSED
+ * envelope, because `spec-traffic.ts` attaches it after the handler returns and
+ * `target` only exists as a side effect of `ctx.resolveRef()` inside the handler.
+ *
+ * The other half was wrong. The render holds the envelope's INPUTS, and has since
+ * spec-203 dec-2 — before this Spec was written:
+ *   - `toNudge` is pure, total and stateless (`scaffold-model.ts:345`);
+ *   - `nudge` carries `tool`, `orgBlocks` and the pre-resolved `fullHandoff`;
+ *   - `doc.status` IS the phase, derived the same way at the seat.
+ * So this is a COMPUTATION over the same projection the seat will use, not a
+ * guess about it [per std-50 cl-1 — the fact from the thing].
+ *
+ * NOT dec-7 option (a): the reserve tracks THIS response, never the population
+ * maximum. Reserving MEASURED_ENVELOPE_MAX_CHARS flat would pull the majority of
+ * reads into tier 2/3 and collide with ac-26 — the objection that still holds.
+ */
+function estimateEnvelopeChars(doc: Doc, nudge?: NudgeContext): number {
+  const phase = doc.status as SpecPhase;
+  let guidance = 0;
+  let handoff = 0;
+  try {
+    guidance = toNudge({
+      dataset: BASE_SCAFFOLD,
+      tool: nudge?.tool,
+      phase,
+      orgBlocks: nudge?.orgBlocks,
+    }).length;
+    handoff =
+      nudge?.fullHandoff?.length ??
+      (toHandoffEssence(BASE_SCAFFOLD, phase) ?? "").length;
+  } catch {
+    // A doc whose status is not a Spec phase (a Standard, a plain document) has
+    // no phase guidance to project. Reserving only the seat allowance is correct
+    // there, and this must never throw inside a read path.
+    guidance = 0;
+    handoff = 0;
+  }
+  return guidance + handoff + ENVELOPE_SEAT_ALLOWANCE_CHARS;
+}
+
 export function formatFullDocState(
   // spec-371: checkoutHolder is the resolved holder name (getDoc attaches it);
   // checked_out_by/at ride along on Doc. Optional so plain-Doc callers still compile.
@@ -244,15 +295,10 @@ export function formatFullDocState(
 
   const budget = allocateResponseBudget({
     signalsChars: signalLines.join("\n").length,
-    // Zero is CORRECT here, not a stopgap (dec-7 option (d)). The body is
-    // rendered before the envelope exists — `spec-traffic.ts` attaches the
-    // envelope after the handler returns — so this number cannot be measured at
-    // this point in the call. It does not have to be: the budget constant is a
-    // BODY budget, already net of the envelope's worst case, and the headroom
-    // between it and the client cap is asserted by a test rather than claimed
-    // here. A caller that genuinely knows its envelope may pass one to tighten
-    // further; this one does not know it and must not pretend to.
-    envelopeChars: 0,
+    // t-15: computed per response, no longer 0. See estimateEnvelopeChars above
+    // for why dec-7's "the render does not know it" was half right — it cannot
+    // measure the composed envelope, but it holds its inputs.
+    envelopeChars: estimateEnvelopeChars(doc, nudge),
     proseChars,
     decisionsFullChars: decisionsFull.length,
     decisionCount: decisions.length,

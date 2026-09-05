@@ -18,7 +18,7 @@ import {
   formatState,
 } from "../agent/handlers/doc-state.js";
 import { formatFullDocState } from "./formatters.js";
-import { RESPONSE_BODY_BUDGET_CHARS } from "./response-budget.js";
+import { RESPONSE_BUDGET_CHARS } from "./response-budget.js";
 import type { Doc, DocSection, Decision } from "../db/schema.js";
 
 const AC = (n: number) =>
@@ -96,7 +96,7 @@ describe("the signal reaches the reader on a Spec of ANY size (ac-3)", () => {
       expect(out).toContain("the person to talk to");
       // …in the response itself, which is the whole point: a payload the client
       // refuses is a payload the reader never sees.
-      expect(out.length).toBeLessThanOrEqual(RESPONSE_BODY_BUDGET_CHARS);
+      expect(out.length).toBeLessThanOrEqual(RESPONSE_BUDGET_CHARS);
     });
   }
 
@@ -126,7 +126,7 @@ describe("a verbose WRITE on a flagged Spec now delivers the warning (ac-17)", (
 
     expect(out).toContain("SENSITIVE");
     expect(out).toContain("the person to talk to");
-    expect(out.length).toBeLessThanOrEqual(RESPONSE_BODY_BUDGET_CHARS);
+    expect(out.length).toBeLessThanOrEqual(RESPONSE_BUDGET_CHARS);
   });
 
   it("records what this Spec does NOT deliver: the terse-write path still says nothing", () => {

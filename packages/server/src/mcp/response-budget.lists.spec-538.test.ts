@@ -8,7 +8,7 @@
 
 import { describe, it, expect } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
-import { boundRenderedList, RESPONSE_BODY_BUDGET_CHARS } from "./response-budget.js";
+import { boundRenderedList, RESPONSE_BUDGET_CHARS } from "./response-budget.js";
 import { formatDocComments } from "../formatting/formatters.js";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -27,11 +27,11 @@ describe("boundRenderedList — item count is a growth axis too (ac-21)", () => 
     tagAc(AC(21));
     const entries = Array.from({ length: 467 }, () => DOC_LINE);
     const unbounded = entries.join("\n").length;
-    expect(unbounded).toBeGreaterThan(RESPONSE_BODY_BUDGET_CHARS); // 87,626 — the defect
+    expect(unbounded).toBeGreaterThan(RESPONSE_BUDGET_CHARS); // 87,626 — the defect
 
     const { kept, omitted } = boundRenderedList(entries, { reservedChars: 500 });
 
-    expect(kept.join("\n").length).toBeLessThanOrEqual(RESPONSE_BODY_BUDGET_CHARS - 500);
+    expect(kept.join("\n").length).toBeLessThanOrEqual(RESPONSE_BUDGET_CHARS - 500);
     expect(omitted).toBeGreaterThan(0);
     expect(kept.length + omitted).toBe(467); // nothing is lost from the count
   });
@@ -61,7 +61,7 @@ describe("boundRenderedList — item count is a growth axis too (ac-21)", () => 
     const reserved = boundRenderedList(entries, { reservedChars: 10_000 });
     expect(reserved.kept.length).toBeLessThan(generous.kept.length);
     expect(reserved.kept.join("\n").length).toBeLessThanOrEqual(
-      RESPONSE_BODY_BUDGET_CHARS - 10_000,
+      RESPONSE_BUDGET_CHARS - 10_000,
     );
   });
 });
@@ -111,7 +111,7 @@ describe("list_comments — bodies are the other growth axis (ac-20)", () => {
     const many = Array.from({ length: 40 }, (_, i) => makeComment(i + 1, 4_000));
     const out = formatDocComments(commentsResult(many));
 
-    expect(out.length).toBeLessThanOrEqual(RESPONSE_BODY_BUDGET_CHARS);
+    expect(out.length).toBeLessThanOrEqual(RESPONSE_BUDGET_CHARS);
     expect(out).toContain("not shown");
     // The count is honest: the header still reports the true total.
     expect(out).toContain("# Comments (40 total)");
