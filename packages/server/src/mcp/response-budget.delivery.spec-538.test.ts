@@ -26,7 +26,10 @@ import {
   CLIENT_DEFAULT_CEILING_CHARS,
 } from "./response-budget.js";
 import { formatFullDocState } from "./formatters.js";
+import { createMcpServer } from "./tools.js";
 import type { Doc, DocSection } from "../db/schema.js";
+
+const TEST_USER_ID = "00000000-0000-0000-0000-00000000beef";
 
 const AC = (n: number) =>
   `mindset-prod/memex-building-itself/specs/spec-538/acs/ac-${n}`;
@@ -56,6 +59,30 @@ const AC = (n: number) =>
  */
 const REQUIRED_CEILING_MARGIN = 2_000;
 
+/**
+ * Tools that do NOT carry the `_meta` declaration on the wire — issue-5.
+ *
+ * `list_memexes` is registered through the positional
+ * `server.tool(name, description, shape, annotations, handler)` overload
+ * (`tools.ts`, "MCP-only: Memex discovery"), which has no `_meta` parameter at
+ * all. The other 70 tools go through the `registerTool` loop that attaches it.
+ * So the declaration is NOT uniform, whatever the comment at the registration
+ * site says, and this list is the honest name for that.
+ *
+ * Consequence today: nothing. `list_memexes` returns a short membership list
+ * plus the guidance topic index, nowhere near the client's 50,000 default. It
+ * is pinned rather than fixed because the fix is a separate call (issue-5) —
+ * NOT because an exemption is the right shape.
+ *
+ * This is debt with an expiry, not a category. When issue-5 lands, this array
+ * empties and the assertion below reds until the entry is deleted.
+ *
+ * Found by t-14's wire read against prod, 2026-09-05: 71 tools in
+ * `tools/list`, 70 carrying `anthropic/maxResultSizeChars: 70000`. The
+ * source-text check above was green throughout — a grep cannot see a wire.
+ */
+const KNOWN_UNDECLARED_TOOLS: readonly string[] = ["list_memexes"];
+
 describe("the declaration replaces the guess, and it is the operative ceiling", () => {
   it("declares more room than the client's default, and far less than the maximum", () => {
     tagAc(AC(33));
@@ -68,16 +95,58 @@ describe("the declaration replaces the guess, and it is the operative ceiling", 
     expect(DECLARED_CLIENT_RESULT_CEILING_CHARS).toBeLessThanOrEqual(100_000);
   });
 
-  it("every MCP tool advertises it — the declaration is uniform, not per-tool", () => {
+  it("the declaration is written against the constant, not inlined", () => {
     tagAc(AC(33));
-    // A property of the transport, not a tool classification: one number for the
-    // whole surface, which is why it is not a toolManifest field [per std-16].
+    // Narrow by design: this reads SOURCE TEXT, so it can only speak about how
+    // the value is spelled — never about what any tool actually carries. It used
+    // to be titled "every MCP tool advertises it", which is a claim about the
+    // WIRE that a grep cannot make; the test below makes that one. Kept because
+    // it still guards something real: the ceiling must reference the owned
+    // constant so [per std-50 cl-6] the reason stays attached to the number.
     const src = readFileSync(
       fileURLToPath(new URL("./tools.ts", import.meta.url)),
       "utf8",
     );
     expect(src).toContain('"anthropic/maxResultSizeChars"');
     expect(src).toContain("DECLARED_CLIENT_RESULT_CEILING_CHARS");
+  });
+
+  it("every registered tool carries the declaration — asserted over the tool list, not the source", () => {
+    tagAc(AC(33));
+    const server = createMcpServer(TEST_USER_ID);
+    const registered = (
+      server as unknown as {
+        _registeredTools: Record<string, { _meta?: Record<string, unknown> }>;
+      }
+    )._registeredTools;
+
+    // Sanity on the instrument before asserting with it: if the SDK ever stops
+    // exposing `_meta` here, EVERY tool looks undeclared and the failure would
+    // read as a catastrophic regression instead of a harness break. Assert the
+    // harness can see a declaration at all before trusting the ones it can't.
+    expect(Object.keys(registered).length).toBeGreaterThan(1);
+    expect(
+      Object.values(registered).filter(
+        (t) =>
+          t._meta?.["anthropic/maxResultSizeChars"] ===
+          DECLARED_CLIENT_RESULT_CEILING_CHARS,
+      ).length,
+    ).toBeGreaterThan(1);
+
+    const undeclared = Object.entries(registered)
+      .filter(
+        ([, tool]) =>
+          tool._meta?.["anthropic/maxResultSizeChars"] !==
+          DECLARED_CLIENT_RESULT_CEILING_CHARS,
+      )
+      .map(([name]) => name)
+      .sort();
+
+    // Exact equality in BOTH directions, deliberately. A new tool that misses
+    // the declaration reds this; so does fixing `list_memexes` without deleting
+    // the line below. A known gap that can silently become permanent is how the
+    // gap got here.
+    expect(undeclared).toEqual(KNOWN_UNDECLARED_TOOLS);
   });
 });
 
