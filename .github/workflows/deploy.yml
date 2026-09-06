@@ -83,7 +83,7 @@ jobs:
       contents: read
       actions: read
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - uses: actions/setup-node@v6
         with:
           node-version: 22
@@ -108,7 +108,7 @@ jobs:
       ENV: ${{ github.ref_name == 'main' && 'prod' || 'int' }}
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
       # No `version:` here — pnpm/action-setup@v6 reads the pinned version from
       # the root package.json `packageManager` field and errors if both are set.
