@@ -488,7 +488,7 @@ export const toolManifest: ToolManifestEntry[] = [
   {
     name: 'register_issue',
     summary:
-      'Register a bug/todo Issue against a Spec (any phase). With NO spec_ref, persists nothing and returns a two-option assist (promote-to-Spec or a ranked list of active Specs) — no silent default home (std-5).',
+      'Register a bug/todo Issue against a Spec (any phase). With NO spec_ref, persists nothing and returns a two-option assist (promote-to-Spec or a ranked list of active Specs) — no silent default home.',
     args: 'register_issue(memex?, spec_ref?, title, body, type, severity?, promote_to_spec?)',
     group: 'build',
     readOnlyHint: false,

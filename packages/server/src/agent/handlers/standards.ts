@@ -198,7 +198,7 @@ export const standardsTools: ToolSpec[] = [
       ref: z
         .string()
         .describe(
-          "Canonical ref to the standard section, e.g. `<ns>/<mx>/standards/std-7/sections/s-3` — the same `ref:` form get_doc / search_memex emit. NOT a UUID.",
+          "Canonical ref to the standard section, e.g. `<ns>/<mx>/standards/std-N/sections/s-N` — the same `ref:` form get_doc / search_memex emit. NOT a UUID.",
         ),
       observation: z
         .string()
@@ -259,7 +259,7 @@ export const standardsTools: ToolSpec[] = [
             ref: z
               .string()
               .describe(
-                "Canonical ref to the target clause, e.g. `<ns>/<mx>/standards/std-7/clauses/cl-12`. For `add`, this is the ANCHOR the new clause sits next to. NOT a UUID.",
+                "Canonical ref to the target clause, e.g. `<ns>/<mx>/standards/std-N/clauses/cl-N`. For `add`, this is the ANCHOR the new clause sits next to. NOT a UUID.",
               ),
             body: z
               .string()
@@ -362,7 +362,7 @@ export const standardsTools: ToolSpec[] = [
       ref: z
         .string()
         .describe(
-          "Canonical ref to the proposal comment, e.g. `<ns>/<mx>/standards/std-7/comments/c-3` — the ref `list_comments` emits for a plan_revision. NOT a UUID.",
+          "Canonical ref to the proposal comment, e.g. `<ns>/<mx>/standards/std-N/comments/c-N` — the ref `list_comments` emits for a plan_revision. NOT a UUID.",
         ),
       verbose: VERBOSE_FIELD,
     },

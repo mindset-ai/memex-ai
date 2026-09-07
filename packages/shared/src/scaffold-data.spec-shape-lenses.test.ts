@@ -79,17 +79,45 @@ describe("spec-106 t-2: lens-shape PromptBlock authoring (ac-11)", () => {
     expect(lower).toContain("never silently drop");
   });
 
-  it("references std-18 as the source of truth and does NOT duplicate the list inline (ac-5)", () => {
+  // spec-551 dec-4 REPLACED this test's assertions.
+  //
+  // It used to pin two literal phrases — `toContain("std-18")` and
+  // /std-18 is the source of truth/ — and it was GREEN over a std-22 cl-19
+  // violation: a bare handle on the portable surface, which resolves nowhere but
+  // in this Memex. Worse, its own claim was false in the very string it asserted
+  // on: the block DOES list the taxonomy inline, three lines below.
+  //
+  // That is not a test that missed a regression — it is a test that defended one,
+  // because a test matching a literal sentence freezes a formulation instead of
+  // asserting a property. So the three properties the block must actually hold are
+  // asserted here, each able to fail for a real reason.
+  it("points the reader somewhere reachable, names no bare handle, and still teaches the lens set (ac-5)", () => {
+    // Tagged to BOTH. The old version of this test carried "(ac-5)" in its title and
+    // emitted only to ac-11 — so anyone asking "what verifies ac-5?" found this test
+    // by its name and was wrong, while the AC matrix honestly showed ac-5 at zero
+    // tests. The title was the thing that lied. It now tells the truth.
     tagAc(AC(11));
+    tagAc(AC(5));
     const text = LENS_BLOCK!.text;
-    expect(text).toContain("std-18");
-    // ac-5 / no-second-copy: the block points at std-18 rather than re-listing
-    // a full taxonomy. The block names std-18 as the source of truth and tells
-    // the agent to follow it rather than enumerate the set inline. (The three
-    // core lens names are necessarily present as the behavioural teaching; the
-    // canonical list lives in std-18.)
-    expect(text.toLowerCase()).toMatch(/std-18 is the source of truth/);
-    expect(text.toLowerCase()).toContain("follow it rather than re-listing");
+
+    // 1. No bare handle. Same rule the portable-surface guard enforces corpus-wide;
+    //    asserted here too so THIS block cannot regress on its own.
+    expect(text).not.toMatch(/(?<![\w/-])(std|spec|dec|ac|doc|cl|t)-\d+\b/i);
+
+    // 2. The reader is told where the rule lives FOR THEM. Conditional by design:
+    //    the seeded Spec-shape Standard reaches personal Memexes only, so a team
+    //    Memex — where customer work actually happens — normally has none.
+    expect(text).toContain("search_memex");
+    expect(text.toLowerCase()).toContain("if this memex has a standard on spec shape");
+
+    // 3. It still does its job. The guard only asks "is a handle cited here?" and
+    //    would not notice this block gutted of its teaching prose — this is the
+    //    only check that would.
+    const lower = text.toLowerCase();
+    expect(lower).toContain("overview");
+    expect(lower).toContain("design & ux");
+    expect(lower).toContain("architecture & security");
+    expect(lower).toContain("operations");
   });
 
   it("is advice, not law — framed as PROPOSE, not enforce", () => {

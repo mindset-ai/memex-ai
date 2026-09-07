@@ -66,7 +66,7 @@ export const decisionsTools: ToolSpec[] = [
       ref: z
         .string()
         .describe(
-          "Canonical ref to the parent document, e.g. `mindset/main/specs/spec-3`.",
+          "Canonical ref to the parent document, e.g. `mindset/main/specs/spec-N`.",
         ),
       title: z.string().describe("The question or choice to be made"),
       context: z.string().optional().describe("Options, trade-offs, and background"),
@@ -222,7 +222,7 @@ export const decisionsTools: ToolSpec[] = [
       ref: z
         .string()
         .describe(
-          "Canonical ref to the decision, e.g. `mindset/main/specs/spec-3/decisions/dec-2`.",
+          "Canonical ref to the decision, e.g. `mindset/main/specs/spec-N/decisions/dec-N`.",
         ),
       status: z
         .enum(["open", "resolved", "candidate", "rejected"])
@@ -390,7 +390,7 @@ export const decisionsTools: ToolSpec[] = [
       ref: z
         .string()
         .describe(
-          "Canonical ref to the decision to delete, e.g. `mindset/main/specs/b-3/decisions/dec-2`.",
+          "Canonical ref to the decision to delete, e.g. `mindset/main/specs/spec-N/decisions/dec-N`.",
         ),
       verbose: VERBOSE_FIELD,
     },
@@ -417,12 +417,12 @@ export const decisionsTools: ToolSpec[] = [
     name: "resolve_decision",
     annotations: { title: "Resolve decision", readOnlyHint: false, destructiveHint: false },
     description:
-      "Resolve a decision with an explanation of the choice made. May unblock tasks waiting on it. Resolving the last open decision on a Spec in 'specify' unblocks the move to 'build'. If the decision has structured options, pass `chosenOptionIndex` to mark which one was selected — `resolution` is then optional and defaults to that option's label. Re-resolving an already-resolved decision updates the choice in place (spec-247 dec-5).",
+      "Resolve a decision with an explanation of the choice made. May unblock tasks waiting on it. Resolving the last open decision on a Spec in 'specify' unblocks the move to 'build'. If the decision has structured options, pass `chosenOptionIndex` to mark which one was selected — `resolution` is then optional and defaults to that option's label. Re-resolving an already-resolved decision updates the choice in place.",
     schema: {
       ref: z
         .string()
         .describe(
-          "Canonical ref to the decision, e.g. `mindset/main/specs/spec-3/decisions/dec-2`.",
+          "Canonical ref to the decision, e.g. `mindset/main/specs/spec-N/decisions/dec-N`.",
         ),
       resolution: z
         .string()
@@ -582,7 +582,7 @@ export const decisionsTools: ToolSpec[] = [
       ref: z
         .string()
         .describe(
-          "Canonical ref to the candidate decision, e.g. `mindset/main/specs/spec-3/decisions/dec-2`.",
+          "Canonical ref to the candidate decision, e.g. `mindset/main/specs/spec-N/decisions/dec-N`.",
         ),
       verbose: VERBOSE_FIELD,
     },
@@ -614,7 +614,7 @@ export const decisionsTools: ToolSpec[] = [
       ref: z
         .string()
         .describe(
-          "Canonical ref to the candidate decision, e.g. `mindset/main/specs/spec-3/decisions/dec-2`.",
+          "Canonical ref to the candidate decision, e.g. `mindset/main/specs/spec-N/decisions/dec-N`.",
         ),
       reason: z.string().describe("Why this candidate is being rejected"),
       verbose: VERBOSE_FIELD,
