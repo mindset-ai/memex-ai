@@ -64,9 +64,17 @@ export class CohereReranker implements Reranker {
 }
 
 // The active reranker, or null when no credential is present (keyless baseline).
-// Reads COHERE_API_KEY — wired from the `cohere-api-key` Secret Manager secret on
-// Cloud Run (present on int; absent on prod until provisioned, and on self-host /
-// BYOK / free tier). Absence is a normal degraded state, never an error.
+// Reads COHERE_API_KEY — wired from the `cohere-api-key` Secret Manager secret wherever
+// the environment provides one. Absence (self-host, BYOK, free tier, or an environment
+// that has not provisioned the secret) is a normal degraded state, never an error: the
+// caller falls back to the keyless density baseline and the work is never blocked.
+//
+// This deliberately states no per-environment provisioning status. The previous version
+// claimed the secret was "absent on prod until provisioned" — false since 2026-06-27,
+// four days before this code shipped, and it cost spec-550 a live-config check to
+// disprove after it was read as evidence that the re-ranker never runs in prod. A
+// comment asserting deployment state is a claim about production that nothing verifies
+// [per std-50]; the environment is the authority on that, not this file.
 export function getReranker(): Reranker | null {
   const key = process.env.COHERE_API_KEY;
   if (!key) return null;
