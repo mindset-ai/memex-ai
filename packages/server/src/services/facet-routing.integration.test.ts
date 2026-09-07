@@ -107,7 +107,7 @@ describe("recall-first routing (spec-423 t-3, dec-1)", () => {
   });
 });
 
-describe("surfacing cut — top-K, no relevance floor, scores shown (spec-423 t-3, dec-2)", () => {
+describe("surfacing cut — top-K, no relevance floor, scores on the result (spec-423 t-3, dec-2; readout rendering superseded by spec-550 dec-2)", () => {
   it("caps at top-K (attention cut) with scores shown, nothing pruned from the full set (ac-10)", async () => {
     tagAc(AC(10));
     process.env.MEMEX_FACET_TOPK = "2";
@@ -139,12 +139,24 @@ describe("surfacing cut — top-K, no relevance floor, scores shown (spec-423 t-
     expect(catchall!.score).toBeLessThan(1.0); // low score, surfaced regardless
   });
 
-  it("formats the surfaced readout with visible scores (ac-10)", async () => {
-    tagAc(AC(10));
+  // SUPERSEDED BY spec-550 dec-2, deliberately. This test used to assert
+  // /relevance 1\.00/ and was tagged spec-423 ac-10 ("every surfaced standard carries
+  // its score in the output"). The score is normalised against the call's maximum, so
+  // the leader reads 1.00 on EVERY call by construction — measured on 23 of 23 prod
+  // rows — which cannot support the self-triage ac-10 wanted from it. The readout now
+  // carries a rank over the full candidate field instead.
+  //
+  // The ac-10 TAG is dropped from THIS test only: its other two clauses (top-K cut, no
+  // relevance floor) and the score living on the result object are still proven by the
+  // two tests above, which keep their ac-10 tags. ac-10 is not stranded.
+  it("formats the surfaced readout with a rank over the full candidate field (spec-550 ac-2, ac-6)", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-550/acs/ac-2");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-550/acs/ac-6");
     const r = await routeFacets(memexId, ["zb-security"], "auth", null);
     const readout = formatRoutedStandards(r);
     expect(readout).toContain("std-zb-focused");
-    expect(readout).toMatch(/relevance 1\.00/); // score shown, now stamped "relevance N.NN"
+    expect(readout).not.toMatch(/relevance/i);
+    expect(readout).toMatch(new RegExp(`rank 1 of ${r.all.length}\\b`));
   });
 });
 
@@ -182,6 +194,25 @@ describe("ranking backend — keyless baseline + re-ranker degrade (spec-423 t-3
     const r = await routeFacets(memexId, ["zb-security"], "auth", boom);
     expect(r.rankerModel).toBe(KEYLESS_MODEL); // degraded, non-blocking
     expect(r.all.length).toBe(3); // still recall-first
+  });
+
+  // spec-550 ac-5: the degrade is SILENT (the catch logs nothing), so the only thing
+  // that can tell the caller is the readout. Rendering a hand-built keyless result
+  // proves the wording; only driving the real catch proves the wording is reached.
+  it("renders the KEYLESS declaration after a re-ranker throws — never the configured model (spec-550 ac-5)", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-550/acs/ac-5");
+    const boom: Reranker = {
+      model: "mock:boom",
+      rerank: async () => {
+        throw new Error("provider outage");
+      },
+    };
+    const r = await routeFacets(memexId, ["zb-security"], "auth", boom);
+    const readout = formatRoutedStandards(r);
+    expect(readout).toContain(KEYLESS_MODEL);
+    expect(readout).not.toContain("mock:boom"); // the configured model did NOT score it
+    expect(readout).toMatch(/ordered them/i);
+    expect(readout).not.toMatch(/did not order/i);
   });
 });
 
