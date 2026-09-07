@@ -26,7 +26,7 @@ import {
   type ToolCtx,
 } from "./tool-contract.js";
 
-const REF_DESC = "Canonical ref to the Spec, e.g. `mindset/main/specs/spec-3`.";
+const REF_DESC = "Canonical ref to the Spec, e.g. `mindset/main/specs/spec-N`.";
 
 async function resolveSpec(ctx: ToolCtx, ref: string, tool: string) {
   const resolved = await resolveRefArg(ctx, ref);

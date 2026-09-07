@@ -101,7 +101,7 @@ export const tasksTools: ToolSpec[] = [
       ref: z
         .string()
         .describe(
-          "Canonical ref to the parent document, e.g. `mindset/main/specs/spec-3`.",
+          "Canonical ref to the parent document, e.g. `mindset/main/specs/spec-N`.",
         ),
       readyOnly: z
         .boolean()
@@ -182,7 +182,7 @@ export const tasksTools: ToolSpec[] = [
       ref: z
         .string()
         .describe(
-          "Canonical ref to the parent document, e.g. `mindset/main/specs/spec-3`.",
+          "Canonical ref to the parent document, e.g. `mindset/main/specs/spec-N`.",
         ),
       title: z.string().describe("Concrete unit of work — outcome, not a research/decide verb."),
       description: z.string().describe("What the task delivers and any constraints the implementer needs."),
@@ -286,7 +286,7 @@ export const tasksTools: ToolSpec[] = [
       ref: z
         .string()
         .describe(
-          "Canonical ref to the task, e.g. `mindset/main/specs/spec-3/tasks/t-2`.",
+          "Canonical ref to the task, e.g. `mindset/main/specs/spec-N/tasks/t-N`.",
         ),
       status: z.enum(TASK_STATUS).optional().describe("'not_started' | 'in_progress' | 'complete'. Completing may unblock dependents."),
       title: z.string().optional().describe("Replace the task title."),
@@ -300,13 +300,13 @@ export const tasksTools: ToolSpec[] = [
         .string()
         .optional()
         .describe(
-          "Canonical ref to a decision or task in the same parent doc, e.g. `mindset/main/specs/spec-3/decisions/dec-2`.",
+          "Canonical ref to a decision or task in the same parent doc, e.g. `mindset/main/specs/spec-N/decisions/dec-N`.",
         ),
       removeBlockerRef: z
         .string()
         .optional()
         .describe(
-          "Canonical ref to a decision or task in the same parent doc, e.g. `mindset/main/specs/spec-3/decisions/dec-2`.",
+          "Canonical ref to a decision or task in the same parent doc, e.g. `mindset/main/specs/spec-N/decisions/dec-N`.",
         ),
       // spec-445 dec-1 — edit a task's facet classification through this existing tool
       // (no bespoke facet tool). A COMPLETE verdict REPLACES the stored ballot and
@@ -546,7 +546,7 @@ export const tasksTools: ToolSpec[] = [
       ref: z
         .string()
         .describe(
-          "Canonical ref to the task, e.g. `mindset/main/specs/spec-3/tasks/t-2`.",
+          "Canonical ref to the task, e.g. `mindset/main/specs/spec-N/tasks/t-N`.",
         ),
       verbose: VERBOSE_FIELD,
     },

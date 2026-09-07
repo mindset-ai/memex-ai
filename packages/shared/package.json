@@ -10,6 +10,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./scaffold-data": {
+      "types": "./dist/scaffold-data.d.ts",
+      "default": "./dist/scaffold-data.js"
     }
   },
   "scripts": {

@@ -57,7 +57,7 @@ export const issuesTools: ToolSpec[] = [
       "specific Spec; the Issue belongs to that Spec as a whole (it does NOT anchor to a " +
       "section/decision/task). An Issue may be raised against a Spec in ANY status — draft, " +
       "specify, build, verify, done, paused, archived (no phase guard). " +
-      "**Every Issue must be bound to a Spec — a homeless Issue is never persisted (std-5, no " +
+      "**Every Issue must be bound to a Spec — a homeless Issue is never persisted (mindset-prod/memex-building-itself/standards/std-5, no " +
       "silent default home).** If you OMIT `spec_ref`, this tool persists NOTHING and instead " +
       "returns a two-option assist so the caller can decide where it lives: (1) turn the issue " +
       "into its OWN new root Spec (pass `promote_to_spec: true` on a follow-up call), or (2) link " +
@@ -69,7 +69,7 @@ export const issuesTools: ToolSpec[] = [
         MEMEX_DESC + " (not needed if `spec_ref` is provided — the Memex is inferred from the Spec).",
       ),
       spec_ref: z.string().optional().describe(
-        "Canonical ref to the parent Spec, e.g. `mindset/main/specs/spec-3`. OMIT to receive the " +
+        "Canonical ref to the parent Spec, e.g. `mindset/main/specs/spec-N`. OMIT to receive the " +
         "homeless-issue assist (no Issue is persisted) instead of creating one.",
       ),
       title: z.string().describe("One-line summary of the bug/todo."),
@@ -177,7 +177,7 @@ export const issuesTools: ToolSpec[] = [
           : "   (no active Spec matched the issue text — use option 1, or name a spec_ref explicitly)";
 
       return (
-        `No Spec ref supplied — an Issue is never persisted without a home (std-5). ` +
+        `No Spec ref supplied — an Issue is never persisted without a home. ` +
         `Nothing was created. Pick where this Issue lives:\n\n` +
         `(1) Turn it into its OWN new Spec — call register_issue again with promote_to_spec: true ` +
         `(creates a root Spec seeded from the issue; no separate Issue row).\n\n` +
@@ -193,7 +193,7 @@ export const issuesTools: ToolSpec[] = [
       "List the Issues registered on a Spec, optionally filtered by `type` ('bug' | 'todo') or " +
       "`status` ('open' | 'converted' | 'resolved' | 'wont_fix'). Ordered by `issue-N` handle.",
     schema: {
-      ref: z.string().describe("Canonical ref to the Spec, e.g. `mindset/main/specs/spec-3`."),
+      ref: z.string().describe("Canonical ref to the Spec, e.g. `mindset/main/specs/spec-N`."),
       type: z.enum(["bug", "todo"]).optional().describe("Filter by Issue type."),
       status: z
         .enum(["open", "converted", "resolved", "wont_fix"])
@@ -232,7 +232,7 @@ export const issuesTools: ToolSpec[] = [
       "Get a single Issue by canonical ref. Returns the type, status, severity, title, and " +
       "(in verbose mode) the body.",
     schema: {
-      ref: z.string().describe("Canonical ref to the Issue, e.g. `mindset/main/specs/spec-3/issues/issue-2`."),
+      ref: z.string().describe("Canonical ref to the Issue, e.g. `mindset/main/specs/spec-N/issues/issue-N`."),
       verbose: VERBOSE_FIELD,
     },
     async handler(input, ctx) {
@@ -262,7 +262,7 @@ export const issuesTools: ToolSpec[] = [
       "Update an Issue's editable fields: `title`, `body`, and/or `severity`. To change an Issue's " +
       "status to resolved/wont_fix, use `resolve_issue`.",
     schema: {
-      ref: z.string().describe("Canonical ref to the Issue, e.g. `mindset/main/specs/spec-3/issues/issue-2`."),
+      ref: z.string().describe("Canonical ref to the Issue, e.g. `mindset/main/specs/spec-N/issues/issue-N`."),
       title: z.string().optional().describe("New one-line summary."),
       body: z.string().optional().describe("New detail/body."),
       severity: z.string().optional().describe("New free-text severity (e.g. low / medium / high / critical)."),
@@ -298,7 +298,7 @@ export const issuesTools: ToolSpec[] = [
       "`wont_fix` (a deliberate decision not to address it). Use `resolution: 'resolved'` or " +
       "`resolution: 'wont_fix'`.",
     schema: {
-      ref: z.string().describe("Canonical ref to the Issue, e.g. `mindset/main/specs/spec-3/issues/issue-2`."),
+      ref: z.string().describe("Canonical ref to the Issue, e.g. `mindset/main/specs/spec-N/issues/issue-N`."),
       resolution: z.enum(["resolved", "wont_fix"]).describe(
         "Target terminal status: `resolved` (addressed) or `wont_fix` (deliberately not addressed).",
       ),
@@ -334,7 +334,7 @@ export const issuesTools: ToolSpec[] = [
       "(converted→resolved) exactly when the Task is complete AND the AC's latest test event is a pass. " +
       "Partial failure rolls everything back.",
     schema: {
-      ref: z.string().describe("Canonical ref to the open Issue, e.g. `mindset/main/specs/spec-3/issues/issue-2`."),
+      ref: z.string().describe("Canonical ref to the open Issue, e.g. `mindset/main/specs/spec-N/issues/issue-N`."),
       verbose: VERBOSE_FIELD,
     },
     async handler(input, ctx) {
@@ -369,7 +369,7 @@ export const issuesTools: ToolSpec[] = [
       "needed. If the Task originated from an issue→task conversion, the ORIGIN Issue is reverted " +
       "converted→open (with the reason folded in) instead of creating a duplicate — one Issue, not two.",
     schema: {
-      ref: z.string().describe("Canonical ref to the agent Task, e.g. `mindset/main/specs/spec-3/tasks/t-2`."),
+      ref: z.string().describe("Canonical ref to the agent Task, e.g. `mindset/main/specs/spec-N/tasks/t-N`."),
       reason: z.string().describe(
         "Why the agent cannot complete this Task — the offline / human / external work that's needed.",
       ),

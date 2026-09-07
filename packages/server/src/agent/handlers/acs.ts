@@ -86,7 +86,7 @@ export const acsTools: ToolSpec[] = [
       "test-tagging mechanism is silent and undetectable if skipped.",
     schema: {
       ref: z.string().describe(
-        "Canonical ref to the parent Spec, e.g. `mindset/main/specs/b-3`.",
+        "Canonical ref to the parent Spec, e.g. `mindset/main/specs/spec-N`.",
       ),
       kind: z.enum(["scope", "implementation"]).describe(
         "AC flavour: 'scope' for manager-authored outcome commitments, " +
@@ -102,7 +102,7 @@ export const acsTools: ToolSpec[] = [
       ),
       parent_decision_ref: z.string().optional().describe(
         "Optional canonical ref to a parent Decision (for Implementation ACs), " +
-        "e.g. `mindset/main/specs/b-3/decisions/dec-7`. If omitted, no Decision " +
+        "e.g. `mindset/main/specs/spec-N/decisions/dec-N`. If omitted, no Decision " +
         "parent is recorded; for Scope ACs, the AC's parent is the Spec itself.",
       ),
       verbose: VERBOSE_FIELD,
@@ -213,7 +213,7 @@ export const acsTools: ToolSpec[] = [
       "a human mints one in Settings → Emission Keys (this tool does not produce CI keys).",
     schema: {
       ref: z.string().describe(
-        "Canonical ref to the Spec you are working on, e.g. `mindset/main/specs/spec-3`. " +
+        "Canonical ref to the Spec you are working on, e.g. `mindset/main/specs/spec-N`. " +
           "The provisioned key is scoped to this Spec.",
       ),
       verbose: VERBOSE_FIELD,
@@ -287,7 +287,7 @@ export const acsTools: ToolSpec[] = [
       "test before declaring any task done.",
     schema: {
       ref: z.string().describe(
-        "Canonical ref to the Spec, e.g. `mindset/main/specs/b-3`.",
+        "Canonical ref to the Spec, e.g. `mindset/main/specs/spec-N`.",
       ),
       kind: z.enum(["scope", "implementation"]).optional().describe("Filter by AC flavour."),
       status: z.enum(["proposed", "active", "rejected", "superseded"]).optional().describe("Filter by status."),
@@ -459,7 +459,7 @@ export const acsTools: ToolSpec[] = [
       "and (in verbose mode) the full record.",
     schema: {
       ref: z.string().describe(
-        "Canonical ref to the AC, e.g. `mindset/main/specs/b-3/acs/ac-2`.",
+        "Canonical ref to the AC, e.g. `mindset/main/specs/spec-N/acs/ac-N`.",
       ),
       verbose: VERBOSE_FIELD,
     },
@@ -514,14 +514,14 @@ export const acsTools: ToolSpec[] = [
       "canonical ref. One row per identifier: latest (non-hidden) status, last run " +
       "time, emission count, and two flags — `PINNING red` (this identifier's latest " +
       "emission is fail/error, so it holds the AC red) and `retired (hidden)` (a legacy " +
-      "hidden row, invisible to the verdict — kept for audit; spec-358 froze the column). " +
+      "hidden row, invisible to the verdict — kept for audit; the column is frozen). " +
       "Use this when an AC reads `failing`/`stale` " +
       "to find WHICH identifier is responsible — then, if you renamed/deleted that test " +
       "in the codebase, retire its orphan with `discontinue_test_events`. See " +
       "`get_information(topic='orphaned-test-events')`.",
     schema: {
       ref: z.string().describe(
-        "Canonical ref to the AC, e.g. `mindset/main/specs/spec-3/acs/ac-2`.",
+        "Canonical ref to the AC, e.g. `mindset/main/specs/spec-N/acs/ac-N`.",
       ),
       verbose: VERBOSE_FIELD,
     },
@@ -562,14 +562,14 @@ export const acsTools: ToolSpec[] = [
     description:
       "Retire an orphaned `test_identifier` on an AC — a test you renamed/moved/deleted " +
       "in the codebase whose last emission still pins the AC red. HARD DELETE, irreversible " +
-      "(spec-358): it removes the matching emissions and clears their verification summary, " +
+      "It removes the matching emissions and clears their verification summary, " +
       "the same thing the UI 'Delete test events' button does. There is no undo — but a " +
       "fresh live emission of the same identifier re-enters the verdict on its own. Only " +
       "retire an identifier you KNOW no longer exists in the codebase — not one that merely " +
       "wasn't run this round. Find the identifier with `get_test_matrix`.",
     schema: {
       ref: z.string().describe(
-        "Canonical ref to the AC, e.g. `mindset/main/specs/spec-3/acs/ac-2`.",
+        "Canonical ref to the AC, e.g. `mindset/main/specs/spec-N/acs/ac-N`.",
       ),
       test_identifier: z.string().describe(
         "The exact test_identifier to retire (as shown by get_test_matrix), " +
@@ -615,10 +615,10 @@ export const acsTools: ToolSpec[] = [
       "Decision-spawned ACs, pass the parent_decision_ref argument to create_ac instead.",
     schema: {
       ac_ref: z.string().describe(
-        "Canonical ref to the AC, e.g. `mindset/main/specs/b-3/acs/ac-2`.",
+        "Canonical ref to the AC, e.g. `mindset/main/specs/spec-N/acs/ac-N`.",
       ),
       decision_ref: z.string().describe(
-        "Canonical ref to the parent Decision, e.g. `mindset/main/specs/b-3/decisions/dec-7`.",
+        "Canonical ref to the parent Decision, e.g. `mindset/main/specs/spec-N/decisions/dec-N`.",
       ),
       verbose: VERBOSE_FIELD,
     },
@@ -663,7 +663,7 @@ export const acsTools: ToolSpec[] = [
       "wording, sharpen falsifiability, or fix typos.",
     schema: {
       ref: z.string().describe(
-        "Canonical ref to the AC, e.g. `mindset/main/specs/b-3/acs/ac-2`.",
+        "Canonical ref to the AC, e.g. `mindset/main/specs/spec-N/acs/ac-N`.",
       ),
       statement: z.string().describe("New statement text. Must be non-empty."),
       verbose: VERBOSE_FIELD,
@@ -696,7 +696,7 @@ export const acsTools: ToolSpec[] = [
       "considered and dismissed; delete is for accidents or duplicates.",
     schema: {
       ref: z.string().describe(
-        "Canonical ref to the AC, e.g. `mindset/main/specs/b-3/acs/ac-2`.",
+        "Canonical ref to the AC, e.g. `mindset/main/specs/spec-N/acs/ac-N`.",
       ),
       verbose: VERBOSE_FIELD,
     },

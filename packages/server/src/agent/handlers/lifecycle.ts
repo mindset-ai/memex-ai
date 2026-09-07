@@ -91,7 +91,7 @@ export const lifecycleTools: ToolSpec[] = [
     schema: {
       ref: z
         .string()
-        .describe("Canonical ref to the Spec, e.g. `mindset/main/specs/spec-3`."),
+        .describe("Canonical ref to the Spec, e.g. `mindset/main/specs/spec-N`."),
       mode: z.enum(["phase", "narrative", "comments", "consolidate"]).describe("Which assessment to run: 'phase' (forward-transition rubric), 'narrative' (freshness check), 'comments' (open-comments survey), or 'consolidate' (stamp narrativeLastConsolidatedAt)."),
       target: z
         .enum(["specify", "build", "verify", "done"])
@@ -194,7 +194,7 @@ export const lifecycleTools: ToolSpec[] = [
     schema: {
       ref: z
         .string()
-        .describe("Canonical ref to the Spec, e.g. `mindset/main/specs/spec-3`."),
+        .describe("Canonical ref to the Spec, e.g. `mindset/main/specs/spec-N`."),
       status: z.enum(["specify", "build", "verify", "done"]).optional().describe("Target lifecycle status. Defaults to 'specify'."),
       verbose: VERBOSE_FIELD,
     },
@@ -263,12 +263,12 @@ export const lifecycleTools: ToolSpec[] = [
     schema: {
       ref: z
         .string()
-        .describe("Canonical ref to the Spec, e.g. `mindset/main/specs/spec-3`."),
+        .describe("Canonical ref to the Spec, e.g. `mindset/main/specs/spec-N`."),
       codebase_present: z
         .boolean()
         .describe(
           "MUST be true, asserting the codebase was available in this session when you grounded the Spec. " +
-          "The call is refused otherwise — the flag is only meaningful when the code was actually in hand (dec-3).",
+          "The call is refused otherwise — the flag is only meaningful when the code was actually in hand.",
         ),
       verbose: VERBOSE_FIELD,
     },
@@ -346,7 +346,7 @@ export const lifecycleTools: ToolSpec[] = [
     schema: {
       ref: z
         .string()
-        .describe("Canonical ref to the Spec, e.g. `mindset/main/specs/spec-3`."),
+        .describe("Canonical ref to the Spec, e.g. `mindset/main/specs/spec-N`."),
       sensitive: z
         .boolean()
         .describe(
@@ -407,7 +407,7 @@ export const lifecycleTools: ToolSpec[] = [
     schema: {
       ref: z
         .string()
-        .describe("Canonical ref to the Spec being superseded, e.g. `mindset/main/specs/spec-245`."),
+        .describe("Canonical ref to the Spec being superseded, e.g. `mindset/main/specs/spec-N`."),
       supersededBy: z
         .string()
         .nullable()
