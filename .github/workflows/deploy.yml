@@ -230,6 +230,14 @@ jobs:
           # environment UI. deploy.sh wires it to Cloud Run only when set (${VAR+...}),
           # so an unset/absent variable is omitted and the drip stays OFF by default.
           ACTIVATION_EMAILS_ENABLED: ${{ vars.ACTIVATION_EMAILS_ENABLED }}
+          # spec-552 dec-8 — the cost panel's staged-rollout allowlist. A
+          # comma-separated list of memex refs, or "*" for everyone; unset means
+          # NOBODY sees the panel (default closed). Non-sensitive, so a
+          # per-environment VARIABLE like the flags above — int runs with "*",
+          # prod starts at the single dogfood ref and widens by editing this
+          # value, with no code change. deploy.sh wires it to Cloud Run only
+          # when set (${VAR+...}), so an absent variable keeps the gate closed.
+          COST_PANEL_MEMEXES: ${{ vars.COST_PANEL_MEMEXES }}
         run: bash deploy.sh
 
       # spec-243 dec-2 / ac-6: every deploy posts a friendly note to the matching
