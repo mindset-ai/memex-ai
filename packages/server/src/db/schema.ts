@@ -4000,6 +4000,28 @@ export const mcpToolCalls = pgTable(
     // Clipped ⇔ footer_text_length > length(footer_text). NULL = no footer injected
     // (and NULL for pre-spec-538 rows, deliberately not backfilled).
     footerTextLength: integer("footer_text_length"),
+    // spec-552 t-1 (dec-1): the TRUE length of the WHOLE response, before any
+    // clipping, written on every call with NO isDevMode() gate. result_text is
+    // dev-only, so without this the *answer* half of every prod payload is
+    // invisible while footer_text (about a third of it) is captured in full.
+    // An integer carries no content, so unlike spec-205 dec-1's full-text
+    // capture it needs no per-Memex opt-in — and that matters: a default-off
+    // capture leaves every customer NULL, which can never answer a
+    // population-level measurement question.
+    // The ANSWER half is DERIVED, never stored: result_text_length -
+    // footer_text_length, so the two halves cannot disagree.
+    // NULL = the call returned no result text (and for pre-spec-552 rows,
+    // deliberately not backfilled).
+    resultTextLength: integer("result_text_length"),
+    // spec-552 t-1 (dec-6): the operation, once tools are verb-dispatched.
+    // NULL on every row today — no tool carries a verb yet. The column ships
+    // ahead of spec-511's rename (68 tool names -> ~25 verb-dispatched tools)
+    // so that rename needs no telemetry change and opens no double-counting
+    // window across its alias period. Readers group on
+    // (tool_name, coalesce(verb,'')), which degenerates to tool_name while
+    // this is NULL. Written from what the tool layer DECLARES — never
+    // recovered by parsing args_json [per std-32].
+    verb: text("verb"),
   },
   (table) => [
     index("mcp_tool_calls_session_idx").on(table.sessionId, table.createdAt),
