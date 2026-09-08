@@ -84,7 +84,7 @@ jobs:
       actions: read
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - name: Gate the deploy on green tests for the SHA (+ int-smoke for prod, WARN)
@@ -114,7 +114,7 @@ jobs:
       # the root package.json `packageManager` field and errors if both are set.
       - uses: pnpm/action-setup@v6
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
