@@ -92,7 +92,21 @@ export default defineConfig({
           // build under test — silently green while proving nothing. Pin it to the
           // e2e API origin: the unsubscribe pages are server-rendered, so no Vite
           // proxy hop is needed for them.
-          command: `GOOGLE_CLIENT_ID="" MEMEX_ANTHROPIC_FAKE=1 JOURNEY_PREVIEW_DOMAINS="memex.ai" APP_BASE_URL="http://localhost:${SERVER_PORT}" SLACK_TOKEN_ENCRYPTION="${process.env.SLACK_TOKEN_ENCRYPTION ?? "plaintext"}" DATABASE_URL="${DATABASE_URL}" MEMEX_WORKSPACE_ID="${process.env.MEMEX_WORKSPACE_ID ?? ""}" PORT=${SERVER_PORT} pnpm --filter @memex/server dev`,
+          // COST_PANEL_MEMEXES="*": spec-552 t-6. The cost card's rollout gate
+          // defaults CLOSED, so without this every journey would see the card
+          // absent and the populated states would be unreachable. "*" is also
+          // exactly what int runs with (dec-8), so the journey exercises the
+          // same configuration the deployed environment has.
+          //
+          // The value is STATIC for the whole run, which is a real limit worth
+          // knowing: a journey cannot flip the gate mid-run, so the ABSENT
+          // state is proven at the component tier (CostPanelCard renders null)
+          // and the API tier (both closed responses are byte-identical), not
+          // here. Making it flippable would mean either a deterministic tenant
+          // slug — which breaks CI retries, since seed-org is not idempotent —
+          // or a test endpoint that mutates server env, which is worse than the
+          // coverage it buys.
+          command: `COST_PANEL_MEMEXES="*" GOOGLE_CLIENT_ID="" MEMEX_ANTHROPIC_FAKE=1 JOURNEY_PREVIEW_DOMAINS="memex.ai" APP_BASE_URL="http://localhost:${SERVER_PORT}" SLACK_TOKEN_ENCRYPTION="${process.env.SLACK_TOKEN_ENCRYPTION ?? "plaintext"}" DATABASE_URL="${DATABASE_URL}" MEMEX_WORKSPACE_ID="${process.env.MEMEX_WORKSPACE_ID ?? ""}" PORT=${SERVER_PORT} pnpm --filter @memex/server dev`,
           url: `http://localhost:${SERVER_PORT}/api/health`,
           reuseExistingServer: !process.env.CI,
           timeout: 60_000,

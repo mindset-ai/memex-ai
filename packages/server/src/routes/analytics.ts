@@ -19,6 +19,8 @@ import {
   specAcVerification,
   specActivityAudit,
 } from "../services/analytics.js";
+import { costPanel } from "../services/cost-panel.js";
+import { costPanelEnabledFor } from "../services/cost-panel-flag.js";
 import { standardsGraph, DEFAULT_SEMANTIC_THRESHOLD } from "../services/standards-graph.js";
 import {
   knowledgeGraph,
@@ -68,6 +70,55 @@ function parseNonNegativeInt(raw: string | undefined, field: string): number | u
 analytics.get("/specs-over-time", async (c) => {
   const memexId = await resolveReadableMemexId(c);
   return c.json({ points: await specsOverTime(memexId) });
+});
+
+// GET /analytics/cost-panel — what Memex sent this Memex's agents (spec-552 t-3).
+//
+// ⚠ THIS ROUTE IS DELIBERATELY STRICTER THAN ITS EIGHT SIBLINGS. Do not "fix"
+// it to match them. (dec-9)
+//
+// The siblings resolve tenancy with resolveReadableMemexId alone, whose
+// fall-through to canReadMemex (mcp/auth.ts:377) returns true for ANY public
+// memex BEFORE it checks whether the caller is anonymous. That is correct for
+// them — their payloads describe the Memex's own published content. It is wrong
+// here: these figures describe what our platform costs the team using it, which
+// is billing-adjacent, not published. Mounted the sibling way, this endpoint
+// would publish the cost figures of every public Memex to anyone with the URL.
+//
+// So TWO LAYERS, and neither alone is correct:
+//
+//   1. READABILITY decides the 404. resolveReadableMemexId first, exactly as
+//      the siblings do. A caller who cannot see the Memex at all (private,
+//      non-member) gets 404 — indistinguishable from nonexistent [per std-7
+//      cl-2]. Answering 200 here would confirm a private Memex exists.
+//
+//   2. MEMBERSHIP decides the figures. A caller who CAN read the Memex but is
+//      not a member gets 200 with none. NOT a 404: Insights.tsx runs
+//      Promise.all over every /analytics/* call, so one rejection would blank
+//      the entire page — all eight existing cards — for any anonymous visitor
+//      to a public Memex. A guard that destroys working function is a
+//      regression, not a protection.
+//
+// The two closed states — "not a member" and "not on the rollout allowlist" —
+// are byte-identical by construction, so this endpoint cannot be probed to
+// enumerate which Memexes are on the allowlist.
+analytics.get("/cost-panel", async (c) => {
+  const memexId = await resolveReadableMemexId(c);
+
+  const isMember = c.get("currentMemexId") === memexId;
+  const namespace = c.get("namespace");
+  const memex = c.get("memex");
+  const enabled =
+    isMember &&
+    !!namespace &&
+    !!memex &&
+    costPanelEnabledFor(namespace.slug, memex.slug);
+
+  // One shape for both closed states. Keep it exactly this, or the allowlist
+  // becomes enumerable by comparing responses.
+  if (!enabled) return c.json({ available: false });
+
+  return c.json({ available: true, ...(await costPanel(memexId)) });
 });
 
 // GET /analytics/specs-by-phase — cumulative per current phase, stacked (ac-2).

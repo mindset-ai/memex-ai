@@ -54,6 +54,11 @@ const fetchActivityByActor = vi.fn();
 const fetchAcVerification = vi.fn();
 const fetchAcsOverTime = vi.fn();
 const fetchTestRunVolume = vi.fn();
+// spec-552 t-5: the page's Promise.all now covers a ninth endpoint. It has to
+// be mocked here or every assertion in this file fails on the ERROR state —
+// one unmocked fetch rejects the batch and blanks the page, which is the same
+// coupling that made a 404 unacceptable for the gated case (dec-9).
+const fetchCostPanel = vi.fn();
 // Partial mock: AppShell's hooks (drift inbox count, …) pull other exports
 // from the client module, so everything else passes through unmocked.
 vi.mock(import('../api/client'), async (importOriginal) => {
@@ -68,6 +73,7 @@ vi.mock(import('../api/client'), async (importOriginal) => {
     fetchAcVerification: (...a: unknown[]) => fetchAcVerification(...a),
     fetchAcsOverTime: (...a: unknown[]) => fetchAcsOverTime(...a),
     fetchTestRunVolume: (...a: unknown[]) => fetchTestRunVolume(...a),
+    fetchCostPanel: (...a: unknown[]) => fetchCostPanel(...a),
   };
 });
 
@@ -101,6 +107,10 @@ beforeEach(() => {
   fetchAcVerification.mockReset().mockResolvedValue(VERIFICATION);
   fetchAcsOverTime.mockReset().mockResolvedValue([{ day: '2026-06-01', created: 5, verified: 3 }]);
   fetchTestRunVolume.mockReset().mockResolvedValue([{ day: '2026-06-01', pass: 40, fail: 2, error: 0 }]);
+  // The default is the CLOSED shape, which is what most Memexes will see while
+  // the rollout is narrow — and it keeps this file's assertions about the
+  // spec-179 charts unaffected by the ninth card.
+  fetchCostPanel.mockReset().mockResolvedValue({ available: false });
 });
 
 function renderInsights(path = '/acme/team/insights') {

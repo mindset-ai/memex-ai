@@ -354,3 +354,52 @@ export async function fetchSpecActivity(
     `${tBase()}/analytics/spec/${encodeURIComponent(specRef)}/activity${qs ? `?${qs}` : ''}`,
   );
 }
+
+// ── Cost panel (spec-552 t-3/t-5 — the ninth Insights card) ──────────────────
+// Mirrors packages/server/src/services/cost-panel.ts exactly. CHARACTERS
+// throughout: the server stores lengths and the chars→tokens conversion is a
+// display concern this package owns (dec-5, components/insights/tokenEstimate).
+
+export interface CostPanelOperation {
+  /** The wire tool name. */
+  tool: string;
+  /** The operation within that tool — null until tools are verb-dispatched. */
+  verb: string | null;
+  /** Calls carrying a measurable length (rows predating the column are excluded). */
+  calls: number;
+  medianChars: number;
+  p90Chars: number;
+  /** Platform guidance across those calls. */
+  guidanceChars: number;
+  /** Whole responses across those calls. */
+  totalChars: number;
+}
+
+export interface CostPanelTotals {
+  calls: number;
+  totalChars: number;
+  guidanceChars: number;
+}
+
+/**
+ * `available: false` is NOT an error — it is the answer for a Memex outside the
+ * rollout allowlist, and for a caller who may read the Memex but is not a
+ * member (dec-9). The card renders nothing in that case and the page is
+ * unchanged; a rejection here would blank every other card, since the page
+ * fetches them all with Promise.all.
+ */
+export type CostPanelResponse =
+  | { available: false }
+  | {
+      available: true;
+      windowDays: number;
+      totals: CostPanelTotals;
+      operations: CostPanelOperation[];
+    };
+
+export async function fetchCostPanel(): Promise<CostPanelResponse> {
+  return fetchJsonRaw<CostPanelResponse>(
+    fetchWithRetry,
+    `${tBase()}/analytics/cost-panel`,
+  );
+}
