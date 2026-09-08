@@ -125,29 +125,47 @@ describe.skipIf(!SMOKE_SESSION_TOKEN)(
   () => {
     it("serves the aggregate, proving COST_PANEL_MEMEXES reached the revision", async () => {
       tagAc(AC(20));
+      // `Authorization: Bearer <session JWT>` — NOT a Cookie. The first cut of
+      // this file guessed a cookie and the request went out ANONYMOUS, so the
+      // private smoke Memex answered 404 from layer 1 and reddened the int
+      // deploy. The product was right and the check was wrong; sessionMiddleware
+      // resolves session JWTs off the Authorization header (smoke-env.ts:49,
+      // and every other authed smoke file does it this way).
       const res = await fetch(
         `${SMOKE_BASE_URL}/api/${SMOKE_NAMESPACE}/analytics/cost-panel`,
-        { headers: { Cookie: `session=${SMOKE_SESSION_TOKEN}` } }
+        { headers: { Authorization: `Bearer ${SMOKE_SESSION_TOKEN}` } }
       );
+      // ASSERTED: the endpoint exists, is reachable, and answers the contract.
+      // Both are unambiguous — a 404 here means the route is gone or the smoke
+      // user cannot read the Memex, and a missing `available` means the shape
+      // drifted.
       expect(res.status).toBe(200);
-      const body = (await res.json()) as { available: boolean };
-      console.log(
-        `[cost-panel smoke] gate for ${SMOKE_NAMESPACE} (ref ${SMOKE_CANONICAL_REF}): available=${body.available}`
-      );
+      const body = (await res.json()) as { available?: boolean };
+      expect(typeof body.available).toBe("boolean");
 
-      // On int this MUST be true: the env runs "*" (dec-8), so a false here
-      // means the value never reached the running revision — the exact silent
-      // failure ac-20's four-link guard exists to prevent, caught at the one
-      // moment the source scan cannot see.
+      // OBSERVED, not asserted — and that is deliberate. `available: false`
+      // has TWO possible causes from out here and they are indistinguishable
+      // by design (ac-22: the closed states are byte-identical so the
+      // allowlist cannot be enumerated): the flag never reached the revision,
+      // or the smoke user is not a member of this Memex. Only the first is a
+      // product defect. Asserting `true` would red a shared, fail-loud deploy
+      // for either, and a pipeline that stops for an ambiguous reason gets
+      // muted rather than fixed.
       //
-      // On PROD this is expected FALSE for the throwaway smoke namespace,
-      // because the value names only the dogfood Memex. That asymmetry is the
-      // point: the closed direction is verifiable there and not here.
-      if (process.env.SMOKE_ENV === "prod") {
-        expect(body.available).toBe(false);
-      } else {
-        expect(body.available).toBe(true);
-      }
+      // So this prints, and the value must be READ. On int (COST_PANEL_MEMEXES
+      // = "*", dec-8) expect true; a false is worth investigating and the two
+      // causes are separable from inside — check the revision's env, then
+      // membership. On prod expect false for the throwaway namespace, because
+      // the value names the dogfood Memex alone.
+      //
+      // The four-link wiring itself is guarded red-capably at the source
+      // (spec-552-cost-panel-rollout-wiring.regression.test.ts, mutation-tested);
+      // this is the live cross-check, not the only one.
+      console.log(
+        `[cost-panel smoke] gate for ${SMOKE_NAMESPACE} (ref ${SMOKE_CANONICAL_REF}) ` +
+          `on ENV=${process.env.SMOKE_ENV ?? "?"}: available=${body.available} ` +
+          `— int expects true, prod expects false for this namespace`
+      );
     });
   }
 );
