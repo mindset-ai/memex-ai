@@ -97,7 +97,7 @@ jobs:
       MEMEX_EMIT: ${{ github.actor == 'dependabot[bot]' && 'false' || '' }}
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
       # No `version:` here — pnpm/action-setup@v6 reads the pinned version from
       # the root package.json `packageManager` field and errors if both are set.
@@ -183,7 +183,7 @@ jobs:
       MEMEX_EMIT_KEY: ${{ secrets.MEMEX_EMIT_KEY }}
       MEMEX_EMIT: ${{ github.actor == 'dependabot[bot]' && 'false' || '' }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
@@ -219,7 +219,7 @@ jobs:
           echo "server shards result: ${{ needs.server.result }}"
           exit 1
 
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
@@ -296,7 +296,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
@@ -316,7 +316,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
@@ -369,7 +369,7 @@ jobs:
       # bogus unauthenticated emission is attempted (mirrors the server job).
       MEMEX_EMIT: ${{ github.actor == 'dependabot[bot]' && 'false' || '' }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       # No `version:` here — pnpm/action-setup@v6 reads the pinned version from
       # the root package.json `packageManager` field and errors if both are set.
       - uses: pnpm/action-setup@v6
@@ -394,7 +394,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       # No `version:` here — pnpm/action-setup@v6 reads the pinned version from
       # the root package.json `packageManager` field and errors if both are set.
       - uses: pnpm/action-setup@v6
@@ -422,7 +422,7 @@ jobs:
       # bogus unauthenticated emission is attempted (mirrors the server job).
       MEMEX_EMIT: ${{ github.actor == 'dependabot[bot]' && 'false' || '' }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
@@ -478,7 +478,7 @@ jobs:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/memex
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       # No `version:` here — pnpm/action-setup@v6 reads the pinned version from
       # the root package.json `packageManager` field and errors if both are set.
       - uses: pnpm/action-setup@v6
@@ -595,7 +595,7 @@ jobs:
       MEMEX_ANTHROPIC_FAKE: "1"
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       # No `version:` here — pnpm/action-setup@v6 reads the pinned version from
       # the root package.json `packageManager` field and errors if both are set.
       - uses: pnpm/action-setup@v6
@@ -736,7 +736,7 @@ jobs:
       MEMEX_EMIT: ${{ github.actor == 'dependabot[bot]' && 'false' || '' }}
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       # No `version:` here — pnpm/action-setup@v6 reads the pinned version from
       # the root package.json `packageManager` field and errors if both are set.
       - uses: pnpm/action-setup@v6
