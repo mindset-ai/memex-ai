@@ -52,8 +52,15 @@ describe("the chars-to-tokens divisor (spec-552 ac-12)", () => {
     // Comments are stripped first: this module's own prose discusses 3.0, 2.38
     // and the band edges, and a naive scan would match its own documentation.
     // (Both source guards written earlier today tripped on exactly that.)
+    // PRODUCTION files only. A test file legitimately quotes divisor SHAPES —
+    // CostPanelCard.test.tsx carries the very regex that hunts for them — and
+    // flagging those is a false positive that trains people to disable the
+    // guard. What must stay clean is the code that ships.
     const files = readdirSync(here).filter(
-      (f) => f.endsWith(".ts") || f.endsWith(".tsx")
+      (f) =>
+        (f.endsWith(".ts") || f.endsWith(".tsx")) &&
+        !f.includes(".test.") &&
+        !f.includes(".spec.")
     );
     const offenders: string[] = [];
     for (const file of files) {

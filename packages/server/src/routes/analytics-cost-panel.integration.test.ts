@@ -171,6 +171,9 @@ function openTo(...slugs: string[]): void {
 describe("GET /analytics/cost-panel — a member of an allowlisted Memex", () => {
   it("returns per-operation counts, median and p90 in CHARACTERS", async () => {
     tagAc(AC(1));
+    // ac-3's server half: every figure is computed from mcp_tool_calls rows
+    // seeded below, never authored. Change the rows and the numbers change.
+    tagAc(AC(3));
     openTo(memberSlug);
     // Five calls with known lengths: median 300, p90 ~460 (interpolated).
     for (const len of [100, 200, 300, 400, 500]) {

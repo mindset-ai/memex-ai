@@ -19,6 +19,8 @@ import {
   fetchAcVerification,
   fetchAcsOverTime,
   fetchTestRunVolume,
+  fetchCostPanel,
+  type CostPanelResponse,
   type SpecsOverTimePoint,
   type SpecsByPhasePoint,
   type PhaseDurations,
@@ -38,6 +40,7 @@ import { ActivityStreamChart } from '../components/insights/ActivityStreamChart'
 import { AcVerificationChart } from '../components/insights/AcVerificationChart';
 import { AcsOverTimeChart } from '../components/insights/AcsOverTimeChart';
 import { TestRunVolumeChart } from '../components/insights/TestRunVolumeChart';
+import { CostPanelCard } from '../components/insights/CostPanelCard';
 
 // Below this many specs the charts are noise — show the unlock note instead.
 const MIN_SPECS_FOR_CHARTS = 3;
@@ -51,6 +54,10 @@ interface InsightsData {
   verification: AcVerificationSummary;
   acsOverTime: AcsOverTimePoint[];
   testRuns: TestRunVolumePoint[];
+  // spec-552 t-5. `available: false` is the normal answer for a Memex outside
+  // the rollout allowlist or a caller who is not a member — NOT an error, so it
+  // sits in the ready state like any other field and the card self-hides.
+  costPanel: CostPanelResponse;
 }
 
 type LoadState =
@@ -76,8 +83,9 @@ export function Insights() {
       fetchAcVerification(),
       fetchAcsOverTime(),
       fetchTestRunVolume(),
+      fetchCostPanel(),
     ])
-      .then(([overTime, byPhase, durations, funnel, activity, verification, acsOT, testRuns]) => {
+      .then(([overTime, byPhase, durations, funnel, activity, verification, acsOT, testRuns, costPanel]) => {
         if (cancelled) return;
         setState({
           kind: 'ready',
@@ -90,6 +98,7 @@ export function Insights() {
             verification,
             acsOverTime: acsOT,
             testRuns,
+            costPanel,
           },
         });
       })
@@ -202,6 +211,19 @@ export function Insights() {
               <ActivityStreamChart points={state.data.activity} />
             </Card>
           )}
+        </div>
+      )}
+
+      {/* spec-552 t-5 — the cost card sits OUTSIDE the MIN_SPECS_FOR_CHARTS
+          gate on purpose. That gate counts Specs, which is not what this card
+          measures; the card carries its own floor on measured CALLS
+          (MIN_CALLS_FOR_FIGURES). Nesting it would stack two thresholds, the
+          outer one gauging the wrong thing — a Memex with two Specs and real
+          agent traffic would see nothing. It renders null when the panel is
+          unavailable, so an ungated Memex's page is unchanged. */}
+      {state.kind === 'ready' && (
+        <div className="mt-4">
+          <CostPanelCard data={state.data.costPanel} />
         </div>
       )}
         </div>
