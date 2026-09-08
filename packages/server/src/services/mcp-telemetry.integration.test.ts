@@ -597,3 +597,179 @@ describe("logToolCall — the footer audit trail records what it really carried 
     expect(row.footerTextLength).toBeNull();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// spec-552 t-1 (dec-1, dec-6) — the measurement substrate for the cost panel.
+//
+// The gap this closes: result_text is isDevMode()-gated, so in production the
+// ANSWER half of every payload is invisible while footer_text — about a third of
+// it — is captured in full. Every figure the panel shows depends on closing
+// that, and the assertion that matters most is the NEGATIVE one: a row written
+// with dev mode OFF must still carry a length.
+// ─────────────────────────────────────────────────────────────────────────────
+const AC552 = (n: number) =>
+  `mindset-prod/memex-building-itself/specs/spec-552/acs/ac-${n}`;
+
+describe("logToolCall — payload size and operation identity (spec-552 t-1)", () => {
+  async function logOnProdPath(
+    resultText: string,
+    sessionPrefix: string,
+    extra: { verb?: string | null; args?: unknown } = {}
+  ) {
+    const userId = await seedUser();
+    const sessionId = unique(sessionPrefix);
+    createdSessionIds.push(sessionId);
+    await db.insert(mcpSessions).values({ sessionId, userId });
+
+    // The PRODUCTION path — isDevMode() false, so result_text is dropped.
+    // isDevMode throws on NODE_ENV=production with no client id, so set both;
+    // the file's beforeEach resets env for the next test.
+    process.env.NODE_ENV = "production";
+    process.env.GOOGLE_CLIENT_ID = "fake-client-for-test";
+
+    await logToolCall({
+      sessionId,
+      userId,
+      memexId: null,
+      toolName: "get_doc",
+      args: extra.args ?? { ref: "x" },
+      durationMs: 5,
+      error: null,
+      resultText,
+      ...(extra.verb === undefined ? {} : { verb: extra.verb }),
+    });
+
+    const [row] = await db
+      .select()
+      .from(mcpToolCalls)
+      .where(eq(mcpToolCalls.sessionId, sessionId));
+    return row;
+  }
+
+  it("records the response size on the PROD path, where result_text itself is dropped", async () => {
+    tagAc(AC552(6));
+    const body = "# Spec X\nthe real tool output body";
+    const footer = "You are now in build. phase guidance";
+    const full = `${body}\n${FOOTER_DELIMITER}\n${footer}`;
+
+    const row = await logOnProdPath(full, "len-prod-sess");
+
+    // The whole point: dev mode is OFF, so the text is not stored…
+    expect(row.resultText).toBeNull();
+    // …but the size is, unconditionally, and it is the size of the WHOLE
+    // response — body + delimiter + footer, not just the captured footer.
+    expect(row.resultTextLength).toBe(full.length);
+    expect(row.resultTextLength).toBeGreaterThan(row.footerTextLength!);
+  });
+
+  it("records the TRUE length of a response far beyond any storage cap", async () => {
+    tagAc(AC552(7));
+    // 200k is past every cap in this module (16k result_text, 64k footer_text).
+    // A length that tracked the STORED text would report the cap and understate
+    // exactly the payloads that matter — the defect spec-538 fixed for the
+    // footer column, which this column must not reintroduce.
+    const footer = "g".repeat(200_000);
+    const full = `body\n${FOOTER_DELIMITER}\n${footer}`;
+
+    const row = await logOnProdPath(full, "len-true-sess");
+
+    expect(row.resultTextLength).toBe(full.length);
+    expect(row.resultTextLength).toBeGreaterThan(200_000);
+  });
+
+  it("keeps the answer half derivable: result_text_length >= footer_text_length", async () => {
+    tagAc(AC552(7));
+    // The panel derives the ANSWER half as result_text_length − footer_text_length
+    // rather than storing it, so the two can never disagree. That subtraction is
+    // only meaningful while this inequality holds.
+    const footer = "g".repeat(1_200);
+    const row = await logOnProdPath(
+      `a body of some length\n${FOOTER_DELIMITER}\n${footer}`,
+      "len-order-sess"
+    );
+
+    expect(row.resultTextLength).toBeGreaterThanOrEqual(row.footerTextLength!);
+    // And the derivation lands on something sane — the body, delimiter included.
+    expect(row.resultTextLength! - row.footerTextLength!).toBeGreaterThan(0);
+  });
+
+  it("leaves the length NULL when the call returned no result text at all", async () => {
+    tagAc(AC552(6));
+    const userId = await seedUser();
+    const sessionId = unique("len-none-sess");
+    createdSessionIds.push(sessionId);
+    await db.insert(mcpSessions).values({ sessionId, userId });
+
+    await logToolCall({
+      sessionId,
+      userId,
+      memexId: null,
+      toolName: "create_ac",
+      args: {},
+      durationMs: 2,
+      error: "boom",
+      resultText: null,
+    });
+
+    const [row] = await db
+      .select()
+      .from(mcpToolCalls)
+      .where(eq(mcpToolCalls.sessionId, sessionId));
+    expect(row.resultTextLength).toBeNull();
+  });
+
+  it("takes the verb from what the caller DECLARES, never from args_json", async () => {
+    tagAc(AC552(15));
+    // args carries a `verb` key and the caller declares nothing. If the column
+    // came back 'create', something is recovering the operation by parsing
+    // caller-supplied JSON — an unindexed read-time dependency on a shape we do
+    // not own [per std-32]. It must stay NULL.
+    const row = await logOnProdPath("some output", "verb-args-sess", {
+      args: { verb: "create", ref: "x" },
+    });
+
+    expect(row.verb).toBeNull();
+  });
+
+  it("persists a declared verb, so spec-511's rename needs no telemetry change", async () => {
+    tagAc(AC552(15));
+    const row = await logOnProdPath("some output", "verb-decl-sess", {
+      verb: "resolve",
+    });
+
+    expect(row.verb).toBe("resolve");
+  });
+});
+
+// The no-backfill property is a claim about the migration's SHAPE, so it is
+// verified by reading the migration rather than by querying rows: post-migration
+// there is no way to observe what a pre-migration row would have looked like.
+describe("spec-552 t-1 migration — additive, and it invents no history", () => {
+  it("adds both columns and writes no historical value", async () => {
+    tagAc(AC552(6));
+    const { readFileSync } = await import("node:fs");
+    const { fileURLToPath } = await import("node:url");
+    const { dirname, join } = await import("node:path");
+    const here = dirname(fileURLToPath(import.meta.url));
+    const sql = readFileSync(
+      join(here, "../../drizzle/0144_spec552_result_length_and_verb.sql"),
+      "utf8"
+    );
+
+    expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS "result_text_length" integer/);
+    expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS "verb" text/);
+
+    // The no-backfill claim is about the STATEMENTS, so strip the `--` prose
+    // first. (Asserting over the whole file matches the rationale comments,
+    // which legitimately discuss "default-off" capture and backfilling.)
+    const statements = sql
+      .split("\n")
+      .filter((line) => !line.trimStart().startsWith("--"))
+      .join("\n");
+
+    // Nothing writes a value into an existing row…
+    expect(statements).not.toMatch(/\bUPDATE\b/i);
+    // …and no DEFAULT, which would backfill every row implicitly.
+    expect(statements).not.toMatch(/\bDEFAULT\b/i);
+  });
+});

@@ -208,6 +208,15 @@ fi
 if [ -n "${ACTIVATION_CONNECT_GO_LIVE+set}" ]; then
   export ACTIVATION_CONNECT_GO_LIVE
 fi
+# COST_PANEL_MEMEXES — spec-552 t-2 (dec-8): the cost panel's staged-rollout allowlist.
+# Comma-separated memex refs, or "*" for everyone. UNSET MEANS NOBODY — the gate is
+# default-closed, so a checkout that never set it simply keeps the panel dark. Same
+# set-vs-unset semantics as ACTIVATION_EMAILS_ENABLED, and for the sharper reason: this
+# value IS the rollout, so a deploy that cleared it would re-close a live rollout with no
+# error and no signal (spec-510 dec-6: "a switch that looks armed and is not").
+if [ -n "${COST_PANEL_MEMEXES+set}" ]; then
+  export COST_PANEL_MEMEXES
+fi
 
 # OTEL_EXPORTER_OTLP_ENDPOINT — turns on database observability and chooses
 # where the metrics go. Unset (the default) means telemetry is off with zero
