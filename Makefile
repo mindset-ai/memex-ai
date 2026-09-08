@@ -58,7 +58,7 @@ SHELL := /bin/bash
 ## The sub-minute guard battery: no database, no network. This is what replaces
 ## "push and wait for CI" as the tight feedback loop. Everything here is a pure
 ## static check — anything needing Postgres belongs in `make test`.
-check: check-url-shape lint standards-check
+check: check-url-shape check-portable-surface lint standards-check
 	@node scripts/ci/workspace-alloc.mjs --all > /dev/null || \
 		{ echo "✗ workspace allocator failed — see scripts/ci/workspace-alloc.mjs"; exit 1; }
 	@echo "✓ offline guard battery passed"
@@ -82,6 +82,15 @@ test: check-url-shape test-server
 ## URL-shape lint (Layer B regression guard per std-2)
 check-url-shape:
 	node scripts/check-url-shape.mjs
+
+## spec-551 t-7 — std-22's portable surface carries no bare entity handle. Offline by
+## measurement, not by hope: the collector reaches the live tool registry (which imports
+## the DB module) yet needs no DATABASE_URL, because nothing queries during collection.
+## Costs ~1.8s, so it is the heaviest item in this lane — see std-22 cl-66, which asked
+## for exactly this guard. Its twin lives in the vitest suite
+## (portable-surface.portability.test.ts) so bypassing the hook does not bypass the rule.
+check-portable-surface:
+	cd packages/server && npx tsx scripts/check-portable-surface.ts
 
 ## Server: unit tests only (mocked, no DB required)
 test-unit:

@@ -84,7 +84,7 @@ export const integrationsTools: ToolSpec[] = [
         .string()
         .optional()
         .describe(
-          "Canonical ref of the originating Spec (e.g. `mindset-prod/memex-building-itself/specs/spec-138`). " +
+          "Canonical ref of the originating Spec (e.g. `mindset/main/specs/spec-N`). " +
           "When provided, a footer embed with a clickable link to the Spec is appended. " +
           "Always pass this when sending from inside a Spec context.",
         ),
@@ -203,7 +203,7 @@ export const integrationsTools: ToolSpec[] = [
         .string()
         .optional()
         .describe(
-          "Canonical ref of the originating Spec (e.g. `mindset-prod/memex-building-itself/specs/spec-71`). " +
+          "Canonical ref of the originating Spec (e.g. `mindset/main/specs/spec-N`). " +
           "When provided, a context block footer with a clickable link to the Spec is appended. " +
           "Always pass this when sending from inside a Spec context.",
         ),

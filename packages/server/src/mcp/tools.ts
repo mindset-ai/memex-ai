@@ -306,11 +306,29 @@ export function createMcpServer(
   };
 
   // ── MCP-only: Memex discovery ──────────────────────────────
-  server.tool(
+  //
+  // spec-538 issue-5: this was the POSITIONAL `server.tool(name, description,
+  // shape, annotations, handler)` overload, which has no `_meta` parameter — so
+  // it shipped `_meta: null` while the other 70 tools carried the declared
+  // ceiling, and the comment at the catalogue's registration site claiming the
+  // declaration was uniform was false on the wire. Registered through
+  // `registerTool` now, carrying the same `_meta` as every other tool.
+  //
+  // A tool added through the positional overload silently inherits the client's
+  // own default ceiling. The guard in `response-budget.delivery.spec-538.test.ts`
+  // asserts over the server's registered tool list (not the source text) with an
+  // exact equality, so the next one reds the suite instead of going unnoticed.
+  server.registerTool(
     "list_memexes",
-    "List the Memexes this user is a member of, grouped by namespace. Identifiers come back in `<namespace>/<memex>` form (e.g. `mindset/website-rewrite`) — the same string scoped tools expect as their `memex` argument. Each entry carries `kind` (personal or team). Call this at the START of any session and present the list to the user as a chooser before any scoped mutation — do not auto-pick the only / personal one.",
-    {},
-    { title: "List Memexes", readOnlyHint: true, destructiveHint: false },
+    {
+      description:
+        "List the Memexes this user is a member of, grouped by namespace. Identifiers come back in `<namespace>/<memex>` form (e.g. `mindset/website-rewrite`) — the same string scoped tools expect as their `memex` argument. Each entry carries `kind` (personal or team). Call this at the START of any session and present the list to the user as a chooser before any scoped mutation — do not auto-pick the only / personal one.",
+      inputSchema: {},
+      annotations: { title: "List Memexes", readOnlyHint: true, destructiveHint: false },
+      _meta: {
+        "anthropic/maxResultSizeChars": DECLARED_CLIENT_RESULT_CEILING_CHARS,
+      },
+    },
     withTelemetry("list_memexes", async () => {
       const memberships = await listMemberships(userId);
       const filtered = filterMembershipsForOrgScope(memberships, orgFilter);
@@ -556,11 +574,18 @@ export function createMcpServer(
         inputSchema: z.looseObject(spec.schema as z.ZodRawShape),
         annotations: spec.annotations,
         // spec-538 dec-9 option (c): declare the result ceiling instead of
-        // guessing at the client's. Uniform across every tool — this is a
-        // property of the transport, not a per-tool classification, which is why
-        // it is NOT a `toolManifest` field [per std-16: the manifest is the one
-        // source of the tool CONTRACT; `readOnlyHint` lives there because the
-        // mutate-coverage gate derives behaviour from it, and nothing here does].
+        // guessing at the client's. A property of the transport, not a per-tool
+        // classification, which is why it is NOT a `toolManifest` field [per
+        // std-16: the manifest is the one source of the tool CONTRACT;
+        // `readOnlyHint` lives there because the mutate-coverage gate derives
+        // behaviour from it, and nothing here does].
+        //
+        // This comment used to claim the declaration was "uniform across every
+        // tool". It was not: `list_memexes` is registered outside this loop and
+        // shipped `_meta: null` for a day (issue-5) while the claim sat here
+        // unchallenged, because the guard that was supposed to check it read
+        // source text instead of the tool list. Uniformity is now asserted over
+        // the server's registered tools, so it is a fact rather than a comment.
         _meta: {
           "anthropic/maxResultSizeChars": DECLARED_CLIENT_RESULT_CEILING_CHARS,
         },

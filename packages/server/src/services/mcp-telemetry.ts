@@ -142,6 +142,12 @@ export interface LogToolCallInput {
   durationMs: number;
   error?: string | null;
   resultText?: string | null;
+  // spec-552 t-1 (dec-6): the operation, DECLARED by the tool layer. Absent
+  // today — no tool is verb-dispatched yet — and deliberately declared rather
+  // than defaulted in silence [per std-50]. It is never recovered by parsing
+  // `args`: that would make the stored identity depend on a caller-supplied
+  // shape we do not own [per std-32].
+  verb?: string | null;
 }
 
 // Resolve the owning org for a memex. Returns NULL for personal-kind
@@ -203,7 +209,12 @@ function clip(s: string, max: number): string {
  * logging failure must NEVER bubble back into the tool path.
  *
  * `resultText` is captured ONLY in dev mode. In production the column stays
- * NULL until per-customer opt-in lands.
+ * NULL until per-customer opt-in lands (spec-205 dec-1).
+ *
+ * Its LENGTH, however, is captured unconditionally — `result_text_length`,
+ * spec-552 t-1 dec-1. An integer carries no content, so it needs none of the
+ * gating the text does, and it is what makes the answer half of a payload
+ * measurable in production at all.
  */
 export async function logToolCall(input: LogToolCallInput): Promise<void> {
   try {
@@ -227,6 +238,16 @@ export async function logToolCall(input: LogToolCallInput): Promise<void> {
     // Clipped <=> footer_text_length > length(footer_text): arithmetic, not
     // string-matching the "…[truncated N]" suffix.
     const footerTextLength = footer ? footer.length : null;
+    // spec-552 t-1 (dec-1): the TRUE length of the WHOLE response — body,
+    // delimiter and footer — before any clipping, and with NO isDevMode()
+    // gate. `resultText` is already in hand on every prod call (splitToolResult
+    // consumes it above); only its SIZE was being thrown away, which is why
+    // production could see the guidance half of a payload and not the answer.
+    // Deliberately measured off the raw input, never off the clipped
+    // `resultText` local: a length that tracked the stored text would report
+    // the cap and understate exactly the largest payloads — the defect
+    // spec-538 fixed for footer_text_length, which this must not reintroduce.
+    const resultTextLength = input.resultText ? input.resultText.length : null;
     // Derive org_id from memex_id at insert time so analytics queries
     // don't need a 3-table join every time. lookupOrgForMemex returns
     // null for personal-kind memexes (no owning org).
@@ -244,6 +265,8 @@ export async function logToolCall(input: LogToolCallInput): Promise<void> {
       resultText,
       footerText,
       footerTextLength,
+      resultTextLength,
+      verb: input.verb ?? null,
     });
   } catch (err) {
     log("logToolCall failed", { toolName: input.toolName, err });

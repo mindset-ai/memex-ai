@@ -509,11 +509,28 @@ export function formatRoutedStandards(result: RoutingResult, occasion: ReadoutOc
       : occasion === "in_progress"
         ? `You're starting this task now — ${govern} govern it. The implicated sections are inlined below, each marked with its exact standard + clause refs. Follow them, and cite them by ref:`
         : `${govern} govern this work. The implicated sections are inlined below, each marked with its exact standard + clause refs so you can follow and cite them precisely:`;
-  const lines = ["", heading];
-  let used = heading.length;
+  // spec-550 dec-1: declare, PER CALL, which ranker actually scored this list, and what
+  // that means for the ballot the caller was forced to cast. Read from THIS call's
+  // `rankerModel` — never from process config — because `rerank()` degrades through a
+  // silent catch above, so two consecutive calls in one process can be scored
+  // differently (measured: 1 of 23 in a single prod session). A static claim about the
+  // deployment would therefore be false on the next call. std-50: a value one component
+  // depends on and another owns is declared, never defaulted in silence.
+  const rankerNote =
+    result.rankerModel === KEYLESS_MODEL
+      ? `Ranked by ${result.rankerModel}: your facet ballot chose these candidates and ordered them.`
+      : `Ranked by ${result.rankerModel} over the work text: your facet ballot chose these candidates but did not order them.`;
+  const lines = ["", heading, rankerNote];
+  let used = heading.length + rankerNote.length;
   result.surfaced.forEach((s, i) => {
     const facetTag = s.facetKeys.length ? `; facets: ${s.facetKeys.join(", ")}` : "";
-    const header = `\n▸ ${s.handle} — "${s.title}" (relevance ${s.score.toFixed(2)}${facetTag})`;
+    // spec-550 dec-2: a RANK over the full candidate field, not a score. The score is
+    // normalised against this call's maximum (below), so the leader reads 1.00 on every
+    // call by construction — a relative position printed in the grammar of an absolute
+    // judgement. The total is `all.length`, not `k`: it tells the reader how deep the
+    // field was that this standard was drawn from. The score itself is untouched on the
+    // result object and still persisted by logRouting — only the rendering changes.
+    const header = `\n▸ ${s.handle} — "${s.title}" (rank ${i + 1} of ${result.all.length}${facetTag})`;
     const sections = s.sections ?? [];
     const docRef = sections[0]?.docRef ?? `…/standards/${s.handle}`;
     // Beyond the inline cap, nothing to inline, or budget spent → a get_doc pointer.

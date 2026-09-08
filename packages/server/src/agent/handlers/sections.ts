@@ -60,7 +60,7 @@ export const sectionsTools: ToolSpec[] = [
       ref: z
         .string()
         .describe(
-          "Canonical ref to the parent document, e.g. `mindset/main/docs/doc-16`.",
+          "Canonical ref to the parent document, e.g. `mindset/main/docs/doc-N`.",
         ),
       sectionType: z
         .string()
@@ -81,7 +81,7 @@ export const sectionsTools: ToolSpec[] = [
         .array(z.array(z.string()))
         .optional()
         .describe(
-          "For STANDARDS only (spec-437 dec-1): the per-clause facet verdict, parallel to `clauses` (one entry per clause). Each entry is an array of facet keys, or [] for \"governs nothing\". Required where the Memex has a vocabulary — an absent verdict is rejected. Call the `facets` tool (verb 'list') to read the vocabulary.",
+          "For STANDARDS only: the per-clause facet verdict, parallel to `clauses` (one entry per clause). Each entry is an array of facet keys, or [] for \"governs nothing\". Required where the Memex has a vocabulary — an absent verdict is rejected. Call the `facets` tool (verb 'list') to read the vocabulary.",
         ),
       title: z.string().optional().describe("Optional human-readable section heading. Falls back to sectionType. Do NOT prefix with the section number — the renderer auto-prefixes `${seq}. `. Pass just the heading, e.g. 'Grammar', not '2. Grammar'."),
       description: z.string().optional().describe("Optional free-text metadata describing the section's purpose. Travels with the section everywhere (get_doc/list_docs/section responses) and is editable later via update_section."),
@@ -157,7 +157,7 @@ export const sectionsTools: ToolSpec[] = [
     schema: {
       ref: z
         .string()
-        .describe("Canonical ref to the Spec the report is for, e.g. `mindset/main/specs/spec-3`."),
+        .describe("Canonical ref to the Spec the report is for, e.g. `mindset/main/specs/spec-N`."),
       content: z
         .string()
         .describe(
@@ -205,7 +205,7 @@ export const sectionsTools: ToolSpec[] = [
       ref: z
         .string()
         .describe(
-          "Canonical ref to the section, e.g. `mindset/main/docs/doc-16/sections/s-3`.",
+          "Canonical ref to the section, e.g. `mindset/main/docs/doc-N/sections/s-N`.",
         ),
       content: z.string().describe("New markdown body, replacing the existing content."),
       sectionType: z
@@ -260,7 +260,7 @@ export const sectionsTools: ToolSpec[] = [
       ref: z
         .string()
         .describe(
-          "Canonical ref to the section, e.g. `mindset/main/specs/spec-3/sections/s-3`.",
+          "Canonical ref to the section, e.g. `mindset/main/specs/spec-N/sections/s-N`.",
         ),
       oldText: z
         .string()
@@ -334,7 +334,7 @@ export const sectionsTools: ToolSpec[] = [
       ref: z
         .string()
         .describe(
-          "Canonical ref to the standard SECTION the clause belongs to, e.g. `mindset/main/standards/std-7/sections/s-2`.",
+          "Canonical ref to the standard SECTION the clause belongs to, e.g. `mindset/main/standards/std-N/sections/s-N`.",
         ),
       body: z.string().describe("The clause body — one self-contained aspect, markdown."),
       position: z
@@ -351,7 +351,7 @@ export const sectionsTools: ToolSpec[] = [
         .array(z.string())
         .optional()
         .describe(
-          "The facet keys this clause governs (dec-9). Required: an array of keys, or [] for \"governs nothing\". Unknown keys are rejected; call the `facets` tool (verb 'list') to read the vocabulary.",
+          "The facet keys this clause governs. Required: an array of keys, or [] for \"governs nothing\". Unknown keys are rejected; call the `facets` tool (verb 'list') to read the vocabulary.",
         ),
       // spec-151 dec-5/dec-6 — OPTIONAL agent-supplied testability verdict (dec-8 pending).
       // The coding agent classifies the clause with the portable classifier and supplies the
@@ -365,7 +365,7 @@ export const sectionsTools: ToolSpec[] = [
         })
         .optional()
         .describe(
-          "Optional testability verdict (spec-151): { isObligation, testable, archetype }. archetype is required when testable is true. Omit the whole object to leave the clause unclassified for the backfill.",
+          "Optional testability verdict: { isObligation, testable, archetype }. archetype is required when testable is true. Omit the whole object to leave the clause unclassified for the backfill.",
         ),
       verbose: VERBOSE_FIELD,
     },
@@ -423,7 +423,7 @@ export const sectionsTools: ToolSpec[] = [
       ref: z
         .string()
         .describe(
-          "Canonical ref to the clause, e.g. `mindset/main/standards/std-7/clauses/cl-12`.",
+          "Canonical ref to the clause, e.g. `mindset/main/standards/std-N/clauses/cl-N`.",
         ),
       body: z.string().describe("New clause body — one self-contained aspect, markdown."),
       // spec-423 dec-9 — OPTIONAL facet verdict on edit. Omit to leave tags unchanged;
@@ -432,7 +432,7 @@ export const sectionsTools: ToolSpec[] = [
         .array(z.string())
         .optional()
         .describe(
-          "Optional facet re-classification (dec-9). Omit = tags unchanged; provide an array of keys (or [] for \"governs nothing\") to replace them.",
+          "Optional facet re-classification. Omit = tags unchanged; provide an array of keys (or [] for \"governs nothing\") to replace them.",
         ),
       // spec-151 dec-5/dec-6 — OPTIONAL testability re-classification on edit. Editing a
       // clause's body can change its testability, so the agent re-derives and supplies the
@@ -445,7 +445,7 @@ export const sectionsTools: ToolSpec[] = [
         })
         .optional()
         .describe(
-          "Optional testability re-classification (spec-151): { isObligation, testable, archetype }. Omit = unchanged; provide to replace the persisted verdict (e.g. after a body edit changes testability).",
+          "Optional testability re-classification: { isObligation, testable, archetype }. Omit = unchanged; provide to replace the persisted verdict (e.g. after a body edit changes testability).",
         ),
       verbose: VERBOSE_FIELD,
     },
@@ -494,7 +494,7 @@ export const sectionsTools: ToolSpec[] = [
       ref: z
         .string()
         .describe(
-          "Canonical ref to the clause, e.g. `mindset/main/standards/std-7/clauses/cl-12`.",
+          "Canonical ref to the clause, e.g. `mindset/main/standards/std-N/clauses/cl-N`.",
         ),
       verbose: VERBOSE_FIELD,
     },
@@ -526,7 +526,7 @@ export const sectionsTools: ToolSpec[] = [
       ref: z
         .string()
         .describe(
-          "Canonical ref to the section, e.g. `mindset/main/specs/spec-3/sections/s-3`.",
+          "Canonical ref to the section, e.g. `mindset/main/specs/spec-N/sections/s-N`.",
         ),
       title: z.string().describe("New human-readable heading. Pass just the heading, e.g. 'Considerations', not '3. Considerations'."),
       sectionType: z
@@ -568,7 +568,7 @@ export const sectionsTools: ToolSpec[] = [
       ref: z
         .string()
         .describe(
-          "Canonical ref to the section to delete, e.g. `mindset/main/specs/spec-3/sections/s-4`.",
+          "Canonical ref to the section to delete, e.g. `mindset/main/specs/spec-N/sections/s-N`.",
         ),
       verbose: VERBOSE_FIELD,
     },

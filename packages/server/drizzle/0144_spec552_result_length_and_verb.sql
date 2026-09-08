@@ -1,0 +1,46 @@
+-- spec-552 t-1 (dec-1, dec-6) — the measurement substrate for the per-Memex
+-- cost panel. Two columns on mcp_tool_calls, both additive and both inert
+-- until something reads them.
+--
+-- result_text_length — the TRUE length of the whole tool response, before any
+-- clipping, written on EVERY call with no isDevMode() gate (dec-1).
+--
+--   Why a length and not the text: result_text is dev-only, so in production
+--   the *answer* half of every payload is invisible while footer_text (a third
+--   of it) is fully captured. An integer carries no content — no user prose, no
+--   identifier, no secret — so unlike spec-205 dec-1's full-text capture it
+--   needs no per-Memex opt-in. And that difference is load-bearing: a
+--   default-off capture leaves every customer NULL, which can never answer a
+--   population-level measurement question.
+--
+--   The ANSWER half is derived, never stored:
+--       result_text_length - footer_text_length
+--   so the two halves can never disagree and no third column is needed.
+--
+--   TRUE length, not the stored one: spec-538 added footer_text_length for
+--   exactly this reason — an aggregate over clipped rows understates precisely
+--   the largest payloads, which are the ones that matter.
+--
+-- verb — the operation, once tools are verb-dispatched (dec-6).
+--
+--   NULL on every row today: no tool carries a verb yet. The column ships now
+--   so spec-511's rename (68 tool names -> ~25 verb-dispatched tools) needs no
+--   telemetry change and opens no double-counting window. The panel groups on
+--   (tool_name, coalesce(verb,'')), which degenerates to tool_name while this
+--   is NULL — today's behaviour exactly.
+--
+--   Written from what the tool layer DECLARES. Never recovered by parsing
+--   args_json at read time: that would be an unindexed extraction plus a shape
+--   dependency on caller-supplied JSON, which is what std-32 exists to prevent.
+--
+-- NO BACKFILL, deliberately. Rows written before this migration stay NULL —
+-- the same choice spec-538 made for footer_text_length. A fabricated
+-- historical value is worse than an honest gap, and NULL is what tells a
+-- future reader the column did not exist yet.
+--
+-- No index: whether the panel's grouping key earns one is spec-552 t-3's
+-- question, answered against real row counts rather than at authoring time
+-- [per std-39].
+
+ALTER TABLE "mcp_tool_calls" ADD COLUMN IF NOT EXISTS "result_text_length" integer;
+ALTER TABLE "mcp_tool_calls" ADD COLUMN IF NOT EXISTS "verb" text;

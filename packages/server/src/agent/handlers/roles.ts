@@ -72,7 +72,7 @@ export const rolesTools: ToolSpec[] = [
       "one-click self-promote again). Defaults to 'editor' when `role` is omitted. Identify the user by " +
       "email or user id.",
     schema: {
-      ref: z.string().describe("Canonical ref to the Spec, e.g. `mindset/main/specs/spec-3`."),
+      ref: z.string().describe("Canonical ref to the Spec, e.g. `mindset/main/specs/spec-N`."),
       user: z
         .string()
         .describe("Target user — an email (e.g. `dev@acme.com`) or a user id (UUID)."),
@@ -117,7 +117,7 @@ export const rolesTools: ToolSpec[] = [
       "Reviewers are implicit — they hold no row, so they are not enumerated; a Spec with no editors " +
       "lists none. Read-only: querying never writes a member row.",
     schema: {
-      ref: z.string().describe("Canonical ref to the Spec, e.g. `mindset/main/specs/spec-3`."),
+      ref: z.string().describe("Canonical ref to the Spec, e.g. `mindset/main/specs/spec-N`."),
       verbose: VERBOSE_FIELD,
     },
     async handler(input, ctx) {
@@ -157,11 +157,11 @@ export const rolesTools: ToolSpec[] = [
     description:
       "Assign a user to a Spec — ticket-style responsibility ('who is moving this Spec NOW'). " +
       "Idempotent: re-assigning an already-assigned user is a no-op. Assignment is INDEPENDENT of role " +
-      "(dec-3) — you may assign any active org member, including a reviewer, and assigning NEVER changes " +
+      "You may assign any active org member, including a reviewer, and assigning NEVER changes " +
       "a role. A Spec supports multiple assignees. Omit `user` to self-assign (the caller). Identify the " +
       "user by email or user id.",
     schema: {
-      ref: z.string().describe("Canonical ref to the Spec, e.g. `mindset/main/specs/spec-3`."),
+      ref: z.string().describe("Canonical ref to the Spec, e.g. `mindset/main/specs/spec-N`."),
       user: z
         .string()
         .optional()
@@ -197,10 +197,10 @@ export const rolesTools: ToolSpec[] = [
     annotations: { title: "Unassign Spec", readOnlyHint: false, destructiveHint: false },
     description:
       "Remove a user's assignment from a Spec. Idempotent: unassigning a non-assignee is a no-op. " +
-      "Leaves the user's role untouched (assignment and role are independent axes, dec-3). Identify the " +
+      "Leaves the user's role untouched (assignment and role are independent axes). Identify the " +
       "user by email or user id (required — no self-default for the destructive path).",
     schema: {
-      ref: z.string().describe("Canonical ref to the Spec, e.g. `mindset/main/specs/spec-3`."),
+      ref: z.string().describe("Canonical ref to the Spec, e.g. `mindset/main/specs/spec-N`."),
       user: z
         .string()
         .describe("Target user — an email or a user id."),

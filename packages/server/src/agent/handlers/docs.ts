@@ -340,7 +340,7 @@ export const docsTools: ToolSpec[] = [
       ref: z
         .string()
         .describe(
-          "Canonical ref to the document, e.g. `mindset/main/specs/spec-3` or `mindset/main/docs/doc-16`.",
+          "Canonical ref to the document, e.g. `mindset/main/specs/spec-N` or `mindset/main/docs/doc-N`.",
         ),
       verbose: VERBOSE_FIELD,
     },
@@ -445,7 +445,7 @@ export const docsTools: ToolSpec[] = [
     schema: {
       ref: z
         .string()
-        .describe("Canonical ref to the Spec, e.g. `mindset/main/specs/spec-3`."),
+        .describe("Canonical ref to the Spec, e.g. `mindset/main/specs/spec-N`."),
       verbose: VERBOSE_FIELD,
     },
     async handler(input, ctx) {
@@ -497,11 +497,11 @@ export const docsTools: ToolSpec[] = [
     name: "export_doc",
     annotations: { title: "Export document (lossless markdown)", readOnlyHint: true, destructiveHint: false },
     description:
-      "spec-100 §4: export a spec as lossless markdown with every comment thread expanded inline at its anchor position (HTML-comment-delimited block-quotes). Floating comments are appended per section. This is the form to paste into an external LLM/editor, or hand to a colleague, without losing the conversation. `ref` is a doc-level canonical ref.",
+      "Export a Spec as lossless markdown with every comment thread expanded inline at its anchor position (HTML-comment-delimited block-quotes). Floating comments are appended per section. This is the form to paste into an external LLM/editor, or hand to a colleague, without losing the conversation. `ref` is a doc-level canonical ref.",
     schema: {
       ref: z
         .string()
-        .describe("Canonical ref to the document to export, e.g. `mindset/main/specs/spec-3`."),
+        .describe("Canonical ref to the document to export, e.g. `mindset/main/specs/spec-N`."),
       // Carried for parity with the shared verbose contract (doc-20 t-10): every
       // tool exposes VERBOSE_FIELD by identity. export_doc is always lossless, so
       // the flag is a no-op here, but the field must be present for the audit.
@@ -556,13 +556,13 @@ export const docsTools: ToolSpec[] = [
         .string()
         .optional()
         .describe(
-          "Promote a task to a child Spec. Canonical task ref (e.g. `mindset/main/specs/spec-3/tasks/t-2`). Lineage preserved.",
+          "Promote a task to a child Spec. Canonical task ref (e.g. `mindset/main/specs/spec-N/tasks/t-N`). Lineage preserved.",
         ),
       promoteFromIssueRef: z
         .string()
         .optional()
         .describe(
-          "Promote an Issue to a child Spec. Canonical issue ref (e.g. `mindset/main/specs/spec-3/issues/issue-2`). The child Spec is parented to the Issue's SOURCE Spec (lineage preserved); the Issue → converted and auto-resolves when the child Spec reaches done.",
+          "Promote an Issue to a child Spec. Canonical issue ref (e.g. `mindset/main/specs/spec-N/issues/issue-N`). The child Spec is parented to the Issue's SOURCE Spec (lineage preserved); the Issue → converted and auto-resolves when the child Spec reaches done.",
         ),
       verbose: VERBOSE_FIELD,
     },
@@ -691,7 +691,7 @@ export const docsTools: ToolSpec[] = [
       ref: z
         .string()
         .describe(
-          "Canonical ref to the document, e.g. `mindset/main/specs/spec-3` or `mindset/main/docs/doc-16`.",
+          "Canonical ref to the document, e.g. `mindset/main/specs/spec-N` or `mindset/main/docs/doc-N`.",
         ),
       status: z.enum(DOC_STATUSES).optional().describe("New lifecycle status (spec/document)."),
       title: z.string().optional().describe("New title (1-500 chars, trimmed)."),

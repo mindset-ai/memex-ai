@@ -34,8 +34,12 @@ describe("authoring-standards guidance topic", () => {
     // names the why/where sections a distilled standard should carry
     expect(body).toMatch(/Rationale/);
     expect(body).toMatch(/Scope/);
-    // points at the canonical reference standard to copy the shape from
-    expect(body).toMatch(/memex-building-itself\/std-1/);
+    // Points at the canonical reference standard to copy the shape from — and points
+    // at it with a ref that PARSES. spec-551 found this assertion pinning
+    // `memex-building-itself/std-1`, which omits the `standards/` segment std-10 cl-2's
+    // grammar requires: readable to a human, unparseable to a tool. The guard was
+    // holding the malformed form in place, so it now requires the doc-type segment.
+    expect(body).toMatch(/memex-building-itself\/standards\/std-1\b/);
     // the worked example authors more than one section, including rationale + scope
     expect((body.match(/add_section/g) ?? []).length).toBeGreaterThanOrEqual(2);
     expect(body).toMatch(/sectionType:\s*"rationale"/);

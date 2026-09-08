@@ -132,7 +132,7 @@ export const commentsTools: ToolSpec[] = [
       ref: z
         .string()
         .describe(
-          "Canonical ref to the comment's target — a section, decision, or task. Examples: `mindset/main/specs/spec-3/sections/s-2`, `.../decisions/dec-1`, `.../tasks/t-4`.",
+          "Canonical ref to the comment's target — a section, decision, or task. Examples: `mindset/main/specs/spec-N/sections/s-N`, `.../decisions/dec-N`, `.../tasks/t-N`.",
         ),
       authorName: z.string().describe("Display name for the comment author. Defaults to 'Memex agent' when called by the agent."),
       content: z.string().describe("Comment body (markdown)."),
@@ -152,7 +152,7 @@ export const commentsTools: ToolSpec[] = [
         .min(0)
         .optional()
         .describe(
-          "spec-100 (geo-comments): anchor this comment to a point in a SECTION's markdown. Character offset into the section source where the `[^c-N]` marker is inserted. The snapshot of the surrounding sentence is captured automatically. Only valid when `ref` is a section.",
+          "Geo-comments: anchor this comment to a point in a SECTION's markdown. Character offset into the section source where the `[^c-N]` marker is inserted. The snapshot of the surrounding sentence is captured automatically. Only valid when `ref` is a section.",
         ),
       verbose: VERBOSE_FIELD,
     },
@@ -358,7 +358,7 @@ export const commentsTools: ToolSpec[] = [
       ref: z
         .string()
         .describe(
-          "Canonical ref to the comment, e.g. `mindset/main/specs/spec-3/comments/c-5`.",
+          "Canonical ref to the comment, e.g. `mindset/main/specs/spec-N/comments/c-N`.",
         ),
       status: z.literal("resolved").describe("Currently only 'resolved' is supported."),
       resolution: z.string().optional().describe("Optional note describing what was done to resolve the comment."),
