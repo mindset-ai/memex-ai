@@ -254,9 +254,13 @@ fi
 #                               the one that bounds what a queued request actually costs
 #                               (a parsed body, 1.1–1.5× its wire bytes; c-18). Default
 #                               20000, deliberately unreachable at today's ceiling of 2
-#                               (2 × 500 events max), so it cannot refuse before t-10 has
-#                               measured. Read the value to set from the heartbeat's
-#                               `inFlightEvents`, not from a guess.
+#                               (2 × 500 events max). It is NOT waiting on a measurement:
+#                               dec-8 declined enforcement, so the gate stays in shadow and
+#                               this term never refuses. The default IS the declaration, on
+#                               purpose. It becomes a live knob only if dec-8 re-opens (its
+#                               tripwire is spec-533 making batches bigger), and then the
+#                               value is read from the heartbeat's `inFlightEvents` against
+#                               c-18's heap figures, never from a guess.
 #
 # The CEILING is deliberately absent: ac-12 requires it computed from the resolved pool,
 # so it follows DB_POOL_MAX. A hand-set ceiling is a number someone raises during a busy
