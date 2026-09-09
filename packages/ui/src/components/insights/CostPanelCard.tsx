@@ -65,6 +65,24 @@ export const MIN_CALLS_FOR_FIGURES = 3;
  */
 export const MIN_CALLS_FOR_P90 = 10;
 
+/**
+ * Does ANY row have enough calls to carry a p90? If not, the column is not
+ * drawn at all — no header, no cells (dec-10, owner's call 2026-09-09).
+ *
+ * Withholding a cell is right; leaving a header standing over nothing but em
+ * dashes for its whole height is not. A young Memex has every row below the
+ * floor, so that is the state it would live in for weeks — and the first thing
+ * a reader does with an empty column is wonder what broke. The column comes
+ * back on its own the day one operation reaches the floor.
+ *
+ * This does not weaken ac-2's median-AND-p90 commitment: the p90 is computed,
+ * returned by the API for every row, and shown wherever it can mean something.
+ * What is gated is drawing a header for a statistic nothing on screen has.
+ */
+function anyRowEarnsP90(operations: readonly CostPanelOperation[]): boolean {
+  return operations.some((op) => op.calls >= MIN_CALLS_FOR_P90);
+}
+
 function pct(part: number, whole: number): number {
   if (whole <= 0) return 0;
   return Math.round((part / whole) * 100);
@@ -83,9 +101,11 @@ interface RowProps {
   op: CostPanelOperation;
   guidanceHue: string;
   track: string;
+  /** Whether the table is drawing a p90 column at all (see anyRowEarnsP90). */
+  showP90: boolean;
 }
 
-function OperationRow({ op, guidanceHue, track }: RowProps): React.ReactElement {
+function OperationRow({ op, guidanceHue, track, showP90 }: RowProps): React.ReactElement {
   const share = pct(op.guidanceChars, op.totalChars);
   // The high-guidance rows are the actionable ones — those are ours to cut, and
   // spec-510 is the work that cuts them. Emphasis puts them in the eye-line.
@@ -103,23 +123,29 @@ function OperationRow({ op, guidanceHue, track }: RowProps): React.ReactElement 
         {/* The measured number, beside the derived one (ac-13). */}
         <span className="ml-2 text-[11px] text-muted">{fmt(op.medianChars)} ch</span>
       </td>
-      <td className="py-2 text-right font-mono tabular-nums text-secondary">
-        {op.calls >= MIN_CALLS_FOR_P90 ? (
-          approxTokens(op.p90Chars)
-        ) : (
-          <>
-            {/* An em dash reads as "deliberately nothing" where a blank reads
-                as broken. The WHY is the call count already on this row, so
-                nothing new is asserted — but a sighted reader gets it from the
-                Calls column and a screen reader gets nothing, hence the
-                spoken-only reason beside it (dec-10, ac-27). */}
-            <span aria-hidden="true" className="text-muted">
-              &mdash;
-            </span>
-            <span className="sr-only">Too few calls for a p90</span>
-          </>
-        )}
-      </td>
+      {showP90 && (
+        <td className="py-2 text-right font-mono tabular-nums text-secondary">
+          {op.calls >= MIN_CALLS_FOR_P90 ? (
+            approxTokens(op.p90Chars)
+          ) : (
+            <>
+              {/* An em dash reads as "deliberately nothing" where a blank reads
+                  as broken. The WHY is the call count already on this row, so
+                  nothing new is asserted — but a sighted reader gets it from the
+                  Calls column and a screen reader gets nothing, hence the
+                  spoken-only reason beside it (dec-10, ac-27).
+
+                  The dash is aria-hidden and the reason is not: a reader who
+                  can see the dash needs no sentence, and a reader who cannot
+                  needs the sentence and not a dash announced as "em dash". */}
+              <span aria-hidden="true" className="text-muted">
+                &mdash;
+              </span>
+              <span className="sr-only">Too few calls for a p90</span>
+            </>
+          )}
+        </td>
+      )}
       <td className="py-2 pl-4">
         <span className="flex items-center justify-end gap-2">
           <span
@@ -158,6 +184,7 @@ export function CostPanelCard({ data }: { data: CostPanelResponse }): React.Reac
   const { windowDays, totals, operations } = data;
   const guidanceShare = pct(totals.guidanceChars, totals.totalChars);
   const answerShare = 100 - guidanceShare;
+  const showP90 = anyRowEarnsP90(operations);
 
   return (
     <div className="p-5 bg-panel border border-edge rounded-lg">
@@ -254,7 +281,9 @@ export function CostPanelCard({ data }: { data: CostPanelResponse }): React.Reac
                   <th className="text-left pb-2 border-b border-edge">Operation</th>
                   <th className="text-right pb-2 border-b border-edge">Calls</th>
                   <th className="text-right pb-2 border-b border-edge">Median</th>
-                  <th className="text-right pb-2 border-b border-edge">p90</th>
+                  {showP90 && (
+                    <th className="text-right pb-2 border-b border-edge">p90</th>
+                  )}
                   <th className="text-right pb-2 pl-4 border-b border-edge">
                     Guidance
                   </th>
@@ -267,6 +296,7 @@ export function CostPanelCard({ data }: { data: CostPanelResponse }): React.Reac
                     op={op}
                     guidanceHue={guidanceHue}
                     track={palette.verification.untested}
+                    showP90={showP90}
                   />
                 ))}
               </tbody>

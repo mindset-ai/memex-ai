@@ -312,6 +312,60 @@ describe('CostPanelCard — dec-10: a row too thin for a percentile', () => {
     render(<CostPanelCard data={acrossTheFloor()} />);
     // A bare <td> announces nothing to a screen reader, and "missing" and
     // "deliberately withheld" are the same experience. The reason is text.
+    const reason = screen.getByText(/too few calls/i);
+    expect(reason).toBeTruthy();
+
+    // The string being in the DOM is NOT the claim — testing-library ignores
+    // CSS, so `getByText` would find it inside an aria-hidden subtree just as
+    // happily. What ac-27 promises is that a screen reader REACHES it, so
+    // assert the two halves carry opposite visibility: the reason is spoken and
+    // the dash is not. Without this the test passes on markup no reader hears.
+    expect(reason.closest('[aria-hidden="true"]')).toBeNull();
+    const dash = screen.getByText('—');
+    expect(dash.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('draws no p90 column at all when NO row clears the floor', () => {
+    tagAc(AC(28));
+    // The state a young Memex actually lives in: enough total calls for the
+    // panel to show figures, no single operation near the floor. This is the
+    // dogfood card as measured on prod 2026-09-09 — twelve operations, the
+    // busiest at n=2 — where a p90 header would have stood over twelve em
+    // dashes for weeks.
+    const allThin: CostPanelResponse = {
+      available: true,
+      windowDays: 30,
+      totals: { calls: 3, totalChars: 30_000, guidanceChars: 9_000 },
+      operations: [1, 1, 1].map((calls, i) => ({
+        tool: `thin_tool_${i}`,
+        verb: null,
+        calls,
+        medianChars: 10_000,
+        p90Chars: 10_000,
+        guidanceChars: 3_000,
+        totalChars: 10_000,
+      })),
+    };
+    render(<CostPanelCard data={allThin} />);
+
+    // The table is drawn — this is not the not-enough-activity state.
+    expect(screen.getByRole('columnheader', { name: /median/i })).toBeTruthy();
+    expect(screen.getByText('thin_tool_0')).toBeTruthy();
+
+    // But no p90 header, and no withheld-cell dashes either: an absent column
+    // needs no per-row apology.
+    expect(screen.queryByRole('columnheader', { name: /p90/i })).toBeNull();
+    expect(screen.queryByText(/too few calls/i)).toBeNull();
+  });
+
+  it('brings the column back as soon as one row earns it', () => {
+    tagAc(AC(28));
+    // The other direction, because a gate that never opens is the same bug as
+    // one that never closes. `acrossTheFloor` has exactly one qualifying row.
+    render(<CostPanelCard data={acrossTheFloor()} />);
+    expect(screen.getByRole('columnheader', { name: /p90/i })).toBeTruthy();
+    // And the thin row beside it is withheld rather than dropped from view.
+    expect(screen.getByText('update_doc')).toBeTruthy();
     expect(screen.getByText(/too few calls/i)).toBeTruthy();
   });
 });
