@@ -38,6 +38,19 @@
 // keeps holding — it asserts the response an agent reads, not the registry.
 // ───────────────────────────────────────────────────────────────────────────
 //
+// ONE FINDING THAT CHANGED THIS TEST, recorded because the first version of it
+// was green and wrong. It asserted the plain affirmative claim ("Code-grounding
+// affirmed by agent.") on the grounded side of both mutating tools, and passed
+// — but only because the fixture stamped `grounded_at` 60 SECONDS INTO THE
+// FUTURE. `ground_spec` stamps `now()`, so production cannot order it that way,
+// and both tools here mutate the very rows staleness is derived from. With a
+// realistic past `grounded_at` the responses render the STALE claim, which is
+// also the honest answer: you just moved a decision, so re-check. The
+// assertions now follow the reachable paths — stale for the mutating tools,
+// the clean affirmative through `get_doc`, which mutates nothing. On a Spec
+// whose subject is "no response asserts something untrue", pinning a string no
+// agent can ever see would have been precisely the wrong thing to ship.
+//
 // ON "WATCHED FAIL, THEN PASS": the implementation landed in t-3/t-5, so this
 // cannot be watched red against unfixed code. Red-CAPABILITY was proven instead
 // by mutation, and this records the exact one that was run rather than a
@@ -73,6 +86,10 @@ const UNGROUNDED_PUSH = /No code-grounding on this Spec/;
 const GROUNDED_CLAIM = /Code-grounding affirmed by agent/;
 const HEADER_VERIFIED = /Code-grounding: verified by /;
 const HEADER_NONE = /Code-grounding: none —/;
+// The stale pair. These are what a MUTATING tool on a grounded Spec actually
+// renders — see the fixture note on `specWithDecision`.
+const STALE_CLAIM = /Treat the grounding as out of date/;
+const HEADER_STALE = /Code-grounding: verified by .*, but decisions or acceptance criteria changed since/;
 // The state-INDEPENDENT ask. spec-424 depends on this surviving in BOTH
 // directions: it is the specify→build gate prompt, not a claim about this Spec.
 // If a future "fix" suppresses the push globally, this is what it would take
@@ -145,10 +162,28 @@ const textOf = (res: ToolResult) => res.content.map((c) => c.text).join("\n");
  *
  * `grounded` writes the real spec-409 columns rather than stubbing a derived
  * value — `groundedStale` is DERIVED per read from `grounded_at` vs the
- * decisions'/ACs' `updated_at`, so a stub would prove nothing about the
- * derivation this Spec depends on. `grounded_at` is set well in the future
- * relative to the rows so the fresh-grounding branch is the one exercised
- * (staleness has its own coverage in the shared guards).
+ * decisions'/ACs' timestamps, so a stub would prove nothing about the
+ * derivation this Spec depends on.
+ *
+ * `grounded_at` IS IN THE PAST, because that is the only ordering production
+ * can produce: `ground_spec` stamps `now()`, so by the time any later tool call
+ * runs, the grounding is already older than anything that call touches.
+ *
+ * That ordering has a consequence worth stating, because an earlier version of
+ * this test hid it. `isGroundingStale` reds when a decision's `resolved_at` (or
+ * `created_at`), or an AC's `updated_at`, is newer than `grounded_at`. Both
+ * tools under test here MUTATE exactly those rows: `resolve_decision` stamps
+ * `resolved_at = now()`, `create_ac` inserts a row. So on a grounded Spec these
+ * two tools ALWAYS derive `grounded_stale` — the plain affirmative claim is
+ * structurally unreachable through them, and asserting it required shifting
+ * `grounded_at` 60s into the FUTURE, an ordering `ground_spec` cannot create.
+ *
+ * That shift is gone. The stale claim is asserted for the mutating tools, and
+ * the fresh-grounded branch is asserted through `get_doc`, which mutates
+ * nothing and is therefore where production can actually reach it. On a Spec
+ * whose whole subject is "no response asserts something untrue", a green test
+ * pinning a string no agent can ever see would have been the wrong thing to
+ * ship.
  */
 async function specWithDecision(title: string, grounded: boolean) {
   const doc = await createDocDraft(actor.memexId, title, "Purpose.", "spec");
@@ -160,8 +195,7 @@ async function specWithDecision(title: string, grounded: boolean) {
         ? {
             status: "specify",
             groundedInCode: true,
-            // Ahead of every child row's updated_at ⇒ derives NOT stale.
-            groundedAt: new Date(Date.now() + 60_000),
+            groundedAt: new Date(Date.now() - 60_000),
             groundedByName: "A. Reviewer",
             groundedByUserId: actor.user.id,
           }
@@ -215,16 +249,26 @@ describe("spec-542 ac-4 — the grounding push carries state the agent can act o
       }),
     );
 
-    // ── Direction 1: the grounded Spec is told it IS grounded, by whom, when.
+    // ── Direction 1: the grounded Spec is NOT told it has no code-grounding.
+    // This is the load-bearing half for ac-4 — the false negative is what makes
+    // spec-424's push land on work already done.
     expect(
       groundedOut,
       "a grounded Spec resolving a decision is still being told it has no code-grounding — " +
         "this is the wasted re-grounding spec-424 would amplify",
     ).not.toMatch(UNGROUNDED_PUSH);
-    expect(groundedOut, "the grounded claim never reached the response").toMatch(GROUNDED_CLAIM);
-    expect(groundedOut, "the header does not name who grounded it or when").toMatch(
-      HEADER_VERIFIED,
-    );
+
+    // What it IS told: grounded, by whom, when — and that this very resolution
+    // moved a decision, so the grounding needs re-checking. Not the plain
+    // affirmative: that branch is unreachable through a mutating tool (see the
+    // fixture note), and ac-4 asks what the agent can ACT on, which this is.
+    expect(groundedOut, "the stale claim never reached the response").toMatch(STALE_CLAIM);
+    expect(groundedOut, "the header does not name who grounded it or when").toMatch(HEADER_STALE);
+    expect(
+      groundedOut,
+      "the plain affirmative appeared on a Spec whose decision was just re-resolved — " +
+        "that would be the same false claim as the original defect, inverted",
+    ).not.toMatch(GROUNDED_CLAIM);
 
     // ── Direction 2: the ungrounded Spec still gets pushed. Not suppressed.
     expect(
@@ -288,7 +332,10 @@ describe("spec-542 ac-4 — the grounding push carries state the agent can act o
       groundedOut,
       'create_ac on a grounded Spec still pushes it to re-ground',
     ).not.toMatch(UNGROUNDED_PUSH);
-    expect(groundedOut, 'the grounded claim never reached create_ac').toMatch(GROUNDED_CLAIM);
+    // Stale, for the same structural reason as resolve_decision: the inserted
+    // AC's `updated_at` is newer than `grounded_at` by construction.
+    expect(groundedOut, 'the stale claim never reached create_ac').toMatch(STALE_CLAIM);
+    expect(groundedOut).not.toMatch(GROUNDED_CLAIM);
 
     // ── Direction 2: ungrounded ⇒ the push still lands. Not suppressed.
     expect(
@@ -305,7 +352,7 @@ describe("spec-542 ac-4 — the grounding push carries state the agent can act o
     // handler does not render doc state. If create_ac ever starts calling
     // formatState, this reds and the comment above needs revisiting.
     expect(groundedOut, 'create_ac now renders the doc-state header — see the note above').not.toMatch(
-      HEADER_VERIFIED,
+      HEADER_STALE,
     );
     expect(ungroundedOut).not.toMatch(HEADER_NONE);
 
@@ -313,6 +360,49 @@ describe("spec-542 ac-4 — the grounding push carries state the agent can act o
       groundedOut === ungroundedOut,
       'grounded and ungrounded create_ac responses were byte-identical',
     ).toBe(false);
+  });
+
+  // ── The fresh-grounded branch, at a tool that can actually produce it ────
+  // The two tools above mutate the rows staleness is derived from, so they can
+  // never leave a Spec plainly grounded. `get_doc` mutates nothing — it is
+  // where an agent actually reads a clean affirmative, so that is where the
+  // branch is asserted rather than being manufactured with a fixture that
+  // orders `grounded_at` after its own decisions.
+  //
+  // This keeps ac-4 honest in both directions: the affirmative prose IS
+  // reachable (spec-409 shipped it and spec-542 connected it), just not through
+  // a call that changes the thing the grounding was checked against.
+  it("get_doc on a grounded, unmutated Spec reads the plain affirmative", async () => {
+    tagAc(AC(4));
+
+    const doc = await createDocDraft(actor.memexId, "Untouched Grounded Spec", "Purpose.", "spec");
+    created.docs.push(doc.id);
+    // Grounded AFTER the doc's own rows settled, and nothing touched since —
+    // the one shape that derives NOT stale in production.
+    await db
+      .update(documents)
+      .set({
+        status: "specify",
+        groundedInCode: true,
+        groundedAt: new Date(),
+        groundedByName: "A. Reviewer",
+        groundedByUserId: actor.user.id,
+      })
+      .where(eq(documents.id, doc.id));
+
+    const out = textOf(
+      await callTool(actor.user.id, "get_doc", {
+        ref: `${actor.nsSlug}/main/specs/${doc.handle}`,
+        verbose: true,
+      }),
+    );
+
+    expect(out, "the affirmative claim is unreachable even here").toMatch(GROUNDED_CLAIM);
+    expect(out, "the header does not report a clean verification").toMatch(HEADER_VERIFIED);
+    expect(out, "a grounded, untouched Spec is being told it has no grounding").not.toMatch(
+      UNGROUNDED_PUSH,
+    );
+    expect(out, "an untouched grounding is being reported as stale").not.toMatch(STALE_CLAIM);
   });
 
   // ── The drift finding, asserted so it cannot rot ─────────────────────────
