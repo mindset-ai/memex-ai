@@ -8,6 +8,12 @@
 //   the median and 11,700 at p90 — a factor of seven on one operation. A single
 //   number per row tells most readers something false about their own usage.
 //
+//   ...BUT ONLY WHERE A P90 MEANS SOMETHING (dec-10, ac-23/ac-24). The first
+//   real prod read showed ten of twelve rows at n=1, each printing a median and
+//   a p90 that were the same observation under two headers. Below
+//   MIN_CALLS_FOR_P90 the cell is withheld, because a column header a reader
+//   has to discount per row is a header that has stopped working.
+//
 //   EVERY FIGURE COMES FROM THE RESPONSE (ac-10), the window included. A
 //   literal here is a number that stops being true with nothing detecting it —
 //   which is the whole argument dec-3 settled.
@@ -40,6 +46,24 @@ import { useChartPalette } from './theme';
  * card measures; the rule is the page's.
  */
 export const MIN_CALLS_FOR_FIGURES = 3;
+
+/**
+ * Below this many calls on ONE OPERATION, that row's p90 is withheld (dec-10).
+ *
+ * Not a rounder version of the constant above — a different claim. The panel
+ * gate asks "does this Memex have enough traffic to show figures at all?"; this
+ * asks "does this ROW have enough calls for a 90th percentile to be a statement
+ * about variability?" Ten is where the answer turns: below it no observation
+ * actually falls in the top decile, so `percentile_cont` is interpolating
+ * between the last two values whatever the data does. A p90 there is arithmetic
+ * wearing a statistic's label.
+ *
+ * A plain constant, deliberately. spec-458 dec-1 made its honesty floor
+ * env-tunable; the sibling threshold in this very file is a constant, and
+ * consistency with the file a reader is looking at beats consistency with
+ * another Spec's deployment surface.
+ */
+export const MIN_CALLS_FOR_P90 = 10;
 
 function pct(part: number, whole: number): number {
   if (whole <= 0) return 0;
@@ -80,7 +104,21 @@ function OperationRow({ op, guidanceHue, track }: RowProps): React.ReactElement 
         <span className="ml-2 text-[11px] text-muted">{fmt(op.medianChars)} ch</span>
       </td>
       <td className="py-2 text-right font-mono tabular-nums text-secondary">
-        {approxTokens(op.p90Chars)}
+        {op.calls >= MIN_CALLS_FOR_P90 ? (
+          approxTokens(op.p90Chars)
+        ) : (
+          <>
+            {/* An em dash reads as "deliberately nothing" where a blank reads
+                as broken. The WHY is the call count already on this row, so
+                nothing new is asserted — but a sighted reader gets it from the
+                Calls column and a screen reader gets nothing, hence the
+                spoken-only reason beside it (dec-10, ac-27). */}
+            <span aria-hidden="true" className="text-muted">
+              &mdash;
+            </span>
+            <span className="sr-only">Too few calls for a p90</span>
+          </>
+        )}
       </td>
       <td className="py-2 pl-4">
         <span className="flex items-center justify-end gap-2">

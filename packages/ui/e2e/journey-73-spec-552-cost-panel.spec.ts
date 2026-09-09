@@ -10,6 +10,10 @@
 //          per operation, with a median and a p90 rather than one average.
 //   ac-3 — the figures are computed, not authored: nothing is seeded into the
 //          card, and the numbers appear only because tool calls happened.
+//   ac-23/ac-24 — a per-operation p90 appears only where the row has enough
+//          calls to support one, and is withheld with a stated reason where it
+//          does not. Both sides come from real traffic at two volumes, so the
+//          threshold is exercised end to end rather than mocked.
 //
 // SEEDING IS REAL TRAFFIC, not fixture rows. The journey drives actual MCP
 // tool calls at `/mcp` (the same shape journey-20 uses), so `mcp_tool_calls`
@@ -40,6 +44,8 @@ const ACS = [
   "mindset-prod/memex-building-itself/specs/spec-552/acs/ac-1",
   "mindset-prod/memex-building-itself/specs/spec-552/acs/ac-2",
   "mindset-prod/memex-building-itself/specs/spec-552/acs/ac-3",
+  "mindset-prod/memex-building-itself/specs/spec-552/acs/ac-23",
+  "mindset-prod/memex-building-itself/specs/spec-552/acs/ac-24",
 ];
 
 const DEV_MCP_BEARER = "mxt_DEV_LOCAL_ONLY_NEVER_PRODUCTION";
@@ -98,12 +104,26 @@ test("the cost card reports real MCP traffic, per operation, with a median and a
   });
   const specRef = `${tenant.namespaceSlug}/${tenant.memexSlug}/specs/${spec.handle}`;
 
-  // ── 2. REAL traffic. Four calls clears MIN_CALLS_FOR_FIGURES (3) with room,
-  //      and get_doc responses carry the platform footer — which is what makes
-  //      the guidance share on screen a measurement rather than a constant.
-  for (let i = 0; i < 4; i += 1) {
+  // ── 2. REAL traffic, ACROSS THE P90 FLOOR (dec-10) ────────────────────────
+  //      Two operations at different volumes, so one row earns a p90 and the
+  //      other is withheld — the threshold proved on the production path, not
+  //      simulated from a fixture.
+  //
+  //      Ten get_doc calls clear MIN_CALLS_FOR_P90; get_doc responses also
+  //      carry the platform footer, which is what makes the guidance share on
+  //      screen a measurement rather than a constant.
+  //      ONE list_tasks call sits below the floor.
+  //      Eleven calls together clear MIN_CALLS_FOR_FIGURES (3) with room.
+  //
+  //      The literal 10 is deliberate here, and it is NOT the duplication
+  //      ac-25 forbids: an e2e file cannot import a React module, and a
+  //      mismatch with the constant reds this run loudly. What ac-25 protects
+  //      against is a test that stays GREEN on the wrong side of the
+  //      threshold, which is a unit-test hazard, not this one.
+  for (let i = 0; i < 10; i += 1) {
     await mcpToolCall(request, "get_doc", { ref: specRef });
   }
+  await mcpToolCall(request, "list_tasks", { ref: specRef });
 
   // ── 3. The card, on the page a member actually visits ─────────────────────
   await page.goto(`/${tenant.namespaceSlug}/${tenant.memexSlug}/insights`);
@@ -117,9 +137,21 @@ test("the cost card reports real MCP traffic, per operation, with a median and a
   // Per-operation rows, and the operation named is the one we really called.
   await expect(page.getByText("get_doc").first()).toBeVisible();
 
-  // Median AND p90 — never one number standing in for both (ac-2).
-  await expect(page.getByText("Median", { exact: false }).first()).toBeVisible();
-  await expect(page.getByText("p90", { exact: false }).first()).toBeVisible();
+  // Median AND p90 — never one number standing in for both (ac-2). Asserted on
+  // the column HEADERS by role: `getByText("p90").first()` matched the header
+  // and would have stayed green with every value cell withheld — green for the
+  // wrong reason, which is the failure this whole Spec keeps meeting.
+  await expect(
+    page.getByRole("columnheader", { name: /median/i })
+  ).toBeVisible();
+  await expect(page.getByRole("columnheader", { name: /p90/i })).toBeVisible();
+
+  // dec-10, both sides, from real traffic (ac-23 / ac-24):
+  //   the 10-call row earns its p90, and the 1-call row is told it cannot.
+  // The withheld cell's reason is spoken-only, so it is found by text, not
+  // sight — exactly how a screen-reader user meets it.
+  await expect(page.getByText(/too few calls for a p90/i)).toHaveCount(1);
+  await expect(page.getByText("list_tasks").first()).toBeVisible();
 
   // Token figures are marked as estimates, and the characters behind them are
   // on the row so a reader can recompute.
