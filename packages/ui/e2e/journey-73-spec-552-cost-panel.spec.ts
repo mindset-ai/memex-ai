@@ -14,6 +14,11 @@
 //          calls to support one, and is withheld with a stated reason where it
 //          does not. Both sides come from real traffic at two volumes, so the
 //          threshold is exercised end to end rather than mocked.
+//   ac-28 — and the column itself is only drawn because one row earns it. The
+//          all-thin case (no column at all) is a component-tier test: it needs
+//          a payload where every row is below the floor, which would mean
+//          seeding no operation above it — and then the mixed case, which is
+//          the one a real Memex reaches, would go uncovered here.
 //
 // SEEDING IS REAL TRAFFIC, not fixture rows. The journey drives actual MCP
 // tool calls at `/mcp` (the same shape journey-20 uses), so `mcp_tool_calls`
@@ -46,6 +51,7 @@ const ACS = [
   "mindset-prod/memex-building-itself/specs/spec-552/acs/ac-3",
   "mindset-prod/memex-building-itself/specs/spec-552/acs/ac-23",
   "mindset-prod/memex-building-itself/specs/spec-552/acs/ac-24",
+  "mindset-prod/memex-building-itself/specs/spec-552/acs/ac-28",
 ];
 
 const DEV_MCP_BEARER = "mxt_DEV_LOCAL_ONLY_NEVER_PRODUCTION";
@@ -146,10 +152,19 @@ test("the cost card reports real MCP traffic, per operation, with a median and a
   ).toBeVisible();
   await expect(page.getByRole("columnheader", { name: /p90/i })).toBeVisible();
 
-  // dec-10, both sides, from real traffic (ac-23 / ac-24):
-  //   the 10-call row earns its p90, and the 1-call row is told it cannot.
-  // The withheld cell's reason is spoken-only, so it is found by text, not
-  // sight — exactly how a screen-reader user meets it.
+  // dec-10, both sides, from real traffic (ac-23 / ac-24 / ac-28):
+  //   the 10-call row earns its p90 — which is also what puts the header above
+  //   on screen at all, since ac-28 drops the whole column when no row does —
+  //   and the 1-call row is told it cannot. The withheld cell's reason is
+  //   spoken-only, so it is found by text rather than by sight, which is
+  //   exactly how a screen-reader user meets it.
+  //
+  // ⚠ THE COUNT ENCODES THE SEEDING. `toHaveCount(1)` holds because exactly ONE
+  // seeded operation sits below the floor. Seed a third tool thinly and this
+  // fails on the count rather than on anything meaningful — so change the
+  // number here in the same edit, or assert a range. Deliberately exact rather
+  // than `>= 1`: a range would also pass if the qualifying row were withheld
+  // too, which is the regression worth catching.
   await expect(page.getByText(/too few calls for a p90/i)).toHaveCount(1);
   await expect(page.getByText("list_tasks").first()).toBeVisible();
 
