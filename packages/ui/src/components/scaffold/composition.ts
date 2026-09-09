@@ -17,6 +17,7 @@ import {
   toRubric,
   type GuidanceBlock,
   type GuidanceEmphasis,
+  type GroundingState,
   type Phase,
   type ScaffoldDataset,
   type Transition,
@@ -61,17 +62,27 @@ function baseSegment(block: GuidanceBlock): ComposedSegment {
 }
 
 /** Mirror of `matchesNudgeTarget` (scaffold-model.ts) — a target matches a
- *  (tool, phase) context when every present dimension equals the context; an
- *  absent dimension is a wildcard. transition/button targets ride other
- *  channels and never match a nudge. */
+ *  (tool, phase, grounding) context when every present dimension equals the
+ *  context; an absent dimension is a wildcard. transition/button targets ride
+ *  other channels and never match a nudge.
+ *
+ *  spec-542: `grounding` was added to the original and this mirror went stale,
+ *  which the ac-8 fidelity guard caught — this surface composed all three
+ *  mutually exclusive grounding claims at once while `toNudge` composed none.
+ *  That is what a stale mirror looks like, so the clause is kept in the SAME
+ *  SHAPE and SAME POSITION as the two above it rather than special-cased: this
+ *  surface passes no grounding state (it renders the Scaffold, not a live doc
+ *  read), so every grounding-targeted block correctly drops out — and it does
+ *  so by the same rule the server uses, not by a rule that happens to agree. */
 function matchesNudge(
   target: GuidanceBlock['target'],
-  ctx: { tool?: string; phase?: Phase },
+  ctx: { tool?: string; phase?: Phase; grounding?: GroundingState },
 ): boolean {
   if (target.transition !== undefined) return false;
   if (target.button !== undefined) return false;
   if (target.phase !== undefined && target.phase !== ctx.phase) return false;
   if (target.tool !== undefined && target.tool !== ctx.tool) return false;
+  if (target.grounding !== undefined && target.grounding !== ctx.grounding) return false;
   return true;
 }
 

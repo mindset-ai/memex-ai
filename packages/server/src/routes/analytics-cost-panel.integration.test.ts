@@ -230,6 +230,33 @@ describe("GET /analytics/cost-panel — a member of an allowlisted Memex", () =>
     expect(row.medianChars).toBe(2000);
   });
 
+  it("returns p90Chars on a single-call row too — the display gates, not the API", async () => {
+    tagAc(AC(26));
+    openTo(memberSlug);
+    // dec-10 withholds a thin row's p90 IN THE CARD. The temptation once that
+    // ships is to "finish the job" server-side and null the column here, which
+    // would break spec-458 dec-5 — the endpoint always returns the truth, and
+    // display gating is a page concern. It would also silently disarm the UI
+    // test: a card asked to hide a value it never receives would pass for the
+    // wrong reason.
+    await seedCall({
+      memexId: memberMemexId,
+      toolName: "lonely_tool",
+      resultLen: 4242,
+      footerLen: 42,
+    });
+
+    const res = await app.request(pathFor(memberSlug), withApexHost());
+    const body = await res.json();
+    const row = body.operations.find(
+      (o: { tool: string }) => o.tool === "lonely_tool"
+    );
+    expect(row.calls).toBe(1);
+    // Present, numeric, and equal to the only observation there is.
+    expect(row.p90Chars).toBe(4242);
+    expect(row.medianChars).toBe(4242);
+  });
+
   it("groups on (tool, verb): NULL verbs collapse, distinct verbs split", async () => {
     tagAc(AC(14));
     openTo(memberSlug);

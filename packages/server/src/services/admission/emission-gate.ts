@@ -120,12 +120,23 @@ export type Acquisition =
 export type GateMode = "shadow" | "enforcing";
 
 /**
- * SHADOW, deliberately.
+ * SHADOW, deliberately — and since dec-8, PERMANENTLY.
  *
- * t-6 must wire `MEMEX_EMISSION_GATE_MODE` into both `deploy.sh` and the canonical
- * `memex-<env>-deploy-env` secret. Miss either edit and prod silently takes this default —
- * so the default has to be the direction that under-protects rather than the one that
- * enforces limits nobody has measured yet. An unrecognised value falls here too.
+ * t-6 wires `MEMEX_EMISSION_GATE_MODE` into both `deploy.sh` and the canonical
+ * `memex-<env>-deploy-env` secret (both environments declare `shadow` explicitly today,
+ * read off the serving revisions 2026-09-09). Miss either edit and an environment
+ * silently takes this default — so the default has to be the direction that
+ * under-protects rather than the one that enforces limits nobody has measured. An
+ * unrecognised value falls here too.
+ *
+ * dec-8 changed what that means. Shadow is no longer the first stage of a rollout whose
+ * second stage is enforcement: enforcement is DECLINED. spec-332 dec-2's transaction-mode
+ * pooling dissolves the connection scarcity the requests term was derived from, and the
+ * events term — which bounds heap, and which no pooler touches — sits ~2-3x below c-18's
+ * danger threshold on concurrency and ~60x below it on batch size. So this constant is
+ * the decided posture, not a waypoint, and `enforcing` is not a state this system is
+ * travelling toward. The post-deploy smoke asserts the SERVED mode against that decision
+ * (ac-29) rather than trusting this default to hold.
  */
 export const DEFAULT_GATE_MODE: GateMode = "shadow";
 

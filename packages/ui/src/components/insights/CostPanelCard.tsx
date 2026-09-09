@@ -8,6 +8,12 @@
 //   the median and 11,700 at p90 — a factor of seven on one operation. A single
 //   number per row tells most readers something false about their own usage.
 //
+//   ...BUT ONLY WHERE A P90 MEANS SOMETHING (dec-10, ac-23/ac-24). The first
+//   real prod read showed ten of twelve rows at n=1, each printing a median and
+//   a p90 that were the same observation under two headers. Below
+//   MIN_CALLS_FOR_P90 the cell is withheld, because a column header a reader
+//   has to discount per row is a header that has stopped working.
+//
 //   EVERY FIGURE COMES FROM THE RESPONSE (ac-10), the window included. A
 //   literal here is a number that stops being true with nothing detecting it —
 //   which is the whole argument dec-3 settled.
@@ -41,6 +47,42 @@ import { useChartPalette } from './theme';
  */
 export const MIN_CALLS_FOR_FIGURES = 3;
 
+/**
+ * Below this many calls on ONE OPERATION, that row's p90 is withheld (dec-10).
+ *
+ * Not a rounder version of the constant above — a different claim. The panel
+ * gate asks "does this Memex have enough traffic to show figures at all?"; this
+ * asks "does this ROW have enough calls for a 90th percentile to be a statement
+ * about variability?" Ten is where the answer turns: below it no observation
+ * actually falls in the top decile, so `percentile_cont` is interpolating
+ * between the last two values whatever the data does. A p90 there is arithmetic
+ * wearing a statistic's label.
+ *
+ * A plain constant, deliberately. spec-458 dec-1 made its honesty floor
+ * env-tunable; the sibling threshold in this very file is a constant, and
+ * consistency with the file a reader is looking at beats consistency with
+ * another Spec's deployment surface.
+ */
+export const MIN_CALLS_FOR_P90 = 10;
+
+/**
+ * Does ANY row have enough calls to carry a p90? If not, the column is not
+ * drawn at all — no header, no cells (dec-10, owner's call 2026-09-09).
+ *
+ * Withholding a cell is right; leaving a header standing over nothing but em
+ * dashes for its whole height is not. A young Memex has every row below the
+ * floor, so that is the state it would live in for weeks — and the first thing
+ * a reader does with an empty column is wonder what broke. The column comes
+ * back on its own the day one operation reaches the floor.
+ *
+ * This does not weaken ac-2's median-AND-p90 commitment: the p90 is computed,
+ * returned by the API for every row, and shown wherever it can mean something.
+ * What is gated is drawing a header for a statistic nothing on screen has.
+ */
+function anyRowEarnsP90(operations: readonly CostPanelOperation[]): boolean {
+  return operations.some((op) => op.calls >= MIN_CALLS_FOR_P90);
+}
+
 function pct(part: number, whole: number): number {
   if (whole <= 0) return 0;
   return Math.round((part / whole) * 100);
@@ -59,9 +101,11 @@ interface RowProps {
   op: CostPanelOperation;
   guidanceHue: string;
   track: string;
+  /** Whether the table is drawing a p90 column at all (see anyRowEarnsP90). */
+  showP90: boolean;
 }
 
-function OperationRow({ op, guidanceHue, track }: RowProps): React.ReactElement {
+function OperationRow({ op, guidanceHue, track, showP90 }: RowProps): React.ReactElement {
   const share = pct(op.guidanceChars, op.totalChars);
   // The high-guidance rows are the actionable ones — those are ours to cut, and
   // spec-510 is the work that cuts them. Emphasis puts them in the eye-line.
@@ -79,9 +123,29 @@ function OperationRow({ op, guidanceHue, track }: RowProps): React.ReactElement 
         {/* The measured number, beside the derived one (ac-13). */}
         <span className="ml-2 text-[11px] text-muted">{fmt(op.medianChars)} ch</span>
       </td>
-      <td className="py-2 text-right font-mono tabular-nums text-secondary">
-        {approxTokens(op.p90Chars)}
-      </td>
+      {showP90 && (
+        <td className="py-2 text-right font-mono tabular-nums text-secondary">
+          {op.calls >= MIN_CALLS_FOR_P90 ? (
+            approxTokens(op.p90Chars)
+          ) : (
+            <>
+              {/* An em dash reads as "deliberately nothing" where a blank reads
+                  as broken. The WHY is the call count already on this row, so
+                  nothing new is asserted — but a sighted reader gets it from the
+                  Calls column and a screen reader gets nothing, hence the
+                  spoken-only reason beside it (dec-10, ac-27).
+
+                  The dash is aria-hidden and the reason is not: a reader who
+                  can see the dash needs no sentence, and a reader who cannot
+                  needs the sentence and not a dash announced as "em dash". */}
+              <span aria-hidden="true" className="text-muted">
+                &mdash;
+              </span>
+              <span className="sr-only">Too few calls for a p90</span>
+            </>
+          )}
+        </td>
+      )}
       <td className="py-2 pl-4">
         <span className="flex items-center justify-end gap-2">
           <span
@@ -120,6 +184,7 @@ export function CostPanelCard({ data }: { data: CostPanelResponse }): React.Reac
   const { windowDays, totals, operations } = data;
   const guidanceShare = pct(totals.guidanceChars, totals.totalChars);
   const answerShare = 100 - guidanceShare;
+  const showP90 = anyRowEarnsP90(operations);
 
   return (
     <div className="p-5 bg-panel border border-edge rounded-lg">
@@ -216,7 +281,9 @@ export function CostPanelCard({ data }: { data: CostPanelResponse }): React.Reac
                   <th className="text-left pb-2 border-b border-edge">Operation</th>
                   <th className="text-right pb-2 border-b border-edge">Calls</th>
                   <th className="text-right pb-2 border-b border-edge">Median</th>
-                  <th className="text-right pb-2 border-b border-edge">p90</th>
+                  {showP90 && (
+                    <th className="text-right pb-2 border-b border-edge">p90</th>
+                  )}
                   <th className="text-right pb-2 pl-4 border-b border-edge">
                     Guidance
                   </th>
@@ -229,6 +296,7 @@ export function CostPanelCard({ data }: { data: CostPanelResponse }): React.Reac
                     op={op}
                     guidanceHue={guidanceHue}
                     track={palette.verification.untested}
+                    showP90={showP90}
                   />
                 ))}
               </tbody>

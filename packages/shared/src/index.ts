@@ -60,6 +60,10 @@ export type {
   GuidanceSource,
   GuidanceEmphasis,
   GuidanceTarget,
+  // spec-542: the server derives this from the doc and passes it to `toNudge`
+  // at both call sites in `formatting/formatters.ts` (t-4), so it has to cross
+  // the package boundary.
+  GroundingState,
   ScaffoldDataset,
   SystemBlock,
   ToolDefinition,
@@ -82,6 +86,11 @@ export {
   // adding the const to scaffold-data.ts alone leaves it `undefined` at the
   // import site, with no build error to say so.
   SENSITIVE_WARNING_PROSE,
+  // spec-542 ac-1: the code-grounding header line, consumed by the same MCP
+  // header formatter. Named here for the same reason stated just above — and
+  // that reason was verified rather than trusted: CODE_GROUNDING_HEADER_PROSE
+  // is present in the built dist/index.d.ts.
+  CODE_GROUNDING_HEADER_PROSE,
   GET_PROMPT_PROSE,
   // spec-464 dec-24: the phase-gating teaching catalog (prose home, std-15).
   PHASE_GATING_CATALOG,

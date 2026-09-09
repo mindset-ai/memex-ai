@@ -612,11 +612,67 @@ const BASE_CODE_GROUNDING: PromptBlockNode = {
   kind: 'prompt_block',
   id: 'code-grounding',
   surface: 'shared_nudge',
+  // spec-542: the PROMPT half only. It used to carry the `nudge:not_verified`
+  // warning fused onto the end, and BASE_GUIDANCE registered the fused string
+  // with `target: {}` — so every Spec, grounded or not, was told it had no
+  // code-grounding. The condition lived INSIDE the sentence ('If unverified:')
+  // rather than being evaluated, which is why a grounded Spec and an ungrounded
+  // one emitted byte-identical text. The ask below is state-independent and
+  // stays globally targeted; the state-keyed siblings carry the claim.
   text:
-    'Is this Spec\'s scope code-touching (does any resolved decision name code shape — files, symbols, schema, routes)? If yes, have the resolved decisions been verified against current source? Call assess_spec again with `codeGrounding` set to one of: `not_applicable`, `verified`, or `not_verified`.\n\n' +
-    'If unverified: ⚠ No code-grounding on this Spec. If you\'re driving from a coding agent, walk the resolved decisions against current source before transitioning. Build transition is not blocked.',
+    'Is this Spec\'s scope code-touching (does any resolved decision name code shape — files, symbols, schema, routes)? If yes, have the resolved decisions been verified against current source? Call assess_spec again with `codeGrounding` set to one of: `not_applicable`, `verified`, or `not_verified`.',
   rationale:
-    'Code-grounding self-classification prompt for the doc-27 flow. Both agents face the same specify→build gate and should self-classify the same way. Mirrors the `prompt` + `nudge:not_verified` sections of `_base/code-grounding.md`.',
+    'Code-grounding self-classification prompt for the doc-27 flow. Both agents face the same specify→build gate and should self-classify the same way. Mirrors the `prompt` section of `_base/code-grounding.md`. spec-542 split the `nudge:*` sections out into per-state siblings.',
+};
+
+// spec-542 t-3 — the state-keyed halves. Prose is lifted VERBATIM from the
+// server-only home (`agent/phases/_base/code-grounding.md`), not paraphrased:
+// std-15 mandates the two homes and they are a hand-maintained copy (dec-3), so
+// a paraphrase would start a fresh divergence of exactly the kind that caused
+// this defect. The lift also drops the 'If unverified:' prefix for free — the
+// markdown home never had it; it appeared only once the halves were fused.
+//
+// WHY THERE IS NO `not_applicable` SIBLING, and why that is not this bug again:
+// `nudge:not_applicable` exists in the markdown home and is deliberately NOT
+// reachable from the footer. That classification is transient to an
+// `assess_spec` call (`CodeGrounding` in `services/phase-assessment.ts`) and is
+// never written to the document — the schema persists a boolean plus
+// timestamps. So the footer cannot know it, and DERIVING it (guessing whether a
+// resolved decision 'names code shape') was considered and rejected: a guess
+// rendered as a statement of fact is the defect class this Spec removes, and it
+// would be worse than the original because it would look authoritative.
+// An unreachable branch WITH a recorded reason is fine; an unreachable branch
+// with NO reason is what caused spec-542. (dec-3)
+const BASE_CODE_GROUNDING_NOT_GROUNDED: PromptBlockNode = {
+  kind: 'prompt_block',
+  id: 'code-grounding-not-grounded',
+  surface: 'shared_nudge',
+  text:
+    '⚠ No code-grounding on this Spec. If you\'re driving from a coding agent, walk the resolved decisions against current source before transitioning. Build transition is not blocked.',
+  rationale:
+    'The ungrounded branch — `nudge:not_verified` of `_base/code-grounding.md`, verbatim. Fires only when the document says the Spec is not grounded, never as the default for a state nobody knows (spec-542 ac-7).',
+};
+
+const BASE_CODE_GROUNDING_GROUNDED: PromptBlockNode = {
+  kind: 'prompt_block',
+  id: 'code-grounding-grounded',
+  surface: 'shared_nudge',
+  text: 'Code-grounding affirmed by agent.',
+  rationale:
+    'The grounded branch — `nudge:verified` of `_base/code-grounding.md`, verbatim. This prose already existed and was unreachable from the footer: spec-409 shipped the flag and the web badge, and the MCP read rendered neither (spec-542 ac-6).',
+};
+
+const BASE_CODE_GROUNDING_STALE: PromptBlockNode = {
+  kind: 'prompt_block',
+  id: 'code-grounding-stale',
+  surface: 'shared_nudge',
+  // The only branch with NEW words: the markdown home has no stale section,
+  // because assess_spec's three-way self-classification has no stale answer.
+  // Portable per std-22 — no paths, no language, no tooling.
+  text:
+    '⚠ This Spec was code-grounded, but decisions or acceptance criteria have changed since. Treat the grounding as out of date: re-check the changed ones against current source before relying on it.',
+  rationale:
+    'The stale branch (spec-542 dec-3 / ac-12). Absent from `_base/code-grounding.md` because staleness is DERIVED at read time rather than self-classified, so assess_spec has no answer for it. This is the case where re-verification is most warranted, and before spec-542 it read identically to a Spec grounded five minutes ago.',
 };
 
 const BASE_STANDARDS_PROTOCOL: PromptBlockNode = {
@@ -1429,7 +1485,47 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
     enabled: true,
     order: 2,
     rationale:
-      'Code-grounding self-classification for the specify→build gate. Globally targeted because both agents face the same gate.',
+      'Code-grounding self-classification for the specify→build gate. Globally targeted because both agents face the same gate, and because the ASK is state-independent — only the claim below it depends on the state.',
+  },
+  // spec-542 — the claim itself, keyed by the state the document actually
+  // persists (dec-3). Exactly one of the three can match any given read, so
+  // they share `order: 2` with the ask they belong to without ever competing:
+  // the ask precedes them by array position under the stable sort ES2019
+  // guarantees, and there is a test pinning that order rather than trusting it.
+  //
+  // A read that resolves no Spec passes no state, and then NONE of these match
+  // — the response makes no grounding claim at all. That fallthrough is the
+  // point: before spec-542 this was one `target: {}` block, so 'nothing known'
+  // was rendered as 'known to be ungrounded' on every read, of every Spec.
+  {
+    kind: 'guidance_block',
+    source: 'base',
+    target: { grounding: 'not_grounded' },
+    text: BASE_CODE_GROUNDING_NOT_GROUNDED.text,
+    enabled: true,
+    order: 2,
+    rationale:
+      'The ungrounded claim. Now fires only when the document says so, instead of on every Spec (spec-542 ac-6).',
+  },
+  {
+    kind: 'guidance_block',
+    source: 'base',
+    target: { grounding: 'grounded' },
+    text: BASE_CODE_GROUNDING_GROUNDED.text,
+    enabled: true,
+    order: 2,
+    rationale:
+      'The grounded claim. Prose that shipped with spec-409 and had no way to reach the MCP reader until now (spec-542 ac-6).',
+  },
+  {
+    kind: 'guidance_block',
+    source: 'base',
+    target: { grounding: 'grounded_stale' },
+    text: BASE_CODE_GROUNDING_STALE.text,
+    enabled: true,
+    order: 2,
+    rationale:
+      'The stale claim — grounded, but decisions or ACs moved since. The branch dec-1 never considered and the product already computed (spec-542 ac-12).',
   },
   {
     kind: 'guidance_block',
@@ -1966,6 +2062,11 @@ const PROMPT_BLOCKS: PromptBlockNode[] = [
   BASE_ABOUT_BRIEF,
   BASE_MUTATION_PROTOCOL,
   BASE_CODE_GROUNDING,
+  // spec-542: the state-keyed halves. `shared_nudge` like their parent, so
+  // `toPromptBlocks` filters them out and they sit in no phase's promptBlockIds.
+  BASE_CODE_GROUNDING_NOT_GROUNDED,
+  BASE_CODE_GROUNDING_GROUNDED,
+  BASE_CODE_GROUNDING_STALE,
   BASE_STANDARDS_PROTOCOL,
   // spec-106 t-2: lens-shape block (shared_nudge — rides the nudge footer).
   SPEC_SHAPE_LENSES,
@@ -2543,6 +2644,48 @@ Walk me through this Spec's CANDIDATE decisions — choices an agent extracted t
 //     ours.
 //   * No noun for the document. "Spec" is our vocabulary, and the flag lives on
 //     the shared documents table, so the copy stays neutral about what it is on.
+/**
+ * spec-542 (ac-1) — the code-grounding HEADER line, for the MCP read.
+ *
+ * Lives here, not in `formatting/formatters.ts`, because agent-facing prose has
+ * one home (std-15) and that file is not on the drift guard's allowlist. The
+ * formatter pushes these as single lines, the way the spec-535 sensitivity
+ * block does.
+ *
+ * Rendered in EVERY state, never signalled by absence — the rule
+ * `Response shape:` states for itself (spec-538 ac-13): a line that appears
+ * only in one state forces the reader to infer the others from silence. Here
+ * that inference is "absence means ungrounded", which is the spec-542 defect
+ * one step quieter.
+ *
+ * WHO is the denormalised `groundedByName` (std-32), stamped at write so a later
+ * rename cannot rewrite history. Each variant has an unattributed twin: dropping
+ * the line when the name is missing would lose the STATE too — and the state is
+ * the part the reader needs — but nobody may be named as if they were somebody.
+ *
+ * Portable per std-22: no paths, no language, no tooling. No apostrophes either,
+ * deliberately — this file is single-quoted TypeScript and an unescaped one
+ * fails the build with a symptom that looks like a stale measurement.
+ */
+export const CODE_GROUNDING_HEADER_PROSE = {
+  /** No agent has verified this Spec against source. */
+  none: 'Code-grounding: none — the resolved decisions have not been checked against current source.',
+  /** Grounded and fresh. */
+  verified: (by: string | null, ago: string): string =>
+    by
+      ? `Code-grounding: verified by ${by} (${ago}).`
+      : `Code-grounding: verified (${ago}), no name recorded.`,
+  /**
+   * Grounded, but a decision or acceptance criterion changed since. The branch
+   * dec-1 did not foresee, and the one where re-checking matters most: before
+   * spec-542 it read identically to a Spec grounded five minutes ago.
+   */
+  stale: (by: string | null, ago: string): string =>
+    by
+      ? `Code-grounding: verified by ${by} (${ago}), but decisions or acceptance criteria changed since — treat it as out of date.`
+      : `Code-grounding: verified (${ago}), no name recorded, but decisions or acceptance criteria changed since — treat it as out of date.`,
+};
+
 export const SENSITIVE_WARNING_PROSE = {
   /** Top and bottom rule — what makes it a block rather than another header line. */
   rule: '⚠ ─────────────────────────────────────────────────────────────',

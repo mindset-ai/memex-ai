@@ -89,7 +89,14 @@ describe('toNudge against BASE_SCAFFOLD — phase-agnostic fallback (ac-25)', ()
       (b) =>
         b.target.phase === undefined &&
         b.target.tool === undefined &&
-        b.target.transition === undefined,
+        b.target.transition === undefined &&
+        // spec-542: `grounding` is a narrowing dimension too, and this call
+        // passes no grounding state. A grounding-targeted block is therefore
+        // NOT global here and MUST be absent — asserting it must appear would
+        // demand the very claim spec-542 removed ("nothing known" rendered as
+        // "known to be ungrounded"). The predicate was written before the
+        // dimension existed; the test's intent is unchanged.
+        b.target.grounding === undefined,
     );
     expect(globalBlocks.length).toBeGreaterThan(0);
     for (const block of globalBlocks) {
@@ -250,7 +257,11 @@ describe('toNudge against BASE_SCAFFOLD — base-first + enabled-Org merge (ac-9
       (b) =>
         (b.target.phase === undefined || b.target.phase === 'build') &&
         b.target.tool === undefined &&
-        b.target.transition === undefined,
+        b.target.transition === undefined &&
+        // spec-542: as above — this call passes no grounding state, so a
+        // grounding-targeted block does not match the context and cannot be
+        // expected in the output.
+        b.target.grounding === undefined,
     );
     expect(matchingBaseBlocks.length).toBeGreaterThan(0);
 
