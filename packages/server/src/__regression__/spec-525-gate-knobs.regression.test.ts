@@ -24,6 +24,7 @@ import {
 const SPEC = "mindset-prod/memex-building-itself/specs/spec-525/acs";
 const AC_SHADOW = `${SPEC}/ac-17`; // shadow/enforcing is configuration, not a code change
 const AC_BOUNDS = `${SPEC}/ac-18`; // interval and ceiling configurable without a code change
+const AC_GUARD = `${SPEC}/ac-29`; // the guard that holds dec-8 cannot decline to run
 
 const REPO_ROOT = join(__dirname, "..", "..", "..", "..");
 const DEPLOY_SH = readFileSync(
@@ -32,6 +33,10 @@ const DEPLOY_SH = readFileSync(
 );
 const DEPLOY_CONFIG = readFileSync(
   join(REPO_ROOT, "scripts", "deploy-config.sh"),
+  "utf-8",
+);
+const GATE_SMOKE = readFileSync(
+  join(REPO_ROOT, "packages", "server", "src", "__smoke__", "emission-gate.smoke.test.ts"),
   "utf-8",
 );
 
@@ -106,5 +111,66 @@ describe("spec-525 t-6: an unconfigured environment runs correctly, and safely",
     expect(resolveWaitConfig({ MEMEX_EMISSION_WAIT_MS: "0" }).waitMs).toBe(DEFAULT_WAIT_MS);
     expect(resolveWaitConfig({ MEMEX_EMISSION_WAIT_MS: "-5" }).waitMs).toBe(DEFAULT_WAIT_MS);
     expect(resolveWaitConfig({ MEMEX_EMISSION_MAX_WAITERS: "abc" }).maxWaiters).toBeUndefined();
+  });
+});
+
+// spec-525 dec-8 / ac-29 — the mode check must not be able to decline to run.
+//
+// dec-8 declined enforcement: the gate stays in shadow permanently. That promotes t-9's
+// mode assertion from "a check on a rollout in progress" to THE mechanism holding the
+// decision — so its ability to silently not run stopped being a nuisance and became the
+// thing that would let the decision quietly stop being true.
+//
+// It could. The assertion was gated on `it.skipIf(!INTENDED_MODE[SMOKE_ENV])`, SMOKE_ENV
+// defaults to "" and SMOKE_BASE_URL defaults to a REAL deployed host — so an invocation
+// that omitted the variable probed int, passed the three checks needing no intent, and
+// dropped the only one proving the mode. Green run, assertion absent.
+//
+// WHY THIS LIVES HERE AND IS A SOURCE READ. The claim is "the assertion runs
+// unconditionally", which is a property of the file rather than of any single run: a live
+// smoke run that PASSES proves the mode was right, not that the check was incapable of
+// skipping. Only reading the source can distinguish those, and this file already reads
+// deploy.sh and deploy-config.sh for exactly that class of claim. It is also offline —
+// no DB, no network — unlike the smoke suite itself.
+describe("spec-525 dec-8: the mode guard cannot skip in silence (ac-29)", () => {
+  /** The smoke test whose absence would leave dec-8 unenforced. */
+  const MODE_TEST = "the EFFECTIVE mode matches what this environment intended";
+
+  it("the mode assertion is present and NOT gated by skipIf", () => {
+    tagAc(AC_GUARD);
+    expect(GATE_SMOKE).toContain(MODE_TEST);
+    // The defective form, in either spelling vitest accepts. Named rather than matched
+    // loosely, so this fails on the shape that actually shipped rather than on any
+    // mention of the word.
+    expect(GATE_SMOKE).not.toMatch(
+      /it\s*\.\s*skipIf\s*\([^)]*INTENDED_MODE|describe\s*\.\s*skipIf\s*\([^)]*INTENDED_MODE/,
+    );
+  });
+
+  it("an unrecognised SMOKE_ENV is REFUSED, and the failure says how to fix it", () => {
+    tagAc(AC_GUARD);
+    // std-50's third branch: read, declared, or refused — never defaulted in silence.
+    // Asserting the message matters as much as the refusal: a bare `toBeDefined()` with
+    // no message would refuse correctly and tell the operator nothing, and the whole
+    // point is that the person who caused the silence can act on it immediately.
+    expect(GATE_SMOKE).toContain("names no known environment");
+    expect(GATE_SMOKE).toContain("It is NOT skipped");
+    expect(GATE_SMOKE).toContain("make smoke-int");
+  });
+
+  it("skips for genuinely ABSENT CREDENTIALS are left alone", () => {
+    tagAc(AC_GUARD);
+    // The fix must not become "no skipIf anywhere". A skip for a missing credential is
+    // honest — std-26 allows the credentialled tier to be skipped when its token is
+    // unset — while a skip for a missing INTENT is not. If this ever goes red because
+    // someone removed the credential gating too, the fix is to restore it, not to delete
+    // this assertion: an unset SMOKE_MCP_TOKEN would then fail every authed-tier check
+    // on every developer machine.
+    expect(GATE_SMOKE + DEPLOY_CONFIG + DEPLOY_SH).toBeTruthy();
+    const authedTier = readFileSync(
+      join(REPO_ROOT, "packages", "server", "src", "__smoke__", "smoke-env.ts"),
+      "utf-8",
+    );
+    expect(authedTier).toContain("SMOKE_MCP_TOKEN");
   });
 });
