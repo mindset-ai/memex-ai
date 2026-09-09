@@ -8,7 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import { tagAc } from '@memex-ai-ac/vitest';
 import { BASE_SCAFFOLD } from './scaffold-data.js';
-import { toNudge, type GroundingState } from './scaffold-model.js';
+import { toNudge, toPhaseGuidance, type GroundingState, type Phase } from './scaffold-model.js';
 
 const AC = (n: number) =>
   `mindset-prod/memex-building-itself/specs/spec-542/acs/ac-${n}`;
@@ -118,6 +118,36 @@ describe('spec-542 — a stale grounding is distinguishable from a fresh one (ac
     // It is grounded — just out of date. Saying it is absent would be the
     // original defect wearing a different hat.
     expect(out).not.toMatch(CLAIM.not_grounded);
+  });
+
+  // ── The scope boundary this Spec relies on (std-38) ─────────────────────
+  // spec-542 stayed out of the in-app agent's way on one claim: `toPhaseGuidance`
+  // filters `b.target.phase === phase`, so a block with no `phase` never reaches
+  // the React agent. All four code-grounding blocks are phase-less (the ask is
+  // `target: {}`; the three claims target `grounding` only), so none of them do.
+  //
+  // That was verified when dec-3 scoped the work — BEFORE t-3 replaced the one
+  // fused block with four. A carried-forward conclusion is not a checked one, so
+  // it is checked here: if a later edit gives any of them a `phase`, the in-app
+  // agent inherits a grounding claim it has no state to evaluate, and std-38
+  // pulls that surface into scope. This test is where that shows up.
+  it('no grounding claim reaches the in-app agent, in any phase (std-38 boundary)', () => {
+    tagAc(AC(12));
+
+    const PHASES: readonly Phase[] = ['draft', 'specify', 'build', 'verify', 'done'];
+    for (const phase of PHASES) {
+      const out = toPhaseGuidance(BASE_SCAFFOLD, phase);
+      // Non-empty first: an empty projection would satisfy every negative below
+      // while checking nothing (the same silent failure mode ac-11 guards).
+      expect(out.length, `toPhaseGuidance(${phase}) composed nothing`).toBeGreaterThan(0);
+      for (const state of Object.keys(CLAIM) as GroundingState[]) {
+        expect(
+          out,
+          `the ${state} claim reached the in-app agent at phase=${phase} — ` +
+            'std-38 now applies and this Spec has not covered that surface',
+        ).not.toMatch(CLAIM[state]);
+      }
+    }
   });
 
   it('the stale prose is portable — no paths, no language, no tooling (std-22)', () => {
