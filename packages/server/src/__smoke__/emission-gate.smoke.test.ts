@@ -41,11 +41,15 @@ const AC_MARKER = "mindset-prod/memex-building-itself/specs/spec-525/acs/ac-20";
 /**
  * The mode each deployed environment is INTENDED to run.
  *
- * Both are `shadow` today: the rollout's first deploy runs shadow everywhere, and
- * enforcement is turned on later by configuration (t-10) after the window has produced
- * the numbers ac-2 requires. **When t-10 flips prod, this table is the edit that keeps
- * the smoke honest** — and a deploy that flips the secret without editing here fails,
- * which is the point. An intent nobody wrote down is not an intent the smoke can check.
+ * Both are `shadow`, and dec-8 made that TERMINAL rather than transitional: enforcement
+ * is declined, not deferred, so this table is not waiting on t-10 to flip prod. That
+ * inverts what this check is for. It used to guard a rollout in progress; it now guards
+ * a standing decision — if either environment ever serves `enforcing`, the gate starts
+ * refusing at a ceiling of 2 against a measured p99 of 8 and a max of 28, dropping
+ * verification data silently, which is exactly what ac-4 forbids.
+ *
+ * So a deploy that flips the secret without editing here fails, and that IS the point.
+ * An intent nobody wrote down is not an intent the smoke can check.
  */
 const INTENDED_MODE: Record<string, "shadow" | "enforcing"> = {
   int: "shadow",
@@ -94,29 +98,48 @@ describe(`emission admission gate smoke @ ${SMOKE_BASE_URL}`, () => {
     ).not.toBeNull();
   });
 
-  it.skipIf(!INTENDED_MODE[SMOKE_ENV])(
-    "the EFFECTIVE mode matches what this environment intended",
-    async () => {
-      tagAc(AC_MARKER);
-      const intended = INTENDED_MODE[SMOKE_ENV];
-      const res = await fetch(`${SMOKE_BASE_URL}/api/test-events`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: "{}",
-        redirect: "manual",
-      });
+  it("the EFFECTIVE mode matches what this environment intended", async () => {
+    tagAc(AC_MARKER);
+    // NOT skipIf, deliberately (spec-525 ac-29). This assertion used to be gated on
+    // `!INTENDED_MODE[SMOKE_ENV]`, and SMOKE_ENV defaults to "" while SMOKE_BASE_URL
+    // defaults to a REAL deployed host — so an invocation that forgot the variable
+    // still probed int, still passed the other three checks, and silently dropped the
+    // only one that proves the mode. A green run where this skipped was indistinguishable
+    // from one where it passed, which is this Spec's own fault reproduced inside its own
+    // guard: dec-8 made this check the mechanism that holds "the gate stays in shadow",
+    // and a guard that can decline to run is a guard you cannot rely on.
+    //
+    // std-50's third branch is the one that applies: read, declared, or REFUSED — never
+    // defaulted in silence. There is nothing to read and nothing safe to assume (guessing
+    // "int" would assert int's intent against a prod host and pass by coincidence, since
+    // both are shadow today), so it refuses and says how to fix it.
+    const intended = INTENDED_MODE[SMOKE_ENV];
+    expect(
+      intended,
+      `SMOKE_ENV=${JSON.stringify(SMOKE_ENV)} names no known environment, so this run ` +
+        `cannot know which mode ${SMOKE_BASE_URL} is supposed to serve. It is NOT skipped: ` +
+        `a silent skip here is the failure this check exists to catch. Run the suite as ` +
+        `\`make smoke-int\` / \`make smoke-prod\` (both export SMOKE_ENV), or set ` +
+        `SMOKE_ENV to one of: ${Object.keys(INTENDED_MODE).join(", ")}.`,
+    ).toBeDefined();
 
-      expect(
-        res.headers.get(EMISSION_GATE_HEADER),
-        `${SMOKE_ENV} is running a different mode than intended. Either the ` +
-          `MEMEX_EMISSION_GATE_MODE wiring in deploy.sh / deploy-config.sh was missed ` +
-          `(so the environment silently took the code default), or the canonical ` +
-          `memex-${SMOKE_ENV}-deploy-env secret changed without updating INTENDED_MODE ` +
-          `in this file. Both are the failure t-9 exists to catch — do not "fix" it by ` +
-          `editing the expectation until you know which.`,
-      ).toBe(intended);
-    },
-  );
+    const res = await fetch(`${SMOKE_BASE_URL}/api/test-events`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+      redirect: "manual",
+    });
+
+    expect(
+      res.headers.get(EMISSION_GATE_HEADER),
+      `${SMOKE_ENV} is running a different mode than intended. Either the ` +
+        `MEMEX_EMISSION_GATE_MODE wiring in deploy.sh / deploy-config.sh was missed ` +
+        `(so the environment silently took the code default), or the canonical ` +
+        `memex-${SMOKE_ENV}-deploy-env secret changed without updating INTENDED_MODE ` +
+        `in this file. Both are the failure t-9 exists to catch — do not "fix" it by ` +
+        `editing the expectation until you know which.`,
+    ).toBe(intended);
+  });
 
   it("the marker leaks nothing beyond the mode", async () => {
     tagAc(AC_MARKER);
