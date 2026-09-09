@@ -18,7 +18,8 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tagAc } from '@memex-ai-ac/vitest';
-import { CostPanelCard } from './CostPanelCard';
+import { CostPanelCard, MIN_CALLS_FOR_FIGURES, MIN_CALLS_FOR_P90 } from './CostPanelCard';
+import { estimateTokens } from './tokenEstimate';
 import type { CostPanelResponse } from '../../api/insights';
 
 const AC = (n: number) =>
@@ -181,8 +182,12 @@ describe('CostPanelCard — ac-2: median and p90, never a bare mean', () => {
   it('shows both median and p90 per operation', () => {
     tagAc(AC(2));
     render(<CostPanelCard data={populated()} />);
-    expect(screen.getByText(/median/i)).toBeTruthy();
-    expect(screen.getByText(/p90/i)).toBeTruthy();
+    // Headers by role. A text query here passed only because this fixture's
+    // rows both clear MIN_CALLS_FOR_P90; dropping one below it would have made
+    // the withheld cell's spoken reason a second /p90/i match and reddened
+    // this test for a reason that has nothing to do with ac-2 (dec-10).
+    expect(screen.getByRole('columnheader', { name: /median/i })).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: /p90/i })).toBeTruthy();
   });
 
   it('never labels a figure as an average or a mean', () => {
@@ -200,5 +205,113 @@ describe('CostPanelCard — ac-2: median and p90, never a bare mean', () => {
     // add_comment is 96,000 of 101,100 characters — 95% guidance. That is the
     // half that is ours to cut, so it belongs in the reader's line of sight.
     expect(screen.getByText(/95%/)).toBeTruthy();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// dec-10 (t-7) — the P90 floor.
+//
+// Observed on prod 2026-09-09: ten of twelve rows carried n=1, and every one
+// still printed a MEDIAN and a P90. At n=1 those are the same observation under
+// two headers; at n=2 the p90 is `percentile_cont` interpolating 90% of the way
+// between the only two calls seen. Below n=10 no observation actually sits in
+// the top decile, so the cell claims a tail it has not observed.
+//
+// THE FIXTURE IS DERIVED FROM THE CONSTANT, NOT FROM 10 (ac-25). A test that
+// hardcoded 9 would, the day someone raises the floor to 30, silently start
+// asserting the ABOVE-floor case twice and prove nothing about suppression —
+// green, for the wrong reason. Reading the constant re-aims it instead.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The card's own arithmetic, so the expectation cannot drift from it. */
+const approx = (chars: number): string =>
+  `≈ ${estimateTokens(chars).toLocaleString('en-US')}`;
+
+/**
+ * One payload, both sides of the floor. Deliberately ONE fixture rather than
+ * two: a regression that blanks EVERY p90 must fail, and it would pass a
+ * suppression-only test (ac-24 is the other half of ac-23).
+ */
+function acrossTheFloor(): CostPanelResponse {
+  return {
+    available: true,
+    windowDays: 30,
+    totals: { calls: 2 * MIN_CALLS_FOR_P90 - 1, totalChars: 300_000, guidanceChars: 90_000 },
+    operations: [
+      {
+        // AT the floor — the p90 renders.
+        tool: 'get_doc',
+        verb: null,
+        calls: MIN_CALLS_FOR_P90,
+        medianChars: 2_000,
+        p90Chars: 888_888,
+        guidanceChars: 60_000,
+        totalChars: 200_000,
+      },
+      {
+        // ONE BELOW the floor — the p90 is withheld, the median is not.
+        tool: 'update_doc',
+        verb: null,
+        calls: MIN_CALLS_FOR_P90 - 1,
+        medianChars: 1_000,
+        p90Chars: 999_999,
+        guidanceChars: 30_000,
+        totalChars: 100_000,
+      },
+    ],
+  };
+}
+
+describe('CostPanelCard — dec-10: a row too thin for a percentile', () => {
+  it('withholds the p90 on a row below the floor while still showing its median', () => {
+    tagAc(AC(23));
+    render(<CostPanelCard data={acrossTheFloor()} />);
+
+    // The thin row is present and its median — meaningful at any n, because it
+    // IS the value — still renders with its exact character count beside it.
+    expect(screen.getByText('update_doc')).toBeTruthy();
+    expect(screen.getByText(approx(1_000))).toBeTruthy();
+    expect(screen.getByText('1,000 ch')).toBeTruthy();
+
+    // But its p90 figure is nowhere on the card. 999,999 characters is a value
+    // no other cell in this fixture can produce, so this cannot pass by
+    // coincidence.
+    expect(screen.queryByText(approx(999_999))).toBeNull();
+  });
+
+  it('still renders the p90 on a row at the floor — a threshold, not a removal', () => {
+    tagAc(AC(24));
+    render(<CostPanelCard data={acrossTheFloor()} />);
+
+    expect(screen.getByText(approx(888_888))).toBeTruthy();
+    // And the column itself survives: ac-2 committed to a median AND a p90.
+    // By ROLE, not by text: the withheld cell's spoken reason also contains
+    // "p90", so a text query matches two nodes and throws. The claim was
+    // always about the HEADER anyway.
+    expect(screen.getByRole('columnheader', { name: /p90/i })).toBeTruthy();
+  });
+
+  it('derives the floor from the exported constant rather than a literal', () => {
+    tagAc(AC(25));
+    // The constant is what the card reads, so the card and this test cannot
+    // disagree about where the threshold is. Asserted as a property of the
+    // fixture: exactly one row sits below it and one at it.
+    const { operations } = acrossTheFloor() as Extract<
+      CostPanelResponse,
+      { available: true }
+    >;
+    expect(operations.filter((o) => o.calls < MIN_CALLS_FOR_P90)).toHaveLength(1);
+    expect(operations.filter((o) => o.calls >= MIN_CALLS_FOR_P90)).toHaveLength(1);
+    // A floor at or below the panel's own gate would be inert: every row that
+    // reaches the table would clear it, and nothing would ever be suppressed.
+    expect(MIN_CALLS_FOR_P90).toBeGreaterThan(MIN_CALLS_FOR_FIGURES);
+  });
+
+  it('says why the cell is empty rather than leaving a silent blank', () => {
+    tagAc(AC(27));
+    render(<CostPanelCard data={acrossTheFloor()} />);
+    // A bare <td> announces nothing to a screen reader, and "missing" and
+    // "deliberately withheld" are the same experience. The reason is text.
+    expect(screen.getByText(/too few calls/i)).toBeTruthy();
   });
 });
