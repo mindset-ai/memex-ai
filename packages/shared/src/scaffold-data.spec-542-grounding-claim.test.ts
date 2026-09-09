@@ -106,12 +106,18 @@ describe('spec-542 — no composed nudge contradicts its subject', () => {
     expect(typeof toNudge).toBe('function');
   });
 
-  // ── Negative-first assertions (ac-9) ────────────────────────────────────
+  // ── Negative-first assertions (ac-9, and the scope claim ac-2) ──────────
   // The defect was never a MISSING string; it was a PRESENT and wrong one. So
   // the load-bearing assertions are the negatives.
+  //
+  // These carry ac-2 as well: "no response asserts something untrue about the
+  // Spec it describes" is the scope commitment, and this is where it is proven.
+  // Tagging only the implementation AC would leave the promise made to the
+  // reader unverified while the mechanism read green.
 
   it('a GROUNDED Spec is never told it has no code-grounding', () => {
     tagAc(AC(9));
+    tagAc(AC(2));
 
     const out = composeFor('grounded', 'get_doc', 'specify');
     expect(out, 'a grounded Spec is being told the opposite').not.toMatch(NEGATIVE_CLAIM);
@@ -119,6 +125,7 @@ describe('spec-542 — no composed nudge contradicts its subject', () => {
 
   it('a STALE-grounded Spec is not presented as freshly grounded', () => {
     tagAc(AC(9));
+    tagAc(AC(2));
 
     const out = composeFor('grounded_stale', 'get_doc', 'specify');
     // It must not claim the plain affirmative, and must not claim the flat
@@ -129,6 +136,7 @@ describe('spec-542 — no composed nudge contradicts its subject', () => {
 
   it('a read with NO Spec context makes no grounding claim at all', () => {
     tagAc(AC(9));
+    tagAc(AC(2));
 
     // ac-7's case, and the one today's code gets most clearly wrong: "nothing
     // known" is rendered as "known to be ungrounded".
@@ -140,6 +148,7 @@ describe('spec-542 — no composed nudge contradicts its subject', () => {
 
   it('an UNGROUNDED Spec is not told it is grounded', () => {
     tagAc(AC(9));
+    tagAc(AC(2));
 
     const out = composeFor('not_grounded', 'get_doc', 'specify');
     expect(out).not.toMatch(AFFIRMATIVE_CLAIM);
@@ -158,6 +167,7 @@ describe('spec-542 — no composed nudge contradicts its subject', () => {
   // same tool, same phase, grounding state the only difference.
   it('the three same-context grounding states do not compose the same text', () => {
     tagAc(AC(9));
+    tagAc(AC(2));
 
     const SAME_CONTEXT: readonly GuardState[] = [
       'not_grounded',
@@ -179,6 +189,7 @@ describe('spec-542 — no composed nudge contradicts its subject', () => {
   // reader is being asked to evaluate a branch the system should have resolved.
   it('no composed nudge asks the READER to evaluate the condition', () => {
     tagAc(AC(9));
+    tagAc(AC(2));
 
     for (const state of ALL_STATES) {
       const out = composeFor(state, 'get_doc', 'specify');

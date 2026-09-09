@@ -2644,6 +2644,48 @@ Walk me through this Spec's CANDIDATE decisions — choices an agent extracted t
 //     ours.
 //   * No noun for the document. "Spec" is our vocabulary, and the flag lives on
 //     the shared documents table, so the copy stays neutral about what it is on.
+/**
+ * spec-542 (ac-1) — the code-grounding HEADER line, for the MCP read.
+ *
+ * Lives here, not in `formatting/formatters.ts`, because agent-facing prose has
+ * one home (std-15) and that file is not on the drift guard's allowlist. The
+ * formatter pushes these as single lines, the way the spec-535 sensitivity
+ * block does.
+ *
+ * Rendered in EVERY state, never signalled by absence — the rule
+ * `Response shape:` states for itself (spec-538 ac-13): a line that appears
+ * only in one state forces the reader to infer the others from silence. Here
+ * that inference is "absence means ungrounded", which is the spec-542 defect
+ * one step quieter.
+ *
+ * WHO is the denormalised `groundedByName` (std-32), stamped at write so a later
+ * rename cannot rewrite history. Each variant has an unattributed twin: dropping
+ * the line when the name is missing would lose the STATE too — and the state is
+ * the part the reader needs — but nobody may be named as if they were somebody.
+ *
+ * Portable per std-22: no paths, no language, no tooling. No apostrophes either,
+ * deliberately — this file is single-quoted TypeScript and an unescaped one
+ * fails the build with a symptom that looks like a stale measurement.
+ */
+export const CODE_GROUNDING_HEADER_PROSE = {
+  /** No agent has verified this Spec against source. */
+  none: 'Code-grounding: none — the resolved decisions have not been checked against current source.',
+  /** Grounded and fresh. */
+  verified: (by: string | null, ago: string): string =>
+    by
+      ? `Code-grounding: verified by ${by} (${ago}).`
+      : `Code-grounding: verified (${ago}), no name recorded.`,
+  /**
+   * Grounded, but a decision or acceptance criterion changed since. The branch
+   * dec-1 did not foresee, and the one where re-checking matters most: before
+   * spec-542 it read identically to a Spec grounded five minutes ago.
+   */
+  stale: (by: string | null, ago: string): string =>
+    by
+      ? `Code-grounding: verified by ${by} (${ago}), but decisions or acceptance criteria changed since — treat it as out of date.`
+      : `Code-grounding: verified (${ago}), no name recorded, but decisions or acceptance criteria changed since — treat it as out of date.`,
+};
+
 export const SENSITIVE_WARNING_PROSE = {
   /** Top and bottom rule — what makes it a block rather than another header line. */
   rule: '⚠ ─────────────────────────────────────────────────────────────',

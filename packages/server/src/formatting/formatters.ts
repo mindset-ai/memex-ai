@@ -26,6 +26,7 @@ import {
   BASE_SCAFFOLD,
   BUILD_AC_NAG_PROSE,
   SENSITIVE_WARNING_PROSE,
+  CODE_GROUNDING_HEADER_PROSE,
   GET_PROMPT_PROSE,
   toNudge,
   toHandoffEssence,
@@ -377,6 +378,30 @@ export function formatFullDocState(
     );
     const ago = mins < 1 ? "less than a minute ago" : `${mins} minute${mins === 1 ? "" : "s"} ago`;
     lines.push(`Checked out by: ${who} (${ago})`);
+  }
+  // spec-542 ac-1 — the code-grounding state, next to the checkout signal it is
+  // the sibling of. spec-371 put `Checked out by:` here "so a reader, or an
+  // agent about to edit, sees it before stepping on a colleague"; grounding
+  // answers a question of the same shape — has this been checked against real
+  // code, by whom, when — and until now the MCP read answered it nowhere, while
+  // the web UI had rendered a badge since spec-409.
+  //
+  // Emitted in EVERY state, following `Response shape:` below (spec-538 ac-13):
+  // a line present in only one state forces the reader to infer the rest from
+  // silence, and here that inference is "absence means ungrounded" — this
+  // Spec's defect, one step quieter. `groundingStateOf` returns undefined only
+  // when the answer is genuinely unknown (a non-Spec doc, or grounded with
+  // staleness underived), and then nothing is claimed at all.
+  //
+  // Pushed as single lines from Scaffold constants (std-15): this file is not
+  // on the drift guard's allowlist, so the prose cannot live here.
+  const groundingState = groundingStateOf(doc);
+  if (groundingState === "not_grounded") {
+    lines.push(CODE_GROUNDING_HEADER_PROSE.none);
+  } else if (groundingState === "grounded") {
+    lines.push(CODE_GROUNDING_HEADER_PROSE.verified(doc.groundedByName ?? null, timeAgo(doc.groundedAt)));
+  } else if (groundingState === "grounded_stale") {
+    lines.push(CODE_GROUNDING_HEADER_PROSE.stale(doc.groundedByName ?? null, timeAgo(doc.groundedAt)));
   }
   if (appBaseUrl) {
     lines.push(`URL: ${docUrl(appBaseUrl, doc.docType, doc.handle)}`);
