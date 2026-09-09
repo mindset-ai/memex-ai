@@ -52,7 +52,11 @@ function sameTarget(a: GuidanceTarget, b: GuidanceTarget): boolean {
     a.phase === b.phase &&
     a.tool === b.tool &&
     a.transition === b.transition &&
-    a.button === b.button
+    a.button === b.button &&
+    // spec-542: included so two blocks differing ONLY by grounding are not
+    // treated as the same target. Without it the duplicate check would see the
+    // per-state siblings as one target wearing three texts.
+    a.grounding === b.grounding
   );
 }
 
@@ -61,7 +65,10 @@ function isUntargeted(t: GuidanceTarget): boolean {
     t.phase === undefined &&
     t.tool === undefined &&
     t.transition === undefined &&
-    t.button === undefined
+    t.button === undefined &&
+    // spec-542: a grounding-only target DOES narrow — it fires in one state
+    // rather than on every response — so it is not "untargeted".
+    t.grounding === undefined
   );
 }
 

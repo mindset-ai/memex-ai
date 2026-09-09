@@ -25,17 +25,19 @@
 import { describe, it, expect } from 'vitest';
 import { tagAc } from '@memex-ai-ac/vitest';
 import { BASE_SCAFFOLD } from './scaffold-data.js';
-import { toNudge, type Phase } from './scaffold-model.js';
+import { toNudge, type GroundingState, type Phase } from './scaffold-model.js';
 
 const AC = (n: number) =>
   `mindset-prod/memex-building-itself/specs/spec-542/acs/ac-${n}`;
 
-// The four states dec-3 settled on. `not_applicable` is deliberately absent: the
-// classification is transient to an `assess_spec` call and is not persisted, so
-// the footer cannot know it (dec-3). `no_context` is a tool that resolves no Spec.
-type GroundingState = 'not_grounded' | 'grounded' | 'grounded_stale' | 'no_context';
+// The four cases dec-3 settled on: the three states the document PERSISTS, plus
+// the absence of any state. Derived from the real `GroundingState` union rather
+// than restated, so a state added to the model shows up here instead of being
+// silently untested. `not_applicable` is absent on purpose — it is transient to
+// an `assess_spec` call and never persisted, so the footer cannot know it.
+type GuardState = GroundingState | 'no_context';
 
-const ALL_STATES: readonly GroundingState[] = [
+const ALL_STATES: readonly GuardState[] = [
   'not_grounded',
   'grounded',
   'grounded_stale',
@@ -54,22 +56,24 @@ const AFFIRMATIVE_CLAIM = /Code-grounding affirmed/i;
 /**
  * THE SEAM. Composes the nudge as it will be composed for `state`.
  *
- * Today `toNudge` has no grounding dimension at all — `matchesNudgeTarget`
- * discriminates only on transition/button/phase/tool, and `ToNudgeInput` never
- * receives the Spec's state. So this helper currently ignores `state`, which is
- * precisely why the assertions below go red: four different states compose ONE
- * identical string.
+ * t-2 landed the `grounding` dimension on `GuidanceTarget` / `ToNudgeInput`, so
+ * the state is now passed through — this helper is wired end to end.
  *
- * t-2 adds `grounding` to the target model and `ToNudgeInput`; at that point this
- * helper passes the state through and nothing else in this file changes. Keeping
- * the seam here (rather than in each test) means the fix touches one line.
+ * The assertions below nevertheless stay RED until t-3, and for a reason worth
+ * being precise about: `scaffold-data.ts` still registers ONE code-grounding
+ * block with `target: {}`, and an untargeted block matches every state by
+ * design (the back-compat guarantee ac-5 pins). So the projection now CAN
+ * discriminate and the data still does not ask it to. t-3 splits the block.
+ *
+ * `no_context` is the absence of a state, never a value of `GroundingState` —
+ * conflating the two is the defect itself, so the type does not permit it.
  */
-function composeFor(state: GroundingState, tool: string, phase: Phase): string {
+function composeFor(state: GuardState, tool: string, phase: Phase): string {
   return toNudge({
     dataset: BASE_SCAFFOLD,
     tool: state === 'no_context' ? undefined : tool,
     phase: state === 'no_context' ? undefined : phase,
-    // t-2: pass `grounding: state` here once the dimension exists.
+    grounding: state === 'no_context' ? undefined : state,
   });
 }
 
@@ -155,7 +159,7 @@ describe('spec-542 — no composed nudge contradicts its subject', () => {
   it('the three same-context grounding states do not compose the same text', () => {
     tagAc(AC(9));
 
-    const SAME_CONTEXT: readonly GroundingState[] = [
+    const SAME_CONTEXT: readonly GuardState[] = [
       'not_grounded',
       'grounded',
       'grounded_stale',

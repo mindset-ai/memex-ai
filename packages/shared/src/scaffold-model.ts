@@ -171,12 +171,39 @@ export type GuidanceSource = 'base' | 'org';
 
 export type GuidanceEmphasis = 'do' | 'dont';
 
+/**
+ * A Spec's code-grounding state, as it is KNOWABLE at read time (spec-542 dec-3).
+ *
+ * Three values, because three is what the document persists: `grounded_in_code`
+ * is a boolean and staleness is derived from `grounded_at` against decision/AC
+ * `updated_at`. There is deliberately no `not_applicable` — that classification
+ * is transient to an `assess_spec` call and is never written to the document, so
+ * a footer cannot know it. Deriving it by guessing whether a decision "names
+ * code shape" was considered and rejected: a guess rendered as a statement of
+ * fact is the defect class spec-542 exists to remove.
+ *
+ * The fourth state — nothing known — is the ABSENCE of this value, never a
+ * member of this union. "Nothing known" must not resolve to "known to be
+ * ungrounded"; that conflation IS the spec-542 defect.
+ */
+export type GroundingState = 'not_grounded' | 'grounded' | 'grounded_stale';
+
 export interface GuidanceTarget {
   phase?: Phase;
   tool?: string;
   transition?: Transition;
   /** Append guidance to a specific Prompt Button (spec-103 D-7). */
   button?: string;
+  /**
+   * Fire only when the Spec is in this grounding state (spec-542 dec-1).
+   *
+   * BASE-only today: the org-addition API surface (`routes/scaffold.ts`,
+   * `routes/personal-scaffold.ts`, `services/scaffold-additions.ts`) validates
+   * the other four dimensions and does not accept this one, so an Org cannot
+   * scope an addition by grounding. That is deliberate, not an oversight —
+   * widening it means deciding what an Org may assert about grounding.
+   */
+  grounding?: GroundingState;
 }
 
 export type ScaffoldNode =
@@ -247,6 +274,13 @@ export interface ToNudgeInput {
    *  (e.g. `list_memexes`) — falls through to phase-agnostic content per
    *  b-68 D-7. */
   phase?: Phase;
+  /** The Spec's code-grounding state at call time (spec-542). Undefined for
+   *  tools that resolve no Spec (e.g. `list_memexes`) — falls through to
+   *  grounding-agnostic content exactly as `phase` does, which means NO
+   *  grounding-targeted block fires and the response makes no grounding claim
+   *  at all. Passing `not_grounded` here to stand in for "unknown" would
+   *  reinstate the defect. */
+  grounding?: GroundingState;
   /** Org additions already filtered to `source: 'org'` + the principal's Org. */
   orgBlocks?: readonly GuidanceBlock[];
 }
@@ -343,8 +377,9 @@ export function toToolDefinition(tool: ToolNode): ToolDefinition {
  *  `order`. `target.transition !== undefined` blocks are excluded — those
  *  ride `toRubric`. */
 export function toNudge(input: ToNudgeInput): string {
-  const { dataset, tool, phase, orgBlocks } = input;
-  const matches = (block: GuidanceBlock): boolean => matchesNudgeTarget(block.target, { tool, phase });
+  const { dataset, tool, phase, grounding, orgBlocks } = input;
+  const matches = (block: GuidanceBlock): boolean =>
+    matchesNudgeTarget(block.target, { tool, phase, grounding });
 
   const base = filterAndSort(dataset.baseGuidance, (b) => b.source === 'base' && matches(b));
   const org = filterAndSort(orgBlocks ?? [], (b) => b.source === 'org' && b.enabled && matches(b));
@@ -471,12 +506,20 @@ export function toInitPromptRef(tool: ToolNode): InitPromptRefEntry {
  */
 function matchesNudgeTarget(
   target: GuidanceTarget,
-  context: { tool?: string; phase?: Phase },
+  context: { tool?: string; phase?: Phase; grounding?: GroundingState },
 ): boolean {
   if (target.transition !== undefined) return false;
   if (target.button !== undefined) return false;
   if (target.phase !== undefined && target.phase !== context.phase) return false;
   if (target.tool !== undefined && target.tool !== context.tool) return false;
+  // spec-542: written in the same shape as the two clauses above, which is what
+  // makes it correct in both directions from one line — an untargeted block
+  // still matches every state (back-compat for the other global blocks), and a
+  // grounding-targeted block does NOT match when the state is unknown, so a
+  // read that knows nothing asserts nothing. Note this must stay an early
+  // `return false` and never become an early `return true`: as a positive match
+  // it would let grounding override a phase or tool mismatch.
+  if (target.grounding !== undefined && target.grounding !== context.grounding) return false;
   return true;
 }
 

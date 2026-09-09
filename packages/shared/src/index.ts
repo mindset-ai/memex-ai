@@ -60,6 +60,10 @@ export type {
   GuidanceSource,
   GuidanceEmphasis,
   GuidanceTarget,
+  // spec-542: the server derives this from the doc and passes it to `toNudge`
+  // at both call sites in `formatting/formatters.ts` (t-4), so it has to cross
+  // the package boundary.
+  GroundingState,
   ScaffoldDataset,
   SystemBlock,
   ToolDefinition,
