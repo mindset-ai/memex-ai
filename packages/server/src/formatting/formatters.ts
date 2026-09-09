@@ -34,6 +34,8 @@ import {
   type GuidanceBlock,
   type PhaseNode,
   type SpecPhase,
+  // spec-542: the grounding dimension the Scaffold selects on.
+  type GroundingState,
 } from "@memex/shared";
 import type { AcWithVerification } from "../services/acs.js";
 
@@ -183,7 +185,47 @@ function formatTagStrip(tags: Tag[] | undefined): string | null {
  * maximum. Reserving MEASURED_ENVELOPE_MAX_CHARS flat would pull the majority of
  * reads into tier 2/3 and collide with ac-26 — the objection that still holds.
  */
-function estimateEnvelopeChars(doc: Doc, nudge?: NudgeContext): number {
+/**
+ * The Spec's grounding state, as a value the Scaffold can select on (spec-542).
+ *
+ * ONE definition, called from both `toNudge` call sites in this file. Two
+ * independent derivations are exactly how the emission and the response-budget
+ * estimate drift apart, and the estimate exists to measure what the seat will
+ * emit — "a COMPUTATION over the same projection the seat will use, not a guess
+ * about it [per std-50 cl-1]".
+ *
+ * Pure, and free: `groundedInCode` is a column, and `groundedStale` is already
+ * derived once per read by `getDoc` (spec-409 dec-4), which is the read the
+ * footer seat performs anyway (`fullDocState` -> `getDoc`). No extra query.
+ *
+ * Returns `undefined` for "not enough known", which makes NO grounding claim at
+ * all rather than a reassuring one:
+ *   - a doc that is not a Spec has no grounding concept;
+ *   - grounded with staleness ABSENT is grounded-but-unverified-freshness.
+ *     Rendering `grounded` there would assert freshness nobody checked — a
+ *     silent default, which std-50 forbids and which is this Spec's own defect
+ *     class. On the real path the flag is always derived, so that branch is
+ *     defensive rather than expected.
+ *
+ * There is deliberately no `not_applicable`: it is transient to an assess_spec
+ * call and never persisted, so no read can know it (dec-3).
+ */
+function groundingStateOf(
+  doc: Doc & { groundedStale?: boolean },
+): GroundingState | undefined {
+  if (doc.docType !== "spec") return undefined;
+  if (!doc.groundedInCode) return "not_grounded";
+  if (doc.groundedStale === undefined) return undefined;
+  return doc.groundedStale ? "grounded_stale" : "grounded";
+}
+
+function estimateEnvelopeChars(
+  // spec-542: `groundedStale` is derived, not a column, so it is not on `Doc`.
+  // Optional for the same reason `checkoutHolder` is optional on
+  // formatFullDocState — plain-Doc callers keep compiling.
+  doc: Doc & { groundedStale?: boolean },
+  nudge?: NudgeContext,
+): number {
   const phase = doc.status as SpecPhase;
   let guidance = 0;
   let handoff = 0;
@@ -192,6 +234,9 @@ function estimateEnvelopeChars(doc: Doc, nudge?: NudgeContext): number {
       dataset: BASE_SCAFFOLD,
       tool: nudge?.tool,
       phase,
+      // spec-542 ac-13: the SAME state the seat will emit with. Measuring
+      // without it would size the envelope from a string never emitted.
+      grounding: groundingStateOf(doc),
       orgBlocks: nudge?.orgBlocks,
     }).length;
     handoff =
@@ -213,6 +258,13 @@ export function formatFullDocState(
   doc: Doc & {
     sections: DocSection[];
     checkoutHolder?: { name: string | null; email: string | null } | null;
+    // spec-542: derived read-time by `getDoc` (spec-409 dec-4), not a column, so
+    // it is not on `Doc`. Declared here rather than left to ride the object
+    // untyped: the value is owned by getDoc and depended on by the grounding
+    // state this function's envelope estimate measures with [per std-50] —
+    // read, declared, or refused, never defaulted in silence. Optional for the
+    // same reason `checkoutHolder` is, so plain-Doc callers keep compiling.
+    groundedStale?: boolean;
   },
   // spec-445 dec-2 — each decision/task may carry its stored true facet keys, surfaced
   // on retrieval as context (attached by fullDocState; absent for facet-less callers).
@@ -1563,7 +1615,7 @@ export function renderAcNagFooter(
 // prefixes the one delimiter, preserving its self-contained contract for direct
 // callers/tests (returns `null`-free, leads with the delimiter for a Spec).
 export function formatSpecGuidanceBody(
-  doc: Doc,
+  doc: Doc & { groundedStale?: boolean },
   decs: Decision[],
   tasksList: TaskWithBlockers[],
   nudge?: NudgeContext,
@@ -1578,7 +1630,7 @@ export function formatSpecGuidanceBody(
 }
 
 export function formatSpecGuidance(
-  doc: Doc,
+  doc: Doc & { groundedStale?: boolean },
   decs: Decision[],
   tasksList: TaskWithBlockers[],
   nudge?: NudgeContext,
@@ -1604,7 +1656,7 @@ export function formatSpecGuidance(
  * further code changes.
  */
 function renderSpecPhaseGuidance(
-  doc: Doc,
+  doc: Doc & { groundedStale?: boolean },
   phase: SpecPhase,
   decs: Decision[],
   tasksList: TaskWithBlockers[],
@@ -1632,6 +1684,10 @@ function renderSpecPhaseGuidance(
     dataset: BASE_SCAFFOLD,
     tool: nudge?.tool,
     phase,
+    // spec-542: the grounding claim is now state-keyed in the Scaffold, so the
+    // seat has to say WHICH state. Passing nothing emits no claim, which is
+    // correct for a read that does not know (ac-7) and wrong as a default.
+    grounding: groundingStateOf(doc),
     orgBlocks: nudge?.orgBlocks,
   });
   if (nudgeText.length > 0) {
