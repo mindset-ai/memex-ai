@@ -69,7 +69,7 @@
 // which is the strongest form of red-capability available for a smoke, since
 // the input is genuine production output rather than a mutation of the source.
 
-import { describe, it, expect, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
 import {
   SMOKE_BASE_URL,
@@ -114,6 +114,24 @@ const createdDocRefs: string[] = [];
 describe.skipIf(!SMOKE_MCP_TOKEN)(
   `spec-542 grounding header smoke @ ${SMOKE_BASE_URL} (ENV=${SMOKE_ENV || "?"})`,
   () => {
+    beforeAll(() => {
+      // std-17 cl-35 guard rail (spec-70 dec-2): refuse to run authed WRITE
+      // journeys against anything that does not read as a throwaway namespace,
+      // so a misconfigured token can never mutate real data on shared int/prod.
+      // Mirrors authed.smoke.test.ts and tags-curation.smoke.test.ts verbatim.
+      //
+      // This file writes twice — `create_doc` and `ground_spec` — so it needs
+      // the rail as much as they do, and it shipped in #702 without one. The
+      // rail is per-file by design: a new write-path smoke inherits nothing and
+      // has to carry its own, which is exactly how this one was missed.
+      if (!/smoke/i.test(SMOKE_NAMESPACE)) {
+        throw new Error(
+          `Refusing to run authed smoke writes against namespace "${SMOKE_NAMESPACE}" — ` +
+            `it must be an obvious throwaway (contain "smoke"). Set SMOKE_NAMESPACE.`,
+        );
+      }
+    });
+
     afterAll(async () => {
       for (const ref of createdDocRefs.splice(0)) {
         await callMcpTool("update_doc", { ref, status: "done" }).catch(() => {});
