@@ -3,6 +3,7 @@
 // agent/tool-specs.ts composes them into the single `toolSpecs` catalogue.
 // Infra (ToolCtx, helpers, guidance envelope) lives in ./shared.js (std-12).
 
+import { afterCommit } from "../../services/after-commit.js";
 import {
   z,
 } from "zod";
@@ -663,7 +664,11 @@ export const docsTools: ToolSpec[] = [
         const url = await ctx.workspaceUrl(memexId);
         return await formatState(url, state, ctx);
       }
-      const slugs = await memexSlugsById(memexId);
+      // spec-560 dec-2: post-commit — the doc already exists. This read only chooses
+      // between the canonical ref and the bare handle, so a transient must degrade to
+      // the handle, never report the created doc as failed.
+      const slugsRead = await afterCommit("doc ref slugs", () => memexSlugsById(memexId));
+      const slugs = slugsRead.ok ? slugsRead.value : null;
       const docRef = slugs ? buildDocRef(slugs, doc) : doc.handle;
       // spec-219 Phase 2 (sole-author): create_doc resolves no ref, so the choke
       // never set a target. Record the just-created doc so composeGuidanceEnvelope

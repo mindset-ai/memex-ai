@@ -148,6 +148,8 @@ export const decisionsTools: ToolSpec[] = [
               ballot,
               vocab,
               ctx: reqCtx(ctx),
+              // spec-560 dec-3: declared, never defaulted (std-50).
+              writeKind: "create",
             })
           : "";
         if (ctx.verbose) {
@@ -174,6 +176,8 @@ export const decisionsTools: ToolSpec[] = [
             ballot,
             vocab,
             ctx: reqCtx(ctx),
+            // spec-560 dec-3: declared, never defaulted (std-50).
+            writeKind: "create",
           })
         : "";
       if (ctx.verbose) {
@@ -186,15 +190,21 @@ export const decisionsTools: ToolSpec[] = [
       // clears the relevance threshold. Same searchMemex(kind:'issue')
       // machinery as resolve_decision; informational only, never blocks. Below
       // threshold this appends nothing.
-      const issueHits = await relatedIssuesForDecision(
-        memexId,
-        `${decision.title}\n\n${context ?? ""}`,
-        resolveEmbeddingProvider(),
-      );
       // spec-219 Phase 2 (sole-author): hand the data to composeGuidanceEnvelope;
       // it authors the related-issues nudge. No guidance crafted here.
+      // spec-560 dec-2: DEFERRED. This is an EXTERNAL embedding call on the
+      // post-commit path — the decision row already exists — so run it behind the
+      // seat's afterCommit rather than letting an upstream 503 report the creation
+      // as failed.
       if (ctx.footerSlot) {
-        ctx.footerSlot.signal = { kind: "decision_created", issueHits };
+        ctx.footerSlot.compute = async () => ({
+          kind: "decision_created",
+          issueHits: await relatedIssuesForDecision(
+            memexId,
+            `${decision.title}\n\n${context ?? ""}`,
+            resolveEmbeddingProvider(),
+          ),
+        });
       }
       return `Decision created: ref: ${decRef} "${decision.title}"` + readout;
     },
@@ -303,6 +313,21 @@ export const decisionsTools: ToolSpec[] = [
       const current = entity.row.status;
 
       let updated;
+      // spec-560 dec-5 — VALIDATE BEFORE THE WRITE. This validation used to run after
+      // `updateDecisionFields` / `reopenDecision` / `restoreDecision` had committed, so
+      // an invalid ballot failed the call over an edit that had landed. It is hoisted,
+      // not guarded: wrapping it would let an invalid ballot through, inverting
+      // spec-499's contract. Same defect and same fix as update_task and edit_clause.
+      const editBallot = hasFacetEdit ? parseBallotArg(input.facetBallot) : undefined;
+      const editVocab =
+        editBallot !== undefined
+          ? await requireBallotForMemex(
+              memexId,
+              { provided: true, ballot: editBallot },
+              { noun: "decision", channel: ctx.channel },
+            )
+          : undefined;
+
       let mode: "reopened" | "restored" | "updated";
       if (target) {
         // Status-transition mode. Reopen (resolved → open) and restore
@@ -337,12 +362,8 @@ export const decisionsTools: ToolSpec[] = [
       // create_decision / resolve_decision take. A vocab-less Memex is a no-op.
       let facetEditReadout = "";
       if (hasFacetEdit) {
-        const ballot = parseBallotArg(input.facetBallot);
-        const vocab = await requireBallotForMemex(
-          memexId,
-          { provided: true, ballot },
-          { noun: "decision", channel: ctx.channel },
-        );
+        const ballot = editBallot!;
+        const vocab = editVocab ?? [];
         if (vocab.length > 0) {
           const routeRef = buildChildRef(slugs, doc, { type: "decisions", seq: updated.seq });
           facetEditReadout = await storeRouteAndReadout({
@@ -355,6 +376,8 @@ export const decisionsTools: ToolSpec[] = [
             ballot,
             vocab,
             ctx: reqCtx(ctx),
+            // spec-560 dec-3: declared, never defaulted (std-50).
+            writeKind: "recast",
           });
         }
       }
@@ -496,6 +519,8 @@ export const decisionsTools: ToolSpec[] = [
             ballot,
             vocab,
             ctx: reqCtx(ctx),
+            // spec-560 dec-3: declared, never defaulted (std-50).
+            writeKind: "recast",
           })
         : storedFacets.length > 0
           ? await routeAndReadout({
@@ -541,34 +566,39 @@ export const decisionsTools: ToolSpec[] = [
       // not prose. spec-219 Phase 2: we hand the data to composeGuidanceEnvelope
       // and it authors the impl-AC push + related-issues nudge. No guidance is
       // crafted in this handler.
-      let linkedAcs: SketchAc[] = [];
-      try {
-        const acRows = await listAcsForBriefWithVerification(memexId, decision.docId);
-        linkedAcs = acRows
-          .filter(
-            (r) =>
-              r.ac.kind === "implementation" &&
-              r.parents.some((p) => p.kind === "decision" && p.id === entity.row.id),
-          )
-          .map((r) => ({
-            seq: r.ac.seq,
-            statement: r.ac.statement,
-            canonicalRef: r.canonicalRef,
-          }));
-      } catch {
-        linkedAcs = [];
-      }
-      // spec-112 (ac-4 / ac-15): auto-surface related Issues whose semantic
-      // overlap with the decision clears the relevance threshold. Reuses the
-      // same searchMemex(kind:'issue') machinery; informational only, never
-      // blocks. Below threshold composeGuidanceEnvelope appends nothing.
-      const issueHits = await relatedIssuesForDecision(
-        memexId,
-        `${decision.title}\n\n${decision.resolution ?? ""}`,
-        resolveEmbeddingProvider(),
-      );
+      // spec-560 dec-2: DEFERRED, and the two reads are now guarded the SAME way.
+      // They used not to be: the AC traversal had a bare try/catch degrading to []
+      // while the embedding call six lines below had nothing — same handler, same
+      // phase of the same call, opposite treatment. That inconsistency is the
+      // clearest evidence in this Spec that the rule was applied ad hoc, and
+      // resolve_decision is the site where getting it wrong costs most: the
+      // resolution is already committed, so a thrown error invites a retry that
+      // OVERWRITES a fork the agent cannot see it already settled.
       if (ctx.footerSlot) {
-        ctx.footerSlot.signal = { kind: "decision_resolved", decRef, linkedAcs, issueHits };
+        ctx.footerSlot.compute = async () => {
+          const acRows = await listAcsForBriefWithVerification(memexId, decision.docId);
+          const linkedAcs: SketchAc[] = acRows
+            .filter(
+              (r) =>
+                r.ac.kind === "implementation" &&
+                r.parents.some((p) => p.kind === "decision" && p.id === entity.row.id),
+            )
+            .map((r) => ({
+              seq: r.ac.seq,
+              statement: r.ac.statement,
+              canonicalRef: r.canonicalRef,
+            }));
+          // spec-112 (ac-4 / ac-15): auto-surface related Issues whose semantic
+          // overlap with the decision clears the relevance threshold. Reuses the
+          // same searchMemex(kind:'issue') machinery; informational only, never
+          // blocks. Below threshold composeGuidanceEnvelope appends nothing.
+          const issueHits = await relatedIssuesForDecision(
+            memexId,
+            `${decision.title}\n\n${decision.resolution ?? ""}`,
+            resolveEmbeddingProvider(),
+          );
+          return { kind: "decision_resolved", decRef, linkedAcs, issueHits };
+        };
       }
       return `Decision resolved: ref: ${decRef} "${decision.title}" — ${decision.resolution}.${hint}${readout}`;
     },
