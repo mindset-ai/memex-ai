@@ -63,7 +63,7 @@ import {
   users,
 } from "../db/schema.js";
 import { createMcpServer } from "../mcp/tools.js";
-import { toolManifest } from "@memex/shared";
+import { toolManifest, BASE_SCAFFOLD } from "@memex/shared";
 import { createDocDraft } from "./documents.js";
 
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-424/acs/ac-${n}`;
@@ -378,17 +378,26 @@ describe("spec-424 — the resolve_decision footer delivers the ground_spec call
     // …and NOT routed through the Scaffold. cl-68 is a carve-out FROM cl-20,
     // so putting it in scaffold-data.ts would fight the carve-out and both
     // guards, and is the mistake an earlier draft of dec-1 made.
-    const scaffoldSrc = readFileSync(
-      resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "shared", "src", "scaffold-data.ts"),
-      "utf8",
-    );
-    const scaffoldGroundSpec = (scaffoldSrc.match(/ground_spec/g) ?? []).length;
+    //
+    // Asserted against DELIVERED PROSE, not the raw file. An earlier version of
+    // this guard counted `ground_spec` occurrences in scaffold-data.ts and
+    // capped them at 2 — and spec-424's own t-3 reddened it by naming the tool
+    // in a block's `rationale`, which is Inspect-only metadata no agent ever
+    // reads. The claim is about what the Scaffold DELIVERS, so that is what is
+    // inspected: prompt-block and guidance text. Prompt BUTTONS are excluded on
+    // purpose — `plan-handoff` names the tool by design; it is the human-copied
+    // surface that owns the instruction, which is exactly why the footer line
+    // and the in-app CTA must not restate it.
+    const deliveredProse = [
+      ...BASE_SCAFFOLD.promptBlocks.map((b) => b.text),
+      ...BASE_SCAFFOLD.baseGuidance.map((g) => g.text),
+    ];
+    const offenders = deliveredProse.filter((t) => /ground_spec/.test(t));
     expect(
-      scaffoldGroundSpec,
-      "ground_spec now appears in scaffold-data.ts more than its two pre-existing homes " +
-        "(the tool-description map and the plan-handoff button) — this Spec's line was routed " +
-        "through the Scaffold instead of the cl-68 seat",
-    ).toBeLessThanOrEqual(2);
+      offenders,
+      "the grounding call was routed through Scaffold-delivered prose instead of the cl-68 seat — " +
+        "the Prompt Button is the one surface allowed to name it",
+    ).toEqual([]);
 
     // The nugget it extends is still intact and still first.
     const spec = await specWithDecisions("Push Seat", 1);

@@ -1047,7 +1047,7 @@ const PHASE_PLAN: PhaseNode = {
     ],
     blocked: ['create_task', 'execution_plans'],
   },
-  promptBlockIds: [...REACT_ONLY_BLOCK_IDS, 'create-from-doc'],
+  promptBlockIds: [...REACT_ONLY_BLOCK_IDS, 'create-from-doc', 'grounding-handoff'],
   rationale:
     'Specify is team-visible narrative shaping + decision resolution. Same allowance as draft (per `phaseAllowanceLine`): full section + decision surface, tasks blocked.',
 };
@@ -2041,6 +2041,38 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
 // Composed dataset.
 // ──────────────────────────────────────────────────────────────────────────
 
+// spec-424 t-3 (dec-4, std-34, std-38 cl-4) — the in-app agent's honest grounding
+// handoff. The React agent is ALREADY told, by the shared specify phase guidance,
+// to "ground code-touching decisions against current source before resolving".
+// That instruction is correct for the MCP agent and IMPOSSIBLE here: this agent
+// cannot open the repository, and recording the result is gated to the MCP
+// channel. Before this block the surface was not silent about grounding — it was
+// asking for something it could not do, with nowhere to send the user.
+//
+// So this does not repeat the ask; it makes the existing one actionable. It
+// points at the `plan-handoff` Prompt Button (label 'Specify handoff'), which
+// already carries the full grounding instructions including the tool call, so
+// the tool is deliberately NOT named here: naming it would instruct an MCP-only
+// step (std-34) and duplicate prose that already has one owner (spec-33/dec-4).
+//
+// std-38 cl-4's affordance for an ad-hoc refusal is `render_handoff`. Pointing at
+// the button instead is the DRY choice, not a departure: the button IS the
+// maintained grounding prose, and an agent-composed prompt would be a second copy.
+//
+// react_only, and registered on the specify phase only — the phase where
+// decisions resolve and grounding still changes the outcome. Portable per std-22.
+const BASE_GROUNDING_HANDOFF: PromptBlockNode = {
+  kind: 'prompt_block',
+  id: 'grounding-handoff',
+  surface: 'react_only',
+  text:
+    '## Grounding a code-touching Spec — you point at it, you do not do it\n' +
+    'When this Spec\'s decisions name code — files, symbols, schema, routes — someone has to check them against the real source before they harden into tasks. That someone is not you: you cannot open the repository, and recording the result is a coding-agent action you have no way to perform. Never claim a Spec is grounded, and never imply you are about to go and read the code.\n\n' +
+    'What to do instead, when decisions are being resolved on a code-touching Spec: say plainly that the grounding belongs in a coding agent with the repository open, and point the user at the **Specify handoff** prompt on this Spec — it already carries the full instructions, so do not restate them or compose your own version. Then carry on with the work that IS yours: shaping the narrative and driving the decisions to resolution.',
+  rationale:
+    'spec-424 t-3 (dec-4): the in-app grounding handoff. The React agent inherits the specify phase guidance telling it to ground decisions against current source (spec-123 dec-8 brought the shared_nudge phase guidance to this surface), but the recording call is channel=mcp only and the agent cannot read a repo — so without this block the surface instructs an impossible step with no destination, which is what std-34 forbids. It POINTS at the plan-handoff Prompt Button (std-23, the existing primitive, no net-new chip) rather than composing its own prompt, because that button is the single owner of the grounding instruction (spec-33/dec-4) and a second copy is the duplication this Spec lists as a constraint. Deliberately does not name the grounding tool: that is the MCP-only step std-34 keeps off human-facing surfaces. Registered on the specify phase only. Portable per std-22 — no paths, no framework or tooling names, no Standard handles.',
+};
+
 const PROMPT_BLOCKS: PromptBlockNode[] = [
   // React-only cross-phase blocks.
   BASE_ROLE,
@@ -2049,6 +2081,8 @@ const PROMPT_BLOCKS: PromptBlockNode[] = [
   BASE_CONTEXT_AWARENESS,
   // spec-176 t-1: create-from-doc guidance — active in specify/build/verify.
   BASE_CREATE_FROM_DOC,
+  // spec-424 t-3 (dec-4): the in-app grounding handoff — specify phase only.
+  BASE_GROUNDING_HANDOFF,
   // Conditionally-injected react_only blocks (not in any phase's promptBlockIds;
   // appended by buildSystemBlocks per-request — readOnly: spec-111 t-9 / dec-2;
   // review: spec-126 dec-4 when the resolved role is reviewer).
