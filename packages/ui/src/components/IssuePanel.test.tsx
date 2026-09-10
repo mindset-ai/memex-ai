@@ -245,19 +245,25 @@ describe('IssuePanel — inline expansion (spec-164)', () => {
     expect(cards).toHaveLength(2);
     expect(screen.queryByTestId('issue-expanded')).not.toBeInTheDocument();
 
-    await user.click(cards[0]);
-    expect(cards[0]).toHaveAttribute('aria-expanded', 'true');
+    // spec-558 dec-1 re-cut the click target: the TITLE STRIP toggles, the
+    // card does not. The accordion contract this test pins is unchanged —
+    // one click opens, the same click closes, several stay open — only the
+    // element carrying it moved, so the gestures now go to the strip.
+    const strips = cards.map((c) => within(c).getByTestId('issue-strip'));
+
+    await user.click(strips[0]);
+    expect(strips[0]).toHaveAttribute('aria-expanded', 'true');
     const expanded = screen.getByTestId('issue-expanded');
     expect(expanded).toHaveTextContent('line three — long enough to be clamped when collapsed.');
     expect(expanded).toHaveTextContent('issue-1');
 
     // Second card opens alongside the first.
-    await user.click(cards[1]);
+    await user.click(strips[1]);
     expect(screen.getAllByTestId('issue-expanded')).toHaveLength(2);
 
     // Clicking the first again collapses only it.
-    await user.click(cards[0]);
-    expect(cards[0]).toHaveAttribute('aria-expanded', 'false');
+    await user.click(strips[0]);
+    expect(strips[0]).toHaveAttribute('aria-expanded', 'false');
     expect(screen.getAllByTestId('issue-expanded')).toHaveLength(1);
   });
 
@@ -280,7 +286,10 @@ describe('IssuePanel — inline expansion (spec-164)', () => {
 
     render(<IssuePanel docId="doc-1" highlightIssueHandle="issue-5" />);
     const card = await screen.findByTestId('issue-card');
-    await waitFor(() => expect(card).toHaveAttribute('aria-expanded', 'true'));
+    // spec-558 dec-1: `aria-expanded` moved onto the title strip, which is the
+    // control now — the card is a container and announces nothing.
+    const strip = within(card).getByTestId('issue-strip');
+    await waitFor(() => expect(strip).toHaveAttribute('aria-expanded', 'true'));
     expect(screen.getByTestId('issue-expanded')).toHaveTextContent('full detail');
   });
 });
