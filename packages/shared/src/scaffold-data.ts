@@ -648,7 +648,7 @@ const BASE_CODE_GROUNDING_NOT_GROUNDED: PromptBlockNode = {
   id: 'code-grounding-not-grounded',
   surface: 'shared_nudge',
   text:
-    '⚠ No code-grounding on this Spec. If you\'re driving from a coding agent, walk the resolved decisions against current source before transitioning. Build transition is not blocked.',
+    '⚠ No code-grounding on this Spec. If you\'re driving from a coding agent, walk the resolved decisions against current source before transitioning. The transition remains available, but grounding first is recommended: an ungrounded decision becomes the foundation once tasks form.',
   rationale:
     'The ungrounded branch — `nudge:not_verified` of `_base/code-grounding.md`, verbatim. Fires only when the document says the Spec is not grounded, never as the default for a state nobody knows (spec-542 ac-7).',
 };
