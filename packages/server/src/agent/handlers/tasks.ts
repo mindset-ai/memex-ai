@@ -27,6 +27,7 @@ import {
 // on this request path (the facet-classifier-no-request-path regression guard).
 import { requireBallotForMemex, taskBallotTrueFacets, facetKeysByTask } from "../../services/facet-ballot.js";
 import { parseBallotArg, storeRouteAndReadout, routeAndReadout } from "../../services/facet-consume.js";
+import { afterCommit } from "../../services/after-commit.js";
 import {
   ValidationError,
 } from "../../types/errors.js";
@@ -261,6 +262,8 @@ export const tasksTools: ToolSpec[] = [
             ballot,
             vocab,
             ctx: reqCtx(ctx),
+            // spec-560 dec-3: declared, never defaulted (std-50).
+            writeKind: "create",
           })
         : "";
       if (ctx.verbose) {
@@ -376,6 +379,23 @@ export const tasksTools: ToolSpec[] = [
       let completedReadout = "";
       // spec-445 dec-1 — the facet-edit readout, re-surfaced when the ballot is re-cast.
       let facetEditReadout = "";
+      // spec-560 dec-5 — VALIDATE BEFORE THE WRITE. This used to sit below the field
+      // update, so `update_task({title, facetBallot: <invalid>})` committed the title
+      // and THEN threw: the caller was told the call failed over an edit that landed.
+      // The fix is the ordering, never a guard — wrapping validation would make an
+      // invalid ballot silently accepted, which is spec-499's contract inverted.
+      // `add_clause` (sections.ts) already had this right and said so; its sibling
+      // `edit_clause` did not, and neither did this.
+      const editBallot =
+        input.facetBallot !== undefined ? parseBallotArg(input.facetBallot) : undefined;
+      const editVocab =
+        editBallot !== undefined
+          ? await requireBallotForMemex(
+              memexId,
+              { provided: true, ballot: editBallot },
+              { noun: "task", channel: ctx.channel },
+            )
+          : undefined;
       if (
         title !== undefined ||
         description !== undefined ||
@@ -395,13 +415,9 @@ export const tasksTools: ToolSpec[] = [
       // a COMPLETE verdict REPLACES the stored ballot (task_facet_ballots upserts one per
       // task) and re-surfaces the governing standards — the same validate+store+route path
       // create_task takes. Omitted → facets unchanged; a vocab-less Memex is a no-op.
-      if (input.facetBallot !== undefined) {
-        const ballot = parseBallotArg(input.facetBallot);
-        const vocab = await requireBallotForMemex(
-          memexId,
-          { provided: true, ballot },
-          { noun: "task", channel: ctx.channel },
-        );
+      if (editBallot !== undefined) {
+        const ballot = editBallot;
+        const vocab = editVocab ?? [];
         if (vocab.length > 0) {
           const fresh = await getTask(memexId, taskUuid);
           const taskRef = buildChildRef(slugs, doc, { type: "tasks", seq: fresh.seq });
@@ -415,6 +431,8 @@ export const tasksTools: ToolSpec[] = [
             ballot,
             vocab,
             ctx: reqCtx(ctx),
+            // spec-560 dec-3: declared, never defaulted (std-50).
+            writeKind: "recast",
           });
           messages.push(`Task ref: ${taskRef} facets updated.`);
         }
@@ -452,9 +470,15 @@ export const tasksTools: ToolSpec[] = [
         // the handler. The "leave a progress comment" STEER is guidance, owned by
         // composeGuidanceEnvelope — we signal the event, not the words.
         if (status === "complete") {
-          const unblocked = await findNewlyUnblockedDependents(memexId, taskUuid);
-          if (unblocked.length > 0) {
-            unblockedHint = ` Unblocked dependents: ${unblocked
+          // spec-560 dec-2: the completion is already committed. This read only
+          // enriches the sentence, so it must not be able to report the completion as
+          // failed — worst case the agent runs list_tasks(readyOnly) itself, which is
+          // exactly the call this hint exists to save.
+          const unblocked = await afterCommit("update_task unblocked-dependents", () =>
+            findNewlyUnblockedDependents(memexId, taskUuid),
+          );
+          if (unblocked.ok && unblocked.value.length > 0) {
+            unblockedHint = ` Unblocked dependents: ${unblocked.value
               .map((u) => `t-${u.seq}`)
               .join(", ")}.`;
           }
@@ -462,13 +486,12 @@ export const tasksTools: ToolSpec[] = [
             // spec-219 comb-through: park the build-completion picture so the
             // footer can push toward verify the moment the last task is done
             // (the build->verify analogue of create_ac's build-push).
-            const open = (await listTasks(memexId, doc.id)).filter(
-              (t) => t.status !== "complete",
-            ).length;
-            ctx.footerSlot.signal = {
-              kind: "task_completed",
-              allComplete: open === 0,
-              remaining: open,
+            // spec-560 dec-2: deferred — the read runs behind afterCommit in the seat.
+            ctx.footerSlot.compute = async () => {
+              const open = (await listTasks(memexId, doc.id)).filter(
+                (t) => t.status !== "complete",
+              ).length;
+              return { kind: "task_completed", allComplete: open === 0, remaining: open };
             };
           }
           // The retrospective-audit nag (mechanism 1): re-surface the governing

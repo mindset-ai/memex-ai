@@ -42,6 +42,7 @@ import { claimFullHandoffDelivery } from "../../services/handoff-delivery.js";
 import type { ToolCtx, FooterSignal } from "./tool-contract.js";
 import { fullDocState, type FullDocState } from "./doc-state.js";
 import { relatedIssuesNudge } from "./related-issues.js";
+import { afterCommit } from "../../services/after-commit.js";
 
 export const COMPLETION_NUDGE =
   "Leave a `progress` comment for whoever picks this up next: what landed, the contract it honours, any surprises, and what is left for downstream.";
@@ -138,8 +139,37 @@ export async function renderFooterSignal(
             `  create_ac({ ref: '<this-spec>', kind: 'implementation', parent_decision_ref: '${signal.decRef}', statement: '...' })\n` +
             `See get_information(topic='decisions-need-acs') for the discipline. ` +
             `Until this decision has them, the spec can't move into build.`;
+      // spec-424 (dec-1, dec-2, dec-9): the always-delivered push to RECORD the
+      // grounding. `ground_spec` is otherwise named in exactly one piece of
+      // delivered prose — the `plan-handoff` Prompt Button, which a HUMAN must
+      // copy into the session — so an MCP agent that never copies it is never
+      // told the tool exists. That was spec-424's founding gap and spec-542 did
+      // not touch it: spec-542 made the grounding CLAIM honest, not the CALL.
+      //
+      // Deliberately NOT a read-the-source instruction. dec-9 dropped that half:
+      // spec-542's state-keyed claim already carries it and carries it better,
+      // because it carries it WITH the state and its provenance. A second copy
+      // here would be one instruction with two authors (spec-33/dec-4) spending
+      // budget the footer does not have (spec-193 dec-2).
+      //
+      // Phrased conditionally on purpose. dec-2 keeps this unconditional — it
+      // fires on EVERY resolve_decision — so it renders beside all three of
+      // spec-542's claims. "Once … are grounded" asserts nothing false next to
+      // "affirmed", and reads as the next move next to "stale".
+      //
+      // A SEPARATE entry, not appended to `acNudge`: that is a ternary, and
+      // `acNudge` is the SKETCH whenever the decision has linked ACs. Appending
+      // to the create-ACs literal would deliver this only for decisions with no
+      // ACs yet — i.e. it would go quiet exactly as a Spec starts progressing.
+      //
+      // Single-line literal by necessity, not by style: the b-68 drift-guard
+      // flags a >=2-newline literal matching `call <tool>(`, and this file is
+      // not on its allowlist even though std-15 cl-68 names this seat the
+      // sanctioned author of footer prose. That contradiction is flagged as
+      // drift on std-15 s-8 rather than worked around silently.
+      const groundingNudge = `Once the resolved decisions are grounded, record it: ground_spec({ ref: '<this-spec>', codebase_present: true }).`;
       const issuesNudge = relatedIssuesNudge(signal.issueHits);
-      const out = [acNudge, issuesNudge]
+      const out = [acNudge, groundingNudge, issuesNudge]
         .map((s) => s.trim())
         .filter((s) => s.length > 0)
         .join("\n\n");
@@ -317,14 +347,22 @@ export async function composeGuidanceEnvelope(
   // spec-219 Phase 2 (sole-author): a handler hands us a structured signal (the
   // DATA of what just happened); composeGuidanceEnvelope owns the words, via
   // renderFooterSignal. No handler authors footer text.
-  let slot: string | undefined;
-  try {
-    slot = ctx.footerSlot?.signal
-      ? await renderFooterSignal(ctx.footerSlot.signal, memexId, docId)
-      : undefined;
-  } catch {
-    slot = undefined;
-  }
+  // spec-560 dec-2 — both halves of this run AFTER the handler's row committed, so
+  // neither may throw. They are guarded through `afterCommit` rather than a bare catch
+  // for one reason beyond non-fatality: the bare catch that used to sit here dropped
+  // the error entirely, so a real database outage degrading every footer in the fleet
+  // was invisible in Cloud Logging (std-14, std-50; ac-3).
+  const computed = ctx.footerSlot?.compute
+    ? await afterCommit("footer signal derivation", ctx.footerSlot.compute)
+    : undefined;
+  // An explicitly parked signal wins; `compute` is the deferred path for signals that
+  // must read to build themselves.
+  const signal = ctx.footerSlot?.signal ?? (computed?.ok ? computed.value : undefined);
+
+  const rendered = signal
+    ? await afterCommit("footer signal render", () => renderFooterSignal(signal, memexId, docId))
+    : undefined;
+  const slot: string | undefined = rendered?.ok ? rendered.value : undefined;
   const compose = (
     header: string | undefined,
     footer: string | undefined,

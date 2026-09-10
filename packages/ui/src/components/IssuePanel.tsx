@@ -7,10 +7,14 @@
 // same doc-change bus every other panel uses, so a create/update/delete from
 // any source (React UI, MCP, the agent, REST) re-renders the list (ac-2).
 //
-// Card interaction (spec-164 dec-4): clicking a card toggles an INLINE
-// expansion — full body + metadata in place, click again to collapse, several
-// cards may be open at once (the spec-96 dec-16 accordion pattern). The
-// click-to-focus chip (c-1) now fires ONLY from the dedicated hover icon:
+// Card interaction (spec-164 dec-4, re-cut by spec-558 dec-1): a card is TWO
+// zones. Clicking the TITLE STRIP toggles an inline expansion — full body +
+// metadata, one click to open, the same click to close, several cards open at
+// once (the spec-96 dec-16 accordion pattern). The CONTENT ZONE takes no
+// clicks at all, so the body can be selected and copied: when the whole card
+// was the toggle, a drag-select inside it ended with a `click` on the card and
+// closed what the user was reading (issue-4). The
+// click-to-focus chip (c-1) fires ONLY from the dedicated hover icon:
 // it drops a MINIMAL {type:'issue', id, label:'issue-N — title'} ContextChip
 // into the shared chat store — the agent fetches detail via get_issue.
 //
@@ -357,12 +361,35 @@ export function IssuePanel({
             data-issue-type={issue.type}
             data-issue-status={issue.status}
             data-expanded={isExpanded || undefined}
-            aria-expanded={isExpanded}
-            onClick={() => toggleExpanded(issue.id)}
-            className={`group/issue px-3 py-2.5 rounded-md border cursor-pointer transition-colors bg-surface/50 hover:bg-card-hover ${
+            className={`rounded-md border overflow-hidden transition-colors ${
               highlightedId === issue.id ? 'ring-2 ring-accent border-accent' : 'border-edge-subtle'
             }`}
           >
+            {/* spec-558 dec-1: the card is TWO zones, and only this one takes
+                clicks. The whole card used to be the toggle (spec-164 dec-4),
+                so a drag-select in the body ended with a `click` on the card —
+                the common ancestor of the mousedown and mouseup targets — and
+                reading the body collapsed it before it could be copied
+                (issue-4). No selection guard replaces it: the content zone
+                below simply has no handler, so there is no state to read and
+                nothing to read wrongly.
+
+                This stays a `div`, not a `<button>`: it contains issue-focus,
+                Resolve/Convert and the ⋯ menu, and interactive content cannot
+                nest inside a button. Their stopPropagation calls are still
+                load-bearing — this zone still toggles.
+
+                `group/issue` lives on THIS zone rather than on the card (ac-9).
+                On the card, hovering the inert content zone revealed the focus
+                icon up in the strip — a hover cue fired by the one region that
+                no longer answers a pointer. A background-only test never
+                catches that, so the group had to move with the handler. */}
+            <div
+              data-testid="issue-strip"
+              aria-expanded={isExpanded}
+              onClick={() => toggleExpanded(issue.id)}
+              className="group/issue px-3 py-2.5 bg-surface cursor-pointer transition-colors hover:bg-card-hover"
+            >
             <div className="flex items-start gap-3">
               <span className="flex-none text-xs font-mono text-muted pt-0.5">
                 issue-{issue.seq}
@@ -394,22 +421,6 @@ export function IssuePanel({
                 </div>
                 {issue.body && !isExpanded && (
                   <p className="text-xs text-muted mt-1 line-clamp-2">{issue.body}</p>
-                )}
-                {isExpanded && (
-                  // spec-164 dec-4: the inline expansion — full body (no
-                  // clamp) + the metadata line. Read in place; click the
-                  // card again to collapse.
-                  <div data-testid="issue-expanded" className="mt-2 space-y-2">
-                    {issue.body && (
-                      <MarkdownText inline={false} className="text-xs text-body">{issue.body}</MarkdownText>
-                    )}
-                    <p className="text-[11px] text-muted">
-                      issue-{issue.seq} · {TYPE_LABEL[issue.type]} ·{' '}
-                      {STATUS_LABEL[issue.status]}
-                      {issue.severity ? <> · severity {issue.severity}</> : null} · raised{' '}
-                      {new Date(issue.createdAt).toLocaleDateString()}
-                    </p>
-                  </div>
                 )}
               </div>
               {/* spec-182 dec-4: dispositions are editor calls — canEdit on top
@@ -452,6 +463,37 @@ export function IssuePanel({
                 </div>
               )}
             </div>
+            </div>
+
+            {/* spec-558 dec-1: the content zone — a pure reading surface, a
+                SIBLING of the strip rather than nested inside it (which is
+                where it used to live, in the strip's flex-1 column, sharing
+                one fill and one handler). No onClick here, and no clickable
+                ancestor: selecting, clicking or double-clicking this text
+                cannot do anything.
+
+                `bg-page` rather than a darker strip: measured against what
+                ships, no token is DARKER than the card in the light theme —
+                surface, card-hover and selected are all slate-50 — so the
+                contrast is made by letting the content recede instead. That
+                direction holds in both themes (white vs slate-50 in light,
+                #21252b vs #1b1e24 in dark) [per std-49]. */}
+            {isExpanded && (
+              <div
+                data-testid="issue-expanded"
+                className="px-3 py-2.5 space-y-2 bg-page border-t border-edge-subtle"
+              >
+                {issue.body && (
+                  <MarkdownText inline={false} className="text-xs text-body">{issue.body}</MarkdownText>
+                )}
+                <p className="text-[11px] text-muted">
+                  issue-{issue.seq} · {TYPE_LABEL[issue.type]} ·{' '}
+                  {STATUS_LABEL[issue.status]}
+                  {issue.severity ? <> · severity {issue.severity}</> : null} · raised{' '}
+                  {new Date(issue.createdAt).toLocaleDateString()}
+                </p>
+              </div>
+            )}
           </div>
           );
         })}

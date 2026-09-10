@@ -75,7 +75,8 @@ describe('spec-484: IssuePanel body markdown', () => {
     tagAc(AC(13));
     render(<IssuePanel docId="doc-1" />);
     const card = await screen.findByTestId('issue-card');
-    fireEvent.click(card);
+    // spec-558 dec-1: the title strip is the click target now, not the card.
+    fireEvent.click(within(card).getByTestId('issue-strip'));
     const expanded = within(card).getByTestId('issue-expanded');
     expect(expanded.querySelector('li')).not.toBeNull();
     expect(expanded.querySelector('strong')?.textContent).toBe('Safari');

@@ -156,30 +156,37 @@ export const acsTools: ToolSpec[] = [
       // the only phone-home Memex has for "stop lingering in specify while code is
       // being written". Sourced from the rubric's own coverage helper so the
       // footer and assess_spec speak with one voice. Net-new guidance.
+      // spec-560 dec-2: DEFERRED, not computed here. These three reads happen after
+      // `createAc` committed, and they exist only to decorate the footer — so a
+      // transient in any of them used to turn a created AC into `Unexpected server
+      // error` (ac-10). Parking a thunk moves them behind composeGuidanceEnvelope's
+      // `afterCommit`; the closure keeps `doc` and `kind` without threading context.
       if (ctx.footerSlot) {
-        const sameKind = await listAcsForBrief(memexId, doc.id, { kind, status: "active" });
-        let coverage:
-          | { phase: string; resolvedCount: number; uncovered: string[]; open: string[] }
-          | undefined;
-        if (kind === "implementation") {
-          const [allDecs, cov] = await Promise.all([
-            listDecisions(memexId, doc.id),
-            listResolvedDecisionImplAcCoverage(memexId, doc.id),
-          ]);
-          coverage = {
-            phase: doc.status,
-            resolvedCount: cov.length,
-            uncovered: cov
-              .filter((c) => c.implementationAcCount === 0)
-              .map((c) => c.decisionHandle),
-            open: allDecs.filter((d) => d.status === "open").map((d) => `dec-${d.seq}`),
+        ctx.footerSlot.compute = async () => {
+          const sameKind = await listAcsForBrief(memexId, doc.id, { kind, status: "active" });
+          let coverage:
+            | { phase: string; resolvedCount: number; uncovered: string[]; open: string[] }
+            | undefined;
+          if (kind === "implementation") {
+            const [allDecs, cov] = await Promise.all([
+              listDecisions(memexId, doc.id),
+              listResolvedDecisionImplAcCoverage(memexId, doc.id),
+            ]);
+            coverage = {
+              phase: doc.status,
+              resolvedCount: cov.length,
+              uncovered: cov
+                .filter((c) => c.implementationAcCount === 0)
+                .map((c) => c.decisionHandle),
+              open: allDecs.filter((d) => d.status === "open").map((d) => `dec-${d.seq}`),
+            };
+          }
+          return {
+            kind: "ac_created",
+            acKind: kind,
+            sameKindCount: sameKind.length,
+            coverage,
           };
-        }
-        ctx.footerSlot.signal = {
-          kind: "ac_created",
-          acKind: kind,
-          sameKindCount: sameKind.length,
-          coverage,
         };
       }
 

@@ -24,7 +24,7 @@ Code-grounding affirmed by agent.
 
 ## nudge:not_verified
 
-⚠ No code-grounding on this Spec. If you're driving from a coding agent, walk the resolved decisions against current source before transitioning. Build transition is not blocked.
+⚠ No code-grounding on this Spec. If you're driving from a coding agent, walk the resolved decisions against current source before transitioning. The transition remains available, but grounding first is recommended: an ungrounded decision becomes the foundation once tasks form.
 
 <!--
   spec-409: the human→agent grounding HANDOFF ("ground this Spec in the code,

@@ -23,6 +23,7 @@
 //   - Update the regression test in `__regression__/tools-coverage.regression.test.ts`
 //     if the catalogue shape changes (e.g. a new MCP-only tool).
 
+import { afterCommit } from "../../services/after-commit.js";
 import { z, type ZodRawShape } from "zod";
 import {
   assertRefNotUuid,
@@ -113,6 +114,45 @@ export type FooterSignal =
  *  (renderFooterSignal) owns the words. A handler never puts prose here. */
 export interface FooterSlot {
   signal?: FooterSignal;
+  /**
+   * spec-560 dec-2 — the same signal, DEFERRED.
+   *
+   * Deriving a signal usually costs one or more DB reads, and every handler that
+   * does so has already committed its row. Computed eagerly, a transient in those
+   * reads throws out of the handler and the caller is told the write failed —
+   * over a row that exists. Park a thunk instead: `composeGuidanceEnvelope` runs
+   * it behind `afterCommit`, so the worst case is a footer that says less.
+   *
+   * A thunk rather than relocated code on purpose: the derivation needs the
+   * handler's locals (`doc`, `kind`, the freshly created row), and a closure keeps
+   * them without threading context through the seat.
+   *
+   * Prefer this over `signal` for anything that must READ to build itself. `signal`
+   * stays correct for data the handler already holds in hand.
+   */
+  compute?: () => Promise<FooterSignal | undefined>;
+}
+
+/**
+ * spec-560 dec-2 — the ONE way to get a signal out of a slot.
+ *
+ * A slot carries either a signal in hand or a thunk that must read to build one.
+ * Callers must not branch on which: the thunk runs post-commit, so it is resolved
+ * behind `afterCommit` and a failure yields `undefined` (a footer that says less)
+ * rather than an exception that would report a committed write as failed.
+ *
+ * `composeGuidanceEnvelope` is the production caller. Tests that assert what a
+ * handler produced use this too, rather than reaching for `.signal` directly —
+ * otherwise a handler that legitimately defers its read looks like a handler that
+ * produced nothing.
+ */
+export async function resolveFooterSignal(
+  slot: FooterSlot | undefined,
+): Promise<FooterSignal | undefined> {
+  if (slot?.signal) return slot.signal;
+  if (!slot?.compute) return undefined;
+  const computed = await afterCommit("footer signal derivation", slot.compute);
+  return computed.ok ? computed.value : undefined;
 }
 
 export interface ToolCtx {
