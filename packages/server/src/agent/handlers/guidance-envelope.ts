@@ -138,8 +138,37 @@ export async function renderFooterSignal(
             `  create_ac({ ref: '<this-spec>', kind: 'implementation', parent_decision_ref: '${signal.decRef}', statement: '...' })\n` +
             `See get_information(topic='decisions-need-acs') for the discipline. ` +
             `Until this decision has them, the spec can't move into build.`;
+      // spec-424 (dec-1, dec-2, dec-9): the always-delivered push to RECORD the
+      // grounding. `ground_spec` is otherwise named in exactly one piece of
+      // delivered prose — the `plan-handoff` Prompt Button, which a HUMAN must
+      // copy into the session — so an MCP agent that never copies it is never
+      // told the tool exists. That was spec-424's founding gap and spec-542 did
+      // not touch it: spec-542 made the grounding CLAIM honest, not the CALL.
+      //
+      // Deliberately NOT a read-the-source instruction. dec-9 dropped that half:
+      // spec-542's state-keyed claim already carries it and carries it better,
+      // because it carries it WITH the state and its provenance. A second copy
+      // here would be one instruction with two authors (spec-33/dec-4) spending
+      // budget the footer does not have (spec-193 dec-2).
+      //
+      // Phrased conditionally on purpose. dec-2 keeps this unconditional — it
+      // fires on EVERY resolve_decision — so it renders beside all three of
+      // spec-542's claims. "Once … are grounded" asserts nothing false next to
+      // "affirmed", and reads as the next move next to "stale".
+      //
+      // A SEPARATE entry, not appended to `acNudge`: that is a ternary, and
+      // `acNudge` is the SKETCH whenever the decision has linked ACs. Appending
+      // to the create-ACs literal would deliver this only for decisions with no
+      // ACs yet — i.e. it would go quiet exactly as a Spec starts progressing.
+      //
+      // Single-line literal by necessity, not by style: the b-68 drift-guard
+      // flags a >=2-newline literal matching `call <tool>(`, and this file is
+      // not on its allowlist even though std-15 cl-68 names this seat the
+      // sanctioned author of footer prose. That contradiction is flagged as
+      // drift on std-15 s-8 rather than worked around silently.
+      const groundingNudge = `Once the resolved decisions are grounded, record it: ground_spec({ ref: '<this-spec>', codebase_present: true }).`;
       const issuesNudge = relatedIssuesNudge(signal.issueHits);
-      const out = [acNudge, issuesNudge]
+      const out = [acNudge, groundingNudge, issuesNudge]
         .map((s) => s.trim())
         .filter((s) => s.length > 0)
         .join("\n\n");
