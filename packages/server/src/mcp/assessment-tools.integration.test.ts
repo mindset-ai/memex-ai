@@ -268,7 +268,7 @@ describe("Assessment MCP tools (post-doc-14)", () => {
         expect(result.isError).toBeFalsy();
         const text = result.content[0].text;
         expect(text).toContain(
-          "⚠ No code-grounding on this Spec. If you're driving from a coding agent, walk the resolved decisions against current source before transitioning. Build transition is not blocked.",
+          "⚠ No code-grounding on this Spec. If you're driving from a coding agent, walk the resolved decisions against current source before transitioning. The transition remains available, but grounding first is recommended: an ungrounded decision becomes the foundation once tasks form.",
         );
         expect(text).not.toContain("## Code grounding");
       });
