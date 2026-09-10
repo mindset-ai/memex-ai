@@ -375,6 +375,11 @@
         "memex-ai",
         "memex-clients"
       ]
+    },
+    {
+      "handle": "std-53",
+      "summary": "After a write commits, nothing that runs next may report it as failed. A post-commit step runs behind the named `afterCommit` helper; one that loses something real (a dependent row, a classification) returns SUCCESS plus a warning that states the outcome first, forbids the retry explicitly, and names the repair call — and says STALE, not absent, when an upsert left the previous value standing; one that loses only advisory context degrades byte-identically to clean success. Every swallowed failure logs the original error OBJECT (a silent degrade is forbidden — std-14, std-50). Validation is HOISTED above the write it protects, never wrapped: a guarded validation is an accepted invalid input. Excludes pre-commit work and the verbose branch that renders the response itself. Commits are detected by std-8's `Promise<Mutated<T>>` brand. Advisory by design like std-51/std-52 — enforcement is the `post-commit-guard` source scan, and no second path may be built.",
+      "repos": []
     }
   ]
 }

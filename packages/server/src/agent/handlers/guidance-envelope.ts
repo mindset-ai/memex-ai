@@ -42,6 +42,7 @@ import { claimFullHandoffDelivery } from "../../services/handoff-delivery.js";
 import type { ToolCtx, FooterSignal } from "./tool-contract.js";
 import { fullDocState, type FullDocState } from "./doc-state.js";
 import { relatedIssuesNudge } from "./related-issues.js";
+import { afterCommit } from "../../services/after-commit.js";
 
 export const COMPLETION_NUDGE =
   "Leave a `progress` comment for whoever picks this up next: what landed, the contract it honours, any surprises, and what is left for downstream.";
@@ -346,14 +347,22 @@ export async function composeGuidanceEnvelope(
   // spec-219 Phase 2 (sole-author): a handler hands us a structured signal (the
   // DATA of what just happened); composeGuidanceEnvelope owns the words, via
   // renderFooterSignal. No handler authors footer text.
-  let slot: string | undefined;
-  try {
-    slot = ctx.footerSlot?.signal
-      ? await renderFooterSignal(ctx.footerSlot.signal, memexId, docId)
-      : undefined;
-  } catch {
-    slot = undefined;
-  }
+  // spec-560 dec-2 — both halves of this run AFTER the handler's row committed, so
+  // neither may throw. They are guarded through `afterCommit` rather than a bare catch
+  // for one reason beyond non-fatality: the bare catch that used to sit here dropped
+  // the error entirely, so a real database outage degrading every footer in the fleet
+  // was invisible in Cloud Logging (std-14, std-50; ac-3).
+  const computed = ctx.footerSlot?.compute
+    ? await afterCommit("footer signal derivation", ctx.footerSlot.compute)
+    : undefined;
+  // An explicitly parked signal wins; `compute` is the deferred path for signals that
+  // must read to build themselves.
+  const signal = ctx.footerSlot?.signal ?? (computed?.ok ? computed.value : undefined);
+
+  const rendered = signal
+    ? await afterCommit("footer signal render", () => renderFooterSignal(signal, memexId, docId))
+    : undefined;
+  const slot: string | undefined = rendered?.ok ? rendered.value : undefined;
   const compose = (
     header: string | undefined,
     footer: string | undefined,

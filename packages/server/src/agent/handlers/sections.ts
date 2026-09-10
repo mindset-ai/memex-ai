@@ -3,6 +3,7 @@
 // agent/tool-specs.ts composes them into the single `toolSpecs` catalogue.
 // Infra (ToolCtx, helpers, guidance envelope) lives in ./shared.js (std-12).
 
+import { afterCommit } from "../../services/after-commit.js";
 import {
   z,
 } from "zod";
@@ -49,6 +50,21 @@ import {
   resolveRefArg,
   type ToolSpec,
 } from "./tool-contract.js";
+
+// spec-560 dec-3/dec-5 — what add_clause / edit_clause say back when a dependent write
+// fails after the clause itself committed. Same three properties as the facet-ballot
+// warning: the outcome first and plainly, an explicit NEGATIVE retry instruction, and
+// the repair named as a call the agent can make. Lives beside its handler for the same
+// reason formatRoutedStandards does — this is the tool's own result text, not guidance.
+function facetPersistWarning(
+  slugs: { namespace: string; memex: string },
+  doc: { handle: string },
+  seq: number,
+  what: "facets" | "testability",
+): string {
+  const ref = buildChildRef(slugs, doc as never, { type: "clauses", seq });
+  return ` \u26a0\ufe0f The ${what} for cl-${seq} could not be recorded (the standards database was briefly unavailable). The clause itself is saved \u2014 do not add it again. Re-apply with \`edit_clause({ref: "${ref}", ${what}: \u2026})\`.`;
+}
 
 export const sectionsTools: ToolSpec[] = [
   {
@@ -392,18 +408,38 @@ export const sectionsTools: ToolSpec[] = [
       const facetIds = await validateClauseFacets(memexId, input.facets as string[] | undefined);
       // spec-530 t-3: thread identity so the regenerated section row carries WHO +
       // HOW [per std-32]. Editing a clause IS editing the Standard's rule text.
-      const clause = await createClause(memexId, entity.row.id, body, position, reqCtx(ctx));
-      if (facetIds !== null) {
-        await persistClauseFacets(memexId, doc.id, clause.id, facetIds, reqCtx(ctx));
-      }
-      // spec-151 dec-6: persist an agent-supplied testability verdict at authoring time
-      // (deterministic, no server-side LLM). Validated before the write so a malformed
+      // spec-151 dec-6: an agent-supplied testability verdict, validated at authoring
+      // time (deterministic, no server-side LLM) BEFORE the write so a malformed
       // verdict never half-classifies the clause.
-      if (input.testability !== undefined) {
-        const verdict = validateTestabilityVerdict(
-          input.testability as { isObligation: unknown; testable: unknown; archetype?: unknown },
+      const addVerdict =
+        input.testability !== undefined
+          ? validateTestabilityVerdict(
+              input.testability as {
+                isObligation: unknown;
+                testable: unknown;
+                archetype?: unknown;
+              },
+            )
+          : undefined;
+
+      const clause = await createClause(memexId, entity.row.id, body, position, reqCtx(ctx));
+      // spec-560 dec-5 — the clause is committed. These two writes depend on its FK so
+      // they cannot be hoisted; they take the ballot's treatment (succeed, warn, name
+      // the repair) rather than reporting a created clause as a failure. This is the
+      // same two-writes-with-nothing-spanning-them shape as create_task's ballot — the
+      // defect that started this Spec, still live in a second place.
+      let clauseWarning = "";
+      if (facetIds !== null) {
+        const stored = await afterCommit("clause facets (create)", () =>
+          persistClauseFacets(memexId, doc.id, clause.id, facetIds, reqCtx(ctx)),
         );
-        await persistClauseTestability(memexId, doc.id, clause.id, verdict, reqCtx(ctx));
+        if (!stored.ok) clauseWarning += facetPersistWarning(slugs, doc, clause.seq, "facets");
+      }
+      if (addVerdict !== undefined) {
+        const stored = await afterCommit("clause testability (create)", () =>
+          persistClauseTestability(memexId, doc.id, clause.id, addVerdict, reqCtx(ctx)),
+        );
+        if (!stored.ok) clauseWarning += facetPersistWarning(slugs, doc, clause.seq, "testability");
       }
       if (ctx.verbose) {
         const state = await fullDocState(memexId, doc.id);
@@ -411,7 +447,7 @@ export const sectionsTools: ToolSpec[] = [
         return await formatState(url, state, ctx);
       }
       const clauseRef = buildChildRef(slugs, doc, { type: "clauses", seq: clause.seq });
-      return `Added clause cl-${clause.seq} (ref: ${clauseRef}).`;
+      return `Added clause cl-${clause.seq} (ref: ${clauseRef}).` + clauseWarning;
     },
   },
   {
@@ -460,21 +496,43 @@ export const sectionsTools: ToolSpec[] = [
         );
       }
       const { memexId, doc, slugs, entity } = resolved;
+      // spec-560 dec-5 — VALIDATE BEFORE THE WRITE, matching `add_clause` above, which
+      // already hoists its verdict "so a rejected verdict leaves no orphan clause
+      // (dec-9)". This sibling did not: it committed the body edit and then validated,
+      // so a malformed verdict failed the call over a body change that had landed.
+      // Hoisted, never guarded — a wrapped validation is an accepted invalid input.
+      const editFacetIds =
+        input.facets !== undefined
+          ? await validateClauseFacets(memexId, input.facets as string[])
+          : undefined;
+      const editVerdict =
+        input.testability !== undefined
+          ? validateTestabilityVerdict(
+              input.testability as {
+                isObligation: unknown;
+                testable: unknown;
+                archetype?: unknown;
+              },
+            )
+          : undefined;
+
       const clause = await updateClause(memexId, entity.row.id, body, reqCtx(ctx));
-      // Re-classify only when a verdict is supplied (omit = unchanged, dec-9).
-      if (input.facets !== undefined) {
-        const facetIds = await validateClauseFacets(memexId, input.facets as string[]);
-        if (facetIds !== null) {
-          await persistClauseFacets(memexId, doc.id, entity.row.id, facetIds, reqCtx(ctx));
-        }
-      }
-      // spec-151 ac-15: re-derive the persisted testability verdict on edit so a body
-      // change never leaves a stale classification (omit = unchanged).
-      if (input.testability !== undefined) {
-        const verdict = validateTestabilityVerdict(
-          input.testability as { isObligation: unknown; testable: unknown; archetype?: unknown },
+      // spec-560 dec-5 — dependent writes: the FK needs the clause row, so these cannot
+      // be hoisted and take the ballot's treatment instead — succeed, warn, name the
+      // repair. The body edit is saved either way.
+      let clauseWarning = "";
+      if (editFacetIds !== null && editFacetIds !== undefined) {
+        const stored = await afterCommit("clause facets (edit)", () =>
+          persistClauseFacets(memexId, doc.id, entity.row.id, editFacetIds, reqCtx(ctx)),
         );
-        await persistClauseTestability(memexId, doc.id, entity.row.id, verdict, reqCtx(ctx));
+        if (!stored.ok) clauseWarning += facetPersistWarning(slugs, doc, entity.row.seq, "facets");
+      }
+      if (editVerdict !== undefined) {
+        const stored = await afterCommit("clause testability (edit)", () =>
+          persistClauseTestability(memexId, doc.id, entity.row.id, editVerdict, reqCtx(ctx)),
+        );
+        if (!stored.ok)
+          clauseWarning += facetPersistWarning(slugs, doc, entity.row.seq, "testability");
       }
       if (ctx.verbose) {
         const state = await fullDocState(memexId, doc.id);
@@ -482,7 +540,7 @@ export const sectionsTools: ToolSpec[] = [
         return await formatState(url, state, ctx);
       }
       const clauseRef = buildChildRef(slugs, doc, { type: "clauses", seq: clause.seq });
-      return `Clause cl-${clause.seq} updated (ref: ${clauseRef}).`;
+      return `Clause cl-${clause.seq} updated (ref: ${clauseRef}).` + clauseWarning;
     },
   },
   {

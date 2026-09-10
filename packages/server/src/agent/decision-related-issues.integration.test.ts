@@ -16,7 +16,7 @@ import { createDocDraft } from "../services/documents.js";
 import { createIssue } from "../services/issues.js";
 import { embedAndStoreIssue } from "../services/memex-embeddings.js";
 import { toolSpecs } from "./tool-specs.js";
-import { relatedIssuesForDecision } from "./tool-specs.js";
+import { relatedIssuesForDecision, resolveFooterSignal } from "./tool-specs.js";
 import { relatedIssuesNudge } from "./handlers/related-issues.js";
 import { parseRef } from "../services/refs.js";
 import { resolveRef as resolveCanonicalRef } from "../services/resolver.js";
@@ -268,7 +268,9 @@ describe("decision JIT nudge surfaces a cross-Spec related Issue (ac-4)", () => 
     // structured signal; composeGuidanceEnvelope authors the prose via
     // relatedIssuesNudge. The related Issue from the OTHER Spec is surfaced
     // informationally, with its cross-Spec ref.
-    const signal = ctx.footerSlot?.signal;
+    // spec-560 dec-2: the handler may defer this read; resolve the slot the way
+    // composeGuidanceEnvelope does rather than probing `.signal` directly.
+    const signal = await resolveFooterSignal(ctx.footerSlot);
     expect(signal?.kind).toBe("decision_created");
     const nudge = signal && "issueHits" in signal ? relatedIssuesNudge(signal.issueHits) : "";
     expect(nudge).toContain("Related Issues");
@@ -320,7 +322,9 @@ describe("decision JIT nudge surfaces a cross-Spec related Issue (ac-4)", () => 
 
     // spec-219 Phase 2: the resolve handler parks a decision_resolved signal;
     // composeGuidanceEnvelope authors the related-issues prose from issueHits.
-    const signal = ctx.footerSlot?.signal;
+    // spec-560 dec-2: the handler may defer this read; resolve the slot the way
+    // composeGuidanceEnvelope does rather than probing `.signal` directly.
+    const signal = await resolveFooterSignal(ctx.footerSlot);
     expect(signal?.kind).toBe("decision_resolved");
     const nudge = signal && "issueHits" in signal ? relatedIssuesNudge(signal.issueHits) : "";
     expect(nudge).toContain("Related Issues");

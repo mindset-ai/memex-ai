@@ -71,6 +71,10 @@ export {
   relatedIssuesForDecision,
   suggestActiveSpecsForIssue,
 } from "./handlers/related-issues.js";
+// spec-560 dec-2: a slot may carry a deferred thunk, so `.signal` alone no longer
+// answers "what did this handler produce". Re-exported so callers and tests resolve
+// it one way.
+export { resolveFooterSignal } from "./handlers/tool-contract.js";
 export type {
   StatusFacts,
 } from "./handlers/guidance-envelope.js";
