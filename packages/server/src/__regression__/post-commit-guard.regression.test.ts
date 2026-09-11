@@ -53,43 +53,56 @@ const ALLOWLIST: Record<string, string> = {
     "spec-560 t-1: same seam — the readout is produced behind afterCommit inside facet-consume.ts and degrades to \"\".",
   stampDocViewFromMcp:
     "spec-448 t-5: swallows its own failures by design (docs.ts) — \"a marker write must never break the tool's real response\". One of the five precedents this Spec generalises.",
-  // ── Read-after-write ENRICHMENT. Tracked as issue-1 on spec-560, not waved through.
-  // Each of these commits, then reads again to fill in a response field. A failure
-  // costs that field — a missing ref, an unrendered READY/BLOCKED marker — where the
-  // seven fixed under dec-5 cost a duplicated row, an overwritten resolution, or an
-  // edit accepted then reported as rejected. A difference in degree, deliberately not
-  // dressed up as a difference in kind.
+  // ── Read-after-write ENRICHMENT — a JUDGEMENT, not a deferral (spec-560 issue-1,
+  // closed wont_fix 2026-09-11). Each of these commits, then reads again to fill in a
+  // response field.
+  //
+  // Why they are accepted rather than wrapped: their natural retry is harmless. What
+  // made create_task dangerous was not the false error but that REPLAYING it caused
+  // damage — a duplicate row, an overwritten resolution. Re-setting a Spec to the
+  // phase it already holds does nothing; re-adding an existing blocker does nothing.
+  // An agent that believes the false error and retries corrupts nothing; it loses a
+  // response field and some time. That is a difference in degree, and it is stated as
+  // such rather than dressed up as a difference in kind.
+  //
+  // What this knowingly accepts: a caller is still occasionally told a committed write
+  // failed on these paths. Revisit on a concrete incident — an agent taking a wrong
+  // next step because it believed a transition had not happened — not on this list.
+  //
+  // Per std-53 cl-10: an exemption that is a deferral names the artifact tracking it;
+  // one that is a judgement states the judgement. These are judgements. `issue-1` is
+  // cited as the DECISION RECORD, never as pending work.
   //
   // Keyed `path::callee` rather than by callee alone: exempting `getTask` globally
   // would wave through the next high-stakes one too.
   "agent/handlers/lifecycle.ts::getDoc":
-    "issue-1 — re-read after a committed phase/flag change (updateDocStatus, groundSpec, setSensitive, supersedeSpec) purely to render the response. Costs a response field; needs a call on what to show when the fresh read is unavailable (probably the pre-write row the handler already holds).",
+    "Accepted (issue-1, wont_fix 2026-09-11): re-read after a committed phase/flag change (updateDocStatus, groundSpec, setSensitive, supersedeSpec) purely to render the response. Costs the rendered doc; a retry re-sets the phase it already holds, which is a no-op, so nothing corrupts.",
   "agent/handlers/docs.ts::getDoc":
-    "issue-1 — same shape as lifecycle.ts::getDoc: the doc is already updated, this read only renders it back.",
+    "Accepted (issue-1, wont_fix 2026-09-11): re-read after a committed doc update, purely to render it back. Costs the rendered doc; the retry is the same idempotent update, so nothing corrupts.",
   "agent/handlers/docs.ts::getTask":
-    "issue-1 — promote_to_spec re-reads a task to compose its response after the promotion committed.",
+    "Accepted (issue-1, wont_fix 2026-09-11): promote_to_spec re-reads a task to compose its response after the promotion committed. Costs a line of the response; the promotion stands and a retry refuses cleanly.",
   "agent/handlers/docs.ts::resolveRefArg":
-    "issue-1 — ref resolution on the promotion path, after the write. Costs the response's ref line.",
+    "Accepted (issue-1, wont_fix 2026-09-11): ref resolution on the promotion path, after the write. Costs the ref line only.",
   "agent/handlers/tasks.ts::getTask":
-    "issue-1 — re-read after addBlocker/removeBlocker/updateTaskStatus to render the READY/BLOCKED marker. The blocker change is committed; a failure loses the marker, and the agent can call list_tasks for it.",
+    "Accepted (issue-1, wont_fix 2026-09-11): re-read after addBlocker / removeBlocker / updateTaskStatus to render the READY/BLOCKED marker. Costs the marker; the agent can get it from list_tasks, and re-adding an existing blocker is a no-op.",
   "agent/handlers/tasks.ts::resolveBlockerRef":
-    "issue-1 — resolves the blocker's handle for that same marker, same consequence.",
+    "Accepted (issue-1, wont_fix 2026-09-11): resolves the blocker's handle for that same marker. Costs the marker only; nothing corrupts.",
   "agent/handlers/issues.ts::memexSlugsById":
-    "issue-1 — builds the canonical ref after the Issue committed; already degrades to doc.handle on a null return and only needs to stop throwing.",
+    "Accepted (issue-1, wont_fix 2026-09-11): builds the canonical ref after the Issue committed; already degrades to doc.handle on a null return, so a throw costs the ref line only.",
   "agent/handlers/standards.ts::memexSlugsById":
-    "issue-1 — same, on the standards write paths (proposeStandardChange, acceptStandardChange).",
+    "Accepted (issue-1, wont_fix 2026-09-11): same on the standards write paths (proposeStandardChange, acceptStandardChange). Costs the ref line only.",
   "agent/handlers/standards.ts::buildStandardCommentRef":
-    "issue-1 — composes the drift comment's ref after flagDrift committed. Costs the ref line in the response.",
+    "Accepted (issue-1, wont_fix 2026-09-11): composes the drift comment's ref after flagDrift committed. Costs the ref line only.",
   "agent/handlers/issues.ts::suggestActiveSpecsForIssue":
-    "issue-1 — a semantic-search suggestion appended after the Issue is created. Purely additive context.",
+    "Accepted (issue-1, wont_fix 2026-09-11): a semantic-search suggestion appended after the Issue is created. Purely additive context; losing it costs nothing the caller asked for.",
   "agent/handlers/decisions.ts::getDecision":
-    "issue-1 — reads the row back on a facet-only edit that changed no content field, to build the response.",
+    "Accepted (issue-1, wont_fix 2026-09-11): reads the row back on a facet-only edit that changed no content field. Costs the rendered decision; a retry is the same no-op edit.",
   "agent/handlers/decisions.ts::listDecisions":
-    "issue-1 — post-resolve count for the remaining-decisions hint. Costs a sentence.",
+    "Accepted (issue-1, wont_fix 2026-09-11): post-resolve count for the remaining-decisions hint. Costs a sentence.",
   "agent/handlers/acs.ts::fetchTopic":
-    "issue-1 — appends the ac-emission guidance topic after the ephemeral key is minted. The key IS in the response; losing the topic costs prose the agent can fetch itself.",
+    "Accepted (issue-1, wont_fix 2026-09-11): appends the ac-emission guidance topic after the ephemeral key is minted. The key IS in the response; losing the topic costs prose the agent can fetch itself.",
   "agent/handlers/acs.ts::verificationStateForAc":
-    "issue-1 — re-reads verification state after discontinue_test_events committed, to report the new state.",
+    "Accepted (issue-1, wont_fix 2026-09-11): re-reads verification state after discontinue_test_events committed. Costs the reported state; the discontinuation stands.",
   // ── The verbose branch.
   fullDocState:
     "spec-560 dec-2: the verbose branch IS the response payload — there is nothing to hand back if it fails, so guarding it means inventing a degraded response shape. Named as out of scope in s-3 rather than left silent; its own Spec if it earns one.",
@@ -366,8 +379,19 @@ describe("spec-560 — a step after the commit never reports the write as failed
 
 it("ac-19: enrichment exemptions are keyed path::callee and name their tracking artifact", () => {
     tagAc(AC(19));
-    const enrichment = Object.keys(ALLOWLIST).filter((k) => ALLOWLIST[k].startsWith("issue-1"));
-    expect(enrichment.length, "the tracked enrichment set must not be empty").toBeGreaterThan(10);
+    const enrichment = Object.keys(ALLOWLIST).filter((k) => k.includes("::"));
+    expect(enrichment.length, "the accepted enrichment set must not be empty").toBeGreaterThan(10);
+    for (const key of enrichment) {
+      const reason = ALLOWLIST[key];
+      // The gap that let this rot: the old assertion only checked the reason STARTED
+      // with a handle. issue-1 was later closed wont_fix and all 22 reasons kept
+      // announcing a tracked follow-up that no longer existed — a false statement the
+      // guard could not see, in the guard this Spec built. Check the substance.
+      expect(reason, `${key} must state the accepted consequence, not just cite a handle`).toMatch(
+        /Costs|no-op|nothing corrupts|ref line|purely additive|Costs a sentence/i,
+      );
+      expect(reason, `${key} must not imply pending work`).not.toMatch(/\bneeds a call\b|\btracked by a future\b/i);
+    }
     for (const key of enrichment) {
       // Bare-callee keys exempt that callee EVERYWHERE. An enrichment site is exempt
       // because of what it does in ITS file, so it must be scoped to that file.
