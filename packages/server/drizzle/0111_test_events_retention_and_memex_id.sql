@@ -1,3 +1,13 @@
+-- ⚠ SUPERSEDED — this file's definition of activity_view is no longer the live one.
+--    Migrations that define it, in order:
+--      grep -lE 'CREATE (OR REPLACE )?VIEW activity_view' drizzle/*.sql | sort
+--    ⚠ the last one may REPLAY the definition dynamically without carrying its text
+--      (0142 does exactly that) — a later file is not necessarily a readable one.
+--    Only authority on the live body (needs DB):
+--      pg_get_viewdef('activity_view'::regclass, true)
+--    Why this marker exists: spec-564. It was written because spec-563 was authored
+--    against this file's body and blamed a defect 0109/0111 had already fixed.
+--
 -- spec-398 — bounded retention + durable tenancy for test_events.
 --
 -- Three things, one atomic migration (the hand-runner wraps the file in a single
