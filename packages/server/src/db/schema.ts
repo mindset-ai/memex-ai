@@ -1,4 +1,4 @@
-import { pgTable, text, uuid, timestamp, integer, unique, uniqueIndex, check, primaryKey, jsonb, boolean, index, customType, doublePrecision, date, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, text, uuid, timestamp, integer, unique, uniqueIndex, check, primaryKey, foreignKey, jsonb, boolean, index, customType, doublePrecision, date, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { relations, type InferSelectModel, type InferInsertModel, sql } from "drizzle-orm";
 import type { CommentAction, CommentAudience } from "../types/roles.js";
 
@@ -216,6 +216,12 @@ export const documents = pgTable("documents", {
 }, (table) => [
   unique("documents_memex_id_handle_unique").on(table.memexId, table.handle),
   index("documents_memex_id_idx").on(table.memexId),
+  // spec-563 (0148): the target of doc_sections' composite tenancy FK. `id` is already
+  // the primary key so this pair is unique by implication — but a foreign key requires a
+  // DECLARED unique constraint over precisely its target columns. Exists to make
+  // "a section's tenant disagrees with its document's" unrepresentable rather than merely
+  // detectable after the fact.
+  unique("documents_id_memex_id_key").on(table.id, table.memexId),
   // spec-521 (ac-15) — serves the REVERSE supersession question the successor's
   // page asks ("what did I replace?") so the mirror line renders without a scan
   // of the Memex's documents. PARTIAL (WHERE NOT NULL) because the overwhelming
@@ -362,6 +368,21 @@ export const docSections = pgTable(
       .on(table.docId, table.seq)
       .where(sql`status <> 'deleted'`),
     unique("doc_sections_doc_id_section_type_unique").on(table.docId, table.sectionType),
+    // spec-563 (0148) — a section's tenant CANNOT disagree with its document's. memex_id
+    // here is denormalised from documents, and a denormalised column that can drift from
+    // its source is a tenancy bug with a delay fuse. A test that counted mismatches caught
+    // one within an hour of the column landing — the right outcome by the wrong mechanism,
+    // late and dependent on what else shared the database. This makes the bad state
+    // unrepresentable: a wrong tenant now fails AT THE INSERT, naming the row.
+    // ON UPDATE CASCADE so a document moving between Memexes takes its sections with it
+    // rather than blocking the move or stranding them in the old tenant.
+    foreignKey({
+      columns: [table.docId, table.memexId],
+      foreignColumns: [documents.id, documents.memexId],
+      name: "doc_sections_doc_id_memex_id_fkey",
+    })
+      .onDelete("cascade")
+      .onUpdate("cascade"),
     // spec-352 (0105) — Home activity_view feed. The Q-spark arm reduces to
     // doc_id IN (...) AND created_at >= window. Q-mine filters by actor_user_id +
     // window (partial: only attributable rows).
