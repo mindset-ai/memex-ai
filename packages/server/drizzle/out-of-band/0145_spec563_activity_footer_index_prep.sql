@@ -53,6 +53,50 @@
 -- A CONCURRENTLY build that fails leaves an INVALID index behind, which nothing will use
 -- and nothing will complain about. 0146 asserts this rather than trusting it.
 
+-- ⚠ ON_ERROR_STOP IS LOAD-BEARING, NOT HOUSEKEEPING. psql's DEFAULT is to keep going after
+-- an error, so without this the §0 guard below RAISES, is ignored, and the script cheerfully
+-- builds the orphan indexes it just refused to build. Measured: the first version of that
+-- guard printed its refusal and then created duplicates anyway.
+\set ON_ERROR_STOP on
+
+-- ── 0. ⚠ REFUSE TO RUN AFTER 0146. THIS ORDER IS NOT ADVICE. ────────────────────────────
+--
+-- MEASURED, not reasoned: this file was run against a database where 0146 had already
+-- created the parent index, to find out what happens. It is worse than a no-op.
+--
+-- `CREATE INDEX ... ON test_events` (0146, on the PARENT) automatically creates and
+-- ATTACHES an index on all 61 partitions. Running this file afterwards then:
+--   • skips §1 with a NOTICE (the parent name is taken),
+--   • SUCCEEDS at all 61 CONCURRENT per-partition builds — they use different names,
+--   • and FAILS every ATTACH with
+--       ERROR: cannot attach index "test_events_2026MMDD_mx_spec_created_idx" ...
+--       DETAIL: Another index is already attached for partition "test_events_2026MMDD".
+--
+-- The failures are the loud part. The damage is the quiet part: 61 orphan duplicate
+-- indexes are left behind, attached to nothing, each costing a tuple per insert forever on
+-- the hottest table in the system, serving no reader. psql keeps going after an error in a
+-- non-transactional script, so the operator sees a wall of red and a database that is
+-- worse than before.
+--
+-- This block makes that unreachable.
+DO $$
+DECLARE attached int;
+BEGIN
+  SELECT count(*) INTO attached
+    FROM pg_inherits pi
+    JOIN pg_class parent ON parent.oid = pi.inhparent
+   WHERE parent.relname = 'test_events_memex_spec_handle_created_idx';
+
+  IF attached > 0 THEN
+    RAISE EXCEPTION
+      'spec-563: 0146 has ALREADY run here — the parent index exists with % partition '
+      'indexes attached. This file is a PRE-deploy step only. Running it now would build '
+      '% orphan duplicate indexes that can never attach and would never be used. Nothing '
+      'to do: the index is already in place.', attached, attached;
+  END IF;
+END $$;
+--> only meaningful under psql; the runner never sees this file.
+
 -- ── 1. The parent index, ON ONLY — invalid until every partition is attached ────────────
 CREATE INDEX IF NOT EXISTS test_events_memex_spec_handle_created_idx
   ON ONLY test_events (memex_id, substring(subject_ref, 'specs/([^/]+)/'), created_at);
