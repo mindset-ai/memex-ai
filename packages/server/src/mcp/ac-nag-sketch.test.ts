@@ -106,6 +106,7 @@ function makeSpecDoc(overrides: Partial<Doc> = {}): Doc & { sections: DocSection
       {
         id: "s-uuid-1",
         docId: "spec-uuid-121",
+        memexId: "memex-building-itself",
         sectionType: "overview",
         title: "Overview",
         description: null,

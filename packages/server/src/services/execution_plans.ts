@@ -113,6 +113,7 @@ export async function createExecutionPlan(
 
         const sectionRows = EXECUTION_PLAN_SECTION_TYPES.map((sectionType, idx) => ({
           docId: doc.id,
+          memexId,
           sectionType,
           title: SECTION_TITLES[sectionType],
           content: input.sections?.[sectionType] ?? "",

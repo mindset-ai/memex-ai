@@ -90,7 +90,7 @@ beforeAll(async () => {
     .values({ memexId, handle: "std-8", title: "Every mutation goes through mutate()", docType: "standard", status: "approved" })
     .returning();
   docId = std.id;
-  const [sec] = await db.insert(docSections).values({ docId, sectionType: "rule", content: "x", seq: 1, position: 1 }).returning();
+  const [sec] = await db.insert(docSections).values({ memexId, docId, sectionType: "rule", content: "x", seq: 1, position: 1 }).returning();
   await db.insert(standardClauses).values({
     memexId, docId, sectionId: sec.id, seq: 69, position: 1,
     body: "Every mutation of a tenancy-scoped resource MUST go through mutate(ctx, key, fn).",

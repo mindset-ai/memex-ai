@@ -120,7 +120,7 @@ beforeAll(async () => {
     .values({ memexId, handle: "std-1", title: "A standard", docType: "standard", status: "approved" })
     .returning();
   docId = std.id;
-  const [sec] = await db.insert(docSections).values({ docId, sectionType: "rule", content: "x", seq: 1, position: 1 }).returning();
+  const [sec] = await db.insert(docSections).values({ memexId, docId, sectionType: "rule", content: "x", seq: 1, position: 1 }).returning();
   sectionId = sec.id;
 
   // Six clauses spanning the matrix of (obligation, testable) + verification states.

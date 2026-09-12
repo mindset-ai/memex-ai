@@ -280,6 +280,14 @@ export const docSections = pgTable(
     docId: uuid("doc_id")
       .notNull()
       .references(() => documents.id, { onDelete: "cascade" }),
+    // spec-563 (ac-3), migration 0147. Until then this table was the ONE
+    // activity-bearing arm whose tenant activity_view recovered through a correlated
+    // subquery against documents — every sibling (acs, tasks, decisions, doc_comments,
+    // test_events, activity_log) carries it as a column. std-32: a field a consumer must
+    // read to attribute or filter is load-bearing, and load-bearing fields are columns.
+    // Sections inherit account scope from their parent document, so this is denormalised
+    // from documents.memex_id and stamped at write by every caller.
+    memexId: uuid("memex_id").notNull(),
     sectionType: text("section_type").notNull(),
     title: text("title"),
     // spec-106 (ac-10): nullable free-text metadata describing the section's
@@ -354,10 +362,16 @@ export const docSections = pgTable(
       .on(table.docId, table.seq)
       .where(sql`status <> 'deleted'`),
     unique("doc_sections_doc_id_section_type_unique").on(table.docId, table.sectionType),
-    // spec-352 (0105) — Home activity_view feed. doc_sections has no memex_id
-    // (the view derives the tenant via a documents sub-select), so the Q-spark
-    // arm reduces to doc_id IN (...) AND created_at >= window. Q-mine filters by
-    // actor_user_id + window (partial: only attributable rows).
+    // spec-352 (0105) — Home activity_view feed. The Q-spark arm reduces to
+    // doc_id IN (...) AND created_at >= window. Q-mine filters by actor_user_id +
+    // window (partial: only attributable rows).
+    //
+    // ⚠ This comment used to read "doc_sections has no memex_id (the view derives the
+    // tenant via a documents sub-select)". That stopped being true at spec-563 / 0147.
+    // No index was added FOR the tenant column: both readers reach this table by doc_id
+    // or actor_user_id, which these indexes already serve, and memex_id is now a cheap
+    // column check rather than a subquery. An index serving no measured reader costs a
+    // tuple per insert forever [std-39].
     index("doc_sections_doc_created_at_idx").on(table.docId, table.createdAt),
     index("doc_sections_actor_created_at_idx")
       .on(table.actorUserId, table.createdAt)

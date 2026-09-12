@@ -68,6 +68,7 @@ function makeSection(overrides: Partial<DocSection> = {}): DocSection {
   return {
     id: "section-uuid-1",
     docId: "doc-uuid-1",
+    memexId: "test-account",
     sectionType: "purpose",
     title: "Purpose",
     description: null,

@@ -59,7 +59,7 @@ beforeAll(async () => {
     .returning();
   const [sec] = await db
     .insert(docSections)
-    .values({ docId: std.id, sectionType: "rule", content: "Unauthorized access returns 404.", seq: 1, position: 1 })
+    .values({ memexId, docId: std.id, sectionType: "rule", content: "Unauthorized access returns 404.", seq: 1, position: 1 })
     .returning();
   const [cl] = await db
     .insert(standardClauses)

@@ -78,7 +78,7 @@ async function seedOrgMemex(sub: string, withVocab: boolean): Promise<{ memexId:
       fid.set(key, f.id);
     }
     const [std] = await db.insert(documents).values({ memexId: mx.id, handle: "std-1", title: "Auth guard standard", docType: "standard", status: "approved" }).returning();
-    const [sec] = await db.insert(docSections).values({ docId: std.id, sectionType: "rule", content: "Unauthorized access returns 404.", seq: 1, position: 1 }).returning();
+    const [sec] = await db.insert(docSections).values({ memexId: mx.id, docId: std.id, sectionType: "rule", content: "Unauthorized access returns 404.", seq: 1, position: 1 }).returning();
     const [cl] = await db.insert(standardClauses).values({ memexId: mx.id, docId: std.id, sectionId: sec.id, seq: 1, position: 1, body: "404 not 403" }).returning();
     await db.insert(standardClauseFacets).values({ memexId: mx.id, clauseId: cl.id, facetId: fid.get("xc-security")! });
   }

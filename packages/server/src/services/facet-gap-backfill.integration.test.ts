@@ -50,7 +50,7 @@ beforeAll(async () => {
     .returning();
   const [sec] = await db
     .insert(docSections)
-    .values({ docId: doc.id, sectionType: "rule", content: "x", seq: 1, position: 1 })
+    .values({ memexId, docId: doc.id, sectionType: "rule", content: "x", seq: 1, position: 1 })
     .returning();
   for (let i = 0; i < 3; i++) {
     const [cl] = await db

@@ -80,7 +80,7 @@ async function seedSpec(opts: { status: string; handle: string }): Promise<{ mem
     .insert(documents)
     .values({ memexId, handle: opts.handle, title: "Adjustable left navigation drawer", docType: "spec", status: opts.status })
     .returning();
-  await db.insert(docSections).values({
+  await db.insert(docSections).values({ memexId,
     docId: doc.id,
     sectionType: "overview",
     title: "Overview",
