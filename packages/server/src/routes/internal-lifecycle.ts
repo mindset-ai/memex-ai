@@ -23,6 +23,7 @@ import { Hono } from "hono";
 import { timingSafeEqual } from "node:crypto";
 import { runActivationDrip } from "../services/email/activation-drip.js";
 import { runConnectPeoplePass } from "../services/email/connect-people.js";
+import { runLatencyTailWatch } from "../services/mcp-latency-watch.js";
 
 export const internalLifecycleRouter = new Hono();
 
@@ -85,4 +86,38 @@ internalLifecycleRouter.post("/lifecycle-tick", async (c) => {
 
   // Non-200 on any failure → Cloud Scheduler retries (idempotent-safe via per-pass dedup).
   return c.json(result, result.errors.length ? 500 : 200);
+});
+
+/**
+ * spec-563 t-6 (dec-2) — the MCP latency TAIL watch.
+ *
+ * A SEPARATE endpoint from the lifecycle tick above, on purpose. That one runs once a day
+ * because email drips are daily; this one reads a 60-minute window and wants its own,
+ * faster Cloud Scheduler job. Folding a latency watcher into a daily email pass would
+ * silently give it a 24-hour detection floor — long enough for the incident it exists to
+ * catch to come and go twice.
+ *
+ * Same shared-secret auth, same fail-closed-when-unset posture.
+ *
+ * ⚠ FAILURE MUST BE LOUD. A watcher that errors quietly is indistinguishable from one
+ * reporting health — the exact failure mode this replaces (spec-412's OTEL sensor has
+ * emitted nothing in both environments for months while still looking like a dependency).
+ * So a throw returns 500, which makes the Cloud Scheduler job itself go red and surfaces
+ * in a place someone already watches. Retrying is harmless: this is a pure read.
+ */
+internalLifecycleRouter.post("/latency-tick", async (c) => {
+  if (!authorized(c.req.header("authorization"))) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  try {
+    const { readings, breaches } = await runLatencyTailWatch();
+    // The response carries COUNTS, never the breach rows: this body lands in Cloud
+    // Scheduler logs, and mcp_tool_calls holds args_json and user_id [std-31].
+    return c.json({ readings, breaches: breaches.length }, 200);
+  } catch (err) {
+    return c.json(
+      { error: "latency-tick failed", detail: err instanceof Error ? err.message : String(err) },
+      500,
+    );
+  }
 });
