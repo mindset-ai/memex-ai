@@ -57,7 +57,7 @@ beforeAll(async () => {
   docId = doc.id;
   const [section] = await db
     .insert(docSections)
-    .values({ docId, sectionType: "rule", content: "x", seq: 1, position: 1 })
+    .values({ memexId, docId, sectionType: "rule", content: "x", seq: 1, position: 1 })
     .returning();
   sectionId = section.id;
   await addClause("All database access must enforce row-level security per tenant.");

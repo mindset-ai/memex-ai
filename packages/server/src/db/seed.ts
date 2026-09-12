@@ -62,7 +62,7 @@ async function seed() {
       .returning();
 
     await db.insert(docSections).values([
-      {
+      { memexId: memex.id,
         docId: doc.id,
         sectionType: "purpose",
         title: "Purpose",
@@ -71,6 +71,7 @@ async function seed() {
         position: 1,
       },
       {
+        memexId: memex.id,
         docId: doc.id,
         sectionType: "approach",
         title: "Approach",
@@ -79,6 +80,7 @@ async function seed() {
         position: 2,
       },
       {
+        memexId: memex.id,
         docId: doc.id,
         sectionType: "risks",
         title: "Risks",

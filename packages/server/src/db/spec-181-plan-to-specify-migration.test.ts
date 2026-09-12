@@ -133,8 +133,8 @@ async function withPreMigrationFixture(
       const mkSection = async (sectionType: string, content: string) => {
         const seq = nextSeq++;
         const r = (await tx.execute(
-          sql`insert into doc_sections (doc_id, section_type, content, seq, position)
-              values (${docId}, ${sectionType}, ${content}, ${seq}, ${seq})
+          sql`insert into doc_sections (doc_id, memex_id, section_type, content, seq, position)
+              values (${docId}, ${memexId}, ${sectionType}, ${content}, ${seq}, ${seq})
               returning id`,
         )) as unknown as Row[];
         return r[0]!.id as string;

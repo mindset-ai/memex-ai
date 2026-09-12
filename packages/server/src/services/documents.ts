@@ -306,7 +306,7 @@ export async function createDocDraft(
         rows.length > 0
           ? await db
               .insert(docSections)
-              .values(rows.map((r) => ({ ...r, position: r.seq, ...bornAttribution })))
+              .values(rows.map((r) => ({ ...r, memexId, position: r.seq, ...bornAttribution })))
               .returning()
           : [];
 

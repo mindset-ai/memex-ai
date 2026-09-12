@@ -41,6 +41,7 @@ describe("perf: list-docs at scale", () => {
     });
     const targetSections = insertedTarget.map((d) => ({
       docId: d.id,
+      memexId: targetMemexId,
       sectionType: "purpose",
       title: "Purpose",
       content: "scale test",

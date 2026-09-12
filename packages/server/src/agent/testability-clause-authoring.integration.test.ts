@@ -76,7 +76,7 @@ beforeAll(async () => {
     .insert(documents)
     .values({ memexId, handle: "std-1", title: "A standard", docType: "standard", status: "draft" })
     .returning();
-  await db.insert(docSections).values({ docId: std.id, sectionType: "rule", content: "x", seq: 1, position: 1 });
+  await db.insert(docSections).values({ memexId, docId: std.id, sectionType: "rule", content: "x", seq: 1, position: 1 });
   sectionRef = `${nsSlug}/main/standards/std-1/sections/s-1`;
 });
 

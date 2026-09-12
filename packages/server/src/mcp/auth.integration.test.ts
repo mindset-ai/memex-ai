@@ -361,7 +361,7 @@ describe("resolveMemexFromEntity", () => {
       .returning();
     const [section] = await db
       .insert(docSections)
-      .values({ docId: doc.id, sectionType: "purpose", content: "x", seq: 1, position: 1 } as any)
+      .values({ memexId: a.id, docId: doc.id, sectionType: "purpose", content: "x", seq: 1, position: 1 })
       .returning();
 
     const got = await resolveMemexFromEntity(u.id, "section", section.id);
@@ -412,7 +412,7 @@ describe("resolveMemexFromEntity", () => {
       .returning();
     const [s] = await db
       .insert(docSections)
-      .values({ docId: doc.id, sectionType: "purpose", content: "x", seq: 1, position: 1 } as any)
+      .values({ memexId: a.id, docId: doc.id, sectionType: "purpose", content: "x", seq: 1, position: 1 })
       .returning();
     const [cmt] = await db
       .insert(docComments)
