@@ -56,6 +56,7 @@ describe("GET /api/comments/doc/:docId", () => {
           section: {
             id: "s1",
             docId: "d1",
+            memexId: "test-account",
             sectionType: "purpose",
             title: "Purpose",
             description: null,

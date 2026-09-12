@@ -306,6 +306,7 @@ export async function createStandard(
       .values(
         allRows.map((row, idx) => ({
           docId: doc.id,
+          memexId,
           sectionType: row.sectionType,
           title: row.title,
           content: row.content,
@@ -959,6 +960,11 @@ export async function findStandardsAffectedByDecision(
     entry.matchingSections.push({
       id: row.sectionId,
       docId: row.sectionDocId,
+      // spec-563 (0147): doc_sections now carries its own memex_id. This projection
+      // reconstructs a partial DocSection and the match query is already scoped to one
+      // Memex, so the section's tenant is the caller's — read from the scope rather than
+      // re-selected, and never defaulted to something that could belong elsewhere.
+      memexId,
       sectionType: row.sectionType,
       title: row.sectionTitle,
       description: row.sectionDescription,

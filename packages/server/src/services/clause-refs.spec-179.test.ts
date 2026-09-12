@@ -161,7 +161,7 @@ describe("0076 backfill SQL — lock-step with the TS parser (ac-10)", () => {
     createdDocIds.push(doc.id);
     const [section] = await db
       .insert(docSections)
-      .values({
+      .values({ memexId: memex,
         docId: doc.id,
         sectionType: "rule",
         content: "It pairs with std-2.",

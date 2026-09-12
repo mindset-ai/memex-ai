@@ -57,7 +57,7 @@ async function seedStandard(handle: string, title: string, clauseTags: string[][
     .returning();
   const [section] = await db
     .insert(docSections)
-    .values({ docId: doc.id, sectionType: "rule", content: title, seq: 1, position: 1 })
+    .values({ memexId, docId: doc.id, sectionType: "rule", content: title, seq: 1, position: 1 })
     .returning();
   for (let i = 0; i < clauseTags.length; i++) {
     const [cl] = await db

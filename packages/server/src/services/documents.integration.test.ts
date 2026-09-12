@@ -172,6 +172,7 @@ describe("getDoc", () => {
   it("returns sections ordered by seq", async () => {
     await db.insert(docSections).values({
       docId: testDoc.id,
+      memexId,
       sectionType: "scope",
       title: "Scope",
       content: "Scope content",

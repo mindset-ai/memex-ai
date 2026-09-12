@@ -64,6 +64,7 @@ function makeSpec(status: string): Doc & { sections: DocSection[] } {
       {
         id: "section-uuid-1",
         docId: "doc-uuid-1",
+        memexId: "test-account",
         sectionType: "overview",
         title: "Overview",
         description: null,

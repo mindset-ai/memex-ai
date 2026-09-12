@@ -184,7 +184,7 @@ async function main() {
 
     // 3 sections — Overview, Approach, Acceptance Criteria.
     await db.insert(docSections).values([
-      {
+      { memexId: orgMemex.id,
         docId: spec.id,
         sectionType: "overview",
         title: "Overview",
@@ -197,6 +197,7 @@ async function main() {
         position: 1,
       },
       {
+        memexId: orgMemex.id,
         docId: spec.id,
         sectionType: "approach",
         title: "Approach",
@@ -208,6 +209,7 @@ async function main() {
         position: 2,
       },
       {
+        memexId: orgMemex.id,
         docId: spec.id,
         sectionType: "acceptance",
         title: "Acceptance Criteria",
@@ -330,7 +332,7 @@ async function main() {
         createdByUserId: user.id,
       })
       .returning();
-    await db.insert(docSections).values({
+    await db.insert(docSections).values({ memexId: orgMemex.id,
       docId: std.id,
       sectionType: "rule",
       title: "Rule",
@@ -359,7 +361,7 @@ async function main() {
         createdByUserId: user.id,
       })
       .returning();
-    await db.insert(docSections).values({
+    await db.insert(docSections).values({ memexId: orgMemex.id,
       docId: plan.id,
       sectionType: "plan",
       title: "Plan",

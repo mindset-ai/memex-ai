@@ -1,4 +1,4 @@
-import { pgTable, text, uuid, timestamp, integer, unique, uniqueIndex, check, primaryKey, jsonb, boolean, index, customType, doublePrecision, date, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, text, uuid, timestamp, integer, unique, uniqueIndex, check, primaryKey, foreignKey, jsonb, boolean, index, customType, doublePrecision, date, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { relations, type InferSelectModel, type InferInsertModel, sql } from "drizzle-orm";
 import type { CommentAction, CommentAudience } from "../types/roles.js";
 
@@ -216,6 +216,12 @@ export const documents = pgTable("documents", {
 }, (table) => [
   unique("documents_memex_id_handle_unique").on(table.memexId, table.handle),
   index("documents_memex_id_idx").on(table.memexId),
+  // spec-563 (0148): the target of doc_sections' composite tenancy FK. `id` is already
+  // the primary key so this pair is unique by implication — but a foreign key requires a
+  // DECLARED unique constraint over precisely its target columns. Exists to make
+  // "a section's tenant disagrees with its document's" unrepresentable rather than merely
+  // detectable after the fact.
+  unique("documents_id_memex_id_key").on(table.id, table.memexId),
   // spec-521 (ac-15) — serves the REVERSE supersession question the successor's
   // page asks ("what did I replace?") so the mirror line renders without a scan
   // of the Memex's documents. PARTIAL (WHERE NOT NULL) because the overwhelming
@@ -280,6 +286,14 @@ export const docSections = pgTable(
     docId: uuid("doc_id")
       .notNull()
       .references(() => documents.id, { onDelete: "cascade" }),
+    // spec-563 (ac-3), migration 0147. Until then this table was the ONE
+    // activity-bearing arm whose tenant activity_view recovered through a correlated
+    // subquery against documents — every sibling (acs, tasks, decisions, doc_comments,
+    // test_events, activity_log) carries it as a column. std-32: a field a consumer must
+    // read to attribute or filter is load-bearing, and load-bearing fields are columns.
+    // Sections inherit account scope from their parent document, so this is denormalised
+    // from documents.memex_id and stamped at write by every caller.
+    memexId: uuid("memex_id").notNull(),
     sectionType: text("section_type").notNull(),
     title: text("title"),
     // spec-106 (ac-10): nullable free-text metadata describing the section's
@@ -354,10 +368,31 @@ export const docSections = pgTable(
       .on(table.docId, table.seq)
       .where(sql`status <> 'deleted'`),
     unique("doc_sections_doc_id_section_type_unique").on(table.docId, table.sectionType),
-    // spec-352 (0105) — Home activity_view feed. doc_sections has no memex_id
-    // (the view derives the tenant via a documents sub-select), so the Q-spark
-    // arm reduces to doc_id IN (...) AND created_at >= window. Q-mine filters by
-    // actor_user_id + window (partial: only attributable rows).
+    // spec-563 (0148) — a section's tenant CANNOT disagree with its document's. memex_id
+    // here is denormalised from documents, and a denormalised column that can drift from
+    // its source is a tenancy bug with a delay fuse. A test that counted mismatches caught
+    // one within an hour of the column landing — the right outcome by the wrong mechanism,
+    // late and dependent on what else shared the database. This makes the bad state
+    // unrepresentable: a wrong tenant now fails AT THE INSERT, naming the row.
+    // ON UPDATE CASCADE so a document moving between Memexes takes its sections with it
+    // rather than blocking the move or stranding them in the old tenant.
+    foreignKey({
+      columns: [table.docId, table.memexId],
+      foreignColumns: [documents.id, documents.memexId],
+      name: "doc_sections_doc_id_memex_id_fkey",
+    })
+      .onDelete("cascade")
+      .onUpdate("cascade"),
+    // spec-352 (0105) — Home activity_view feed. The Q-spark arm reduces to
+    // doc_id IN (...) AND created_at >= window. Q-mine filters by actor_user_id +
+    // window (partial: only attributable rows).
+    //
+    // ⚠ This comment used to read "doc_sections has no memex_id (the view derives the
+    // tenant via a documents sub-select)". That stopped being true at spec-563 / 0147.
+    // No index was added FOR the tenant column: both readers reach this table by doc_id
+    // or actor_user_id, which these indexes already serve, and memex_id is now a cheap
+    // column check rather than a subquery. An index serving no measured reader costs a
+    // tuple per insert forever [std-39].
     index("doc_sections_doc_created_at_idx").on(table.docId, table.createdAt),
     index("doc_sections_actor_created_at_idx")
       .on(table.actorUserId, table.createdAt)
@@ -1070,6 +1105,23 @@ export const testEvents = pgTable(
     // this index turns that full Seq Scan into an index scan scoped to one tenant.
     index("test_events_memex_id_created_at_idx").on(
       table.memexId,
+      table.createdAt,
+    ),
+    // spec-563 dec-1 (ac-6): the tenant filter above was never the bottleneck. The SPEC
+    // filter is — activity_view's arm links back through
+    // `substring(subject_ref, 'specs/([^/]+)/') = documents.handle`, which nothing
+    // indexed, so the hash join's probe side was the tenant's WHOLE history (prod
+    // 2026-09-11: 4 155 275 rows read to return 0). Built by 0146, CONCURRENTLY in
+    // out-of-band/0145.
+    //
+    // ⚠ THE EXPRESSION MUST MATCH activity_view's SPELLING EXACTLY — expression indexes
+    // are matched structurally, and a divergence is silent: no error, no failing test,
+    // just the old plan back. Read it from `pg_get_viewdef('activity_view'::regclass,
+    // true)`, never from a migration file [spec-564]. The durable guard is
+    // services/activity-view-spec-filter.spec-563.integration.test.ts (ac-8).
+    index("test_events_memex_spec_handle_created_idx").on(
+      table.memexId,
+      sql`substring(${table.subjectRef}, 'specs/([^/]+)/')`,
       table.createdAt,
     ),
     check(

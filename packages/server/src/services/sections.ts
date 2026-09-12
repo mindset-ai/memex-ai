@@ -121,7 +121,7 @@ export async function addSection(
           try {
             const [row] = await db
               .insert(docSections)
-              .values({
+              .values({ memexId,
                 docId,
                 sectionType,
                 title: sectionTitle,
@@ -231,7 +231,7 @@ export async function splitSection(
         for (let i = 1; i < chunks.length; i++) {
           const [newSection] = await tx
             .insert(docSections)
-            .values({
+            .values({ memexId,
               docId: section.docId,
               sectionType: `${section.sectionType}_part_${i + 1}`,
               title: chunks[i].title ?? `${section.title ?? section.sectionType} (Part ${i + 1})`,
