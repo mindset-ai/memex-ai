@@ -1072,6 +1072,23 @@ export const testEvents = pgTable(
       table.memexId,
       table.createdAt,
     ),
+    // spec-563 dec-1 (ac-6): the tenant filter above was never the bottleneck. The SPEC
+    // filter is — activity_view's arm links back through
+    // `substring(subject_ref, 'specs/([^/]+)/') = documents.handle`, which nothing
+    // indexed, so the hash join's probe side was the tenant's WHOLE history (prod
+    // 2026-09-11: 4 155 275 rows read to return 0). Built by 0146, CONCURRENTLY in
+    // out-of-band/0145.
+    //
+    // ⚠ THE EXPRESSION MUST MATCH activity_view's SPELLING EXACTLY — expression indexes
+    // are matched structurally, and a divergence is silent: no error, no failing test,
+    // just the old plan back. Read it from `pg_get_viewdef('activity_view'::regclass,
+    // true)`, never from a migration file [spec-564]. The durable guard is
+    // services/activity-view-spec-filter.spec-563.integration.test.ts (ac-8).
+    index("test_events_memex_spec_handle_created_idx").on(
+      table.memexId,
+      sql`substring(${table.subjectRef}, 'specs/([^/]+)/')`,
+      table.createdAt,
+    ),
     check(
       "test_events_status_valid",
       sql`${table.status} IN ('pass', 'fail', 'error')`,

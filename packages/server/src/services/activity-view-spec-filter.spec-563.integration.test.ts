@@ -205,6 +205,10 @@ describe("activity footer: the spec filter must reach test_events [spec-563 t-1]
     // TOTAL_NOISE. The 10% bar is deliberately loose: it must not be satisfiable by a
     // marginal improvement, and it must not go red over a handful of rows the planner
     // touches while descending an index.
-    expect(rowsRead).toBeLessThan(TOTAL_NOISE * 0.1);
+    // MEASURED: 2000 before the index (the tenant's whole history), 0 after. The bound is
+    // an absolute 100 rather than the exact 0 we observe — an exact match would go red on
+    // a single row touched while descending an index, which is not the defect. It is far
+    // enough below TOTAL_NOISE that no partial regression can slip under it.
+    expect(rowsRead).toBeLessThan(100);
   });
 });
