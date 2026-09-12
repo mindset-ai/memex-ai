@@ -1,5 +1,35 @@
 // spec-563 t-6 (dec-2) — the tail watcher.
 //
+// ⚠⚠ NOTHING CALLS THIS. IT IS NOT DEPLOYED, AND THAT IS DELIBERATE. ⚠⚠
+//
+// This module is a reference implementation, not a running monitor. There is no Cloud
+// Scheduler job, no endpoint, no alert policy, no channel. If the defect recurs today,
+// nobody is told.
+//
+// WHY IT WAS BUILT AND THEN NOT WIRED. spec-332 (`MCP endpoint performance & scalability
+// hardening`) already owns this ground, and reading its ACs settled it:
+//   • its ac-1 sets **get_doc p95 < 1 s** — the same tool, the same metric, a threshold
+//     TEN TIMES stricter than the 10 s used here;
+//   • its ac-4 requires the signal to be emitted out-of-band and to land in the
+//     environment's Slack channel — the DESTINATION this watcher never had.
+// Deploying this alongside would have created a third observability path: one dead
+// (spec-412's OTEL, emitting nothing in either environment for months), one stopgap, one
+// planned — and the predictable outcome is someone reading "we have monitoring" and
+// believing all three work.
+//
+// WHAT SURVIVES, AND WHERE IT WENT. Two properties this incident PROVED necessary are
+// absent from spec-332's six ACs, and they were handed to it rather than kept here:
+//   1. PER-TENANT granularity. One Memex degraded while every other stayed healthy; a
+//      fleet-wide p95 dilutes exactly that shape below any threshold worth setting.
+//   2. CONTINUOUS reading of real traffic. spec-332 measures under a LOAD HARNESS, which
+//      validates an SLO at a moment; it does not watch what production is doing at 3am.
+// Recorded on spec-332 as an open decision, with this incident as its evidence.
+//
+// KEEP OR DELETE? Keep while spec-332 is unbuilt — the query, the call-count floor and the
+// two-armed breach rule are the parts that took measurement to get right, and re-deriving
+// them costs more than carrying them. Delete once spec-332 ships its own signal; carrying
+// two implementations is how the next reader ends up unsure which one is live.
+//
 // WHAT IT WATCHES AND WHY IT IS NOT A NEW SENSOR. `src/mcp/tools.ts` already times every
 // MCP tool invocation and `logToolCall` writes it to `mcp_tool_calls` — in production, on
 // every call, with `duration_ms`, `tool_name`, `memex_id` and `created_at`. dec-2 chose to
