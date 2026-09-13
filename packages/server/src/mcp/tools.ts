@@ -41,13 +41,18 @@ import {
 import { applyPhaseDescriptionOverrides } from "./phase-descriptions.js";
 import { resolveRef as resolveCanonicalRef } from "../services/resolver.js";
 import { parseRef } from "../services/refs.js";
-import { logToolCall } from "../services/mcp-telemetry.js";
+import { logToolCall, recordDeadlineElapsed } from "../services/mcp-telemetry.js";
 import { recordMcpToolCalled } from "../services/funnel-events.js";
 import { runToolWithSpecTraffic } from "../services/spec-traffic.js";
 import { memexContext } from "../db/connection.js";
 import { bus } from "../services/bus.js";
 import { deriveActivity } from "../agent/derive-activity.js";
 import type { ToolSpec } from "../agent/tool-specs.js";
+import {
+  MCP_DISPATCH_DEADLINE_MS,
+  withDispatchDeadline,
+  dispatchTimeoutMessage,
+} from "./dispatch-deadline.js";
 
 export const MEMEX_AGENT_INSTRUCTIONS = `# Memex MCP — orient before you act
 
@@ -260,8 +265,47 @@ export function createMcpServer(
       const started = Date.now();
       let resultText: string | undefined;
       let errorMessage: string | undefined;
+      // spec-562 ac-11: the `finally` below fires when the RACE settles — at the
+      // deadline, NOT when the work finishes. So the row it writes carries the
+      // caller-observed duration and must be MARKED as a breach; otherwise a
+      // timed-out call is indistinguishable in mcp_tool_calls from one that
+      // genuinely completed in that time, which is the original defect relocated
+      // into the telemetry. The work's true elapsed time is only known later
+      // (onLateSettle) and reaches the row through a subsequent update.
+      let deadlineBreached = false;
+      // ac-11: the row is written at the deadline, before the work's real cost is
+      // known. Holding its id lets the late settlement update it — see below.
+      let rowIdPromise: Promise<string | null> | undefined;
       try {
-        const text = await fn(input);
+        // spec-562 dec-3 — bound how long this call may run before the caller is
+        // answered. The deadline does NOT cancel the work: Postgres keeps going and
+        // the write may land after we have replied, which is why the response says
+        // UNKNOWN rather than failed (ac-10). True elapsed time is reported by
+        // onLateSettle when the abandoned work finally lands, so a breach is never
+        // recorded as a fast success (ac-11).
+        const outcome = await withDispatchDeadline(fn(input), {
+          toolName,
+          onLateSettle: ({ elapsedMs, error }) => {
+            // ac-12: today this failure writes NOTHING to prod stderr, because
+            // nothing throws. The error OBJECT is logged, not String(err), so its
+            // stack survives (std-14).
+            console.error(
+              `[mcp-deadline] ${toolName} exceeded ${MCP_DISPATCH_DEADLINE_MS}ms — the caller was answered UNKNOWN at the deadline; the work settled after ${elapsedMs}ms`,
+              error ?? "(settled without error)",
+            );
+            // ac-11: carry the TRUE elapsed time into the row. `rowIdPromise` is
+            // assigned in the `finally`, which has already run by the time any late
+            // settlement can occur — the deadline fires first, by construction.
+            void rowIdPromise?.then((rowId) => {
+              if (rowId) void recordDeadlineElapsed(rowId, elapsedMs, error);
+            });
+          },
+        });
+        if (outcome.timedOut) {
+          deadlineBreached = true;
+          return textResult(dispatchTimeoutMessage(toolName));
+        }
+        const text = outcome.value;
         resultText = text;
         // Emit AFTER a successful call only (a failed/throwing tool emits no
         // activity). Advisory + non-throwing — see emitMcpActivity.
@@ -290,14 +334,20 @@ export function createMcpServer(
         // rides as a low-cardinality, non-PII prop. distinct_id is the acting user.
         void recordMcpToolCalled(userId, toolName, getMemexId?.());
         if (sessionId) {
-          void logToolCall({
+          rowIdPromise = logToolCall({
             sessionId,
             userId,
             memexId: getMemexId?.() ?? null,
             toolName,
             args: input as unknown,
+            // The caller-observed duration, which on a breach IS the deadline.
+            // The work's TRUE elapsed time is not known yet and reaches the row
+            // through a later update — see the breach branch below.
             durationMs: Date.now() - started,
-            error: errorMessage ?? null,
+            error: deadlineBreached
+              ? (errorMessage ??
+                `mcp-deadline: exceeded ${MCP_DISPATCH_DEADLINE_MS}ms; outcome UNKNOWN`)
+              : (errorMessage ?? null),
             resultText: resultText ?? null,
           });
         }
