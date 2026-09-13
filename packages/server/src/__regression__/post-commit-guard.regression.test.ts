@@ -28,6 +28,11 @@ import { join, relative, sep } from "node:path";
 const SPEC = "mindset-prod/memex-building-itself/specs/spec-560";
 const AC = (n: number) => `${SPEC}/acs/ac-${n}`;
 
+// spec-562 inverted this file's ac-16 guard and owns the replacement, so the
+// assertion is tagged to ITS criterion — a test proving spec-562's behaviour must
+// not move spec-560's board.
+const SPEC_562_AC_9 = "mindset-prod/memex-building-itself/specs/spec-562/acs/ac-9";
+
 const SRC_DIR = join(__dirname, "..");
 const HANDLERS_DIR = join(SRC_DIR, "agent", "handlers");
 const SERVICES_DIR = join(SRC_DIR, "services");
@@ -423,22 +428,35 @@ it("ac-19: enrichment exemptions are keyed path::callee and name their tracking 
     ]);
   });
 
-it("ac-16: this Spec adds no deadline at the MCP dispatch seam — incident 2 is NOT claimed", () => {
-    tagAc(AC(16));
-    // A scope guard, not a behaviour. spec-560 fixes the response to incident 1 (a
-    // transient AFTER the commit). Incident 2 — the 305s silence from postgres-js's
-    // unbounded pool queue — is a sibling Spec (dec-4), and a call that outlives its
-    // client remains possible after this ships. Asserted so nobody records it as
-    // fixed here, and so the sibling's remit stays real.
+it("spec-562 ac-9: the dispatch seam CARRIES a deadline — spec-560 ac-16 inverted", () => {
+    tagAc(SPEC_562_AC_9);
+    // HISTORY, so the inversion is not mistaken for a deleted guard. spec-560 ac-16
+    // asserted the opposite: that this seam gained NO deadline, because spec-560 fixed
+    // incident 1 (a transient AFTER the commit) and deliberately did not claim incident 2
+    // (the 305s silence from postgres-js's unbounded pool queue). spec-562 is the sibling
+    // that claims it, so the assertion flips rather than disappearing — the seam having a
+    // deadline is now the property worth guarding, and losing it would restore the defect.
+    //
+    // spec-560 ac-16's own failure message read "that is the sibling Spec's change". It
+    // fired exactly once, for exactly this commit. Its stranded test identifier is retired
+    // via discontinue_test_events, not by deletion alone — a removed tagged test leaves its
+    // last emission pinning a closed Spec's AC green forever.
     const dispatch = readFileSync(join(SRC_DIR, "mcp", "tools.ts"), "utf8");
-    const wrapAt = dispatch.indexOf("const text = await fn(input)");
+    const wrapAt = dispatch.indexOf("withDispatchDeadline(fn(input)");
     expect(wrapAt, "the dispatch wrap moved — re-ground this assertion").toBeGreaterThan(0);
+
+    // Scoped to the wrap, so a deadline somewhere else in the file cannot satisfy this.
     const wrap = dispatch.slice(Math.max(0, wrapAt - 2000), wrapAt + 2000);
-    for (const deadline of ["setTimeout", "AbortController", "Promise.race", "AbortSignal.timeout"]) {
-      expect(wrap, `${deadline} appeared at the dispatch seam — that is the sibling Spec's change`).not.toContain(
-        deadline,
-      );
-    }
+    expect(wrap, "the deadline must carry the tool name for the breach log line").toContain(
+      "toolName",
+    );
+    expect(wrap, "a breach must report TRUE elapsed time, not the deadline value").toContain(
+      "onLateSettle",
+    );
+
+    // The value is declared once, with its measurement, in the module that owns it —
+    // never inlined here as a bare number (spec-562 ac-8, std-50 cl-6).
+    expect(wrap).not.toMatch(/\b30_?000\b/);
   });
 
   it("commented-out code neither trips nor hides the scan", () => {
