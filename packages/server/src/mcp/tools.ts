@@ -265,13 +265,14 @@ export function createMcpServer(
       const started = Date.now();
       let resultText: string | undefined;
       let errorMessage: string | undefined;
-      // spec-562 ac-11: the `finally` below fires when the RACE settles, so without
-      // these a timed-out call would log durationMs = the deadline and error = null,
-      // indistinguishable
-      // from a call that genuinely completed in that time. That is the original
-      // defect relocated into the telemetry.
+      // spec-562 ac-11: the `finally` below fires when the RACE settles — at the
+      // deadline, NOT when the work finishes. So the row it writes carries the
+      // caller-observed duration and must be MARKED as a breach; otherwise a
+      // timed-out call is indistinguishable in mcp_tool_calls from one that
+      // genuinely completed in that time, which is the original defect relocated
+      // into the telemetry. The work's true elapsed time is only known later
+      // (onLateSettle) and reaches the row through a subsequent update.
       let deadlineBreached = false;
-      let timedOutElapsedMs: number | undefined;
       try {
         // spec-562 dec-3 — bound how long this call may run before the caller is
         // answered. The deadline does NOT cancel the work: Postgres keeps going and
@@ -282,7 +283,6 @@ export function createMcpServer(
         const outcome = await withDispatchDeadline(fn(input), {
           toolName,
           onLateSettle: ({ elapsedMs, error }) => {
-            timedOutElapsedMs = elapsedMs;
             // ac-12: today this failure writes NOTHING to prod stderr, because
             // nothing throws. The error OBJECT is logged, not String(err), so its
             // stack survives (std-14).
@@ -331,7 +331,10 @@ export function createMcpServer(
             memexId: getMemexId?.() ?? null,
             toolName,
             args: input as unknown,
-            durationMs: timedOutElapsedMs ?? Date.now() - started,
+            // The caller-observed duration, which on a breach IS the deadline.
+            // The work's TRUE elapsed time is not known yet and reaches the row
+            // through a later update — see the breach branch below.
+            durationMs: Date.now() - started,
             error: deadlineBreached
               ? (errorMessage ??
                 `mcp-deadline: exceeded ${MCP_DISPATCH_DEADLINE_MS}ms; outcome UNKNOWN`)
