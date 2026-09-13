@@ -48,6 +48,11 @@ import { memexContext } from "../db/connection.js";
 import { bus } from "../services/bus.js";
 import { deriveActivity } from "../agent/derive-activity.js";
 import type { ToolSpec } from "../agent/tool-specs.js";
+import {
+  MCP_DISPATCH_DEADLINE_MS,
+  withDispatchDeadline,
+  dispatchTimeoutMessage,
+} from "./dispatch-deadline.js";
 
 export const MEMEX_AGENT_INSTRUCTIONS = `# Memex MCP — orient before you act
 
@@ -260,8 +265,38 @@ export function createMcpServer(
       const started = Date.now();
       let resultText: string | undefined;
       let errorMessage: string | undefined;
+      // spec-562 ac-11: the `finally` below fires when the RACE settles, so without
+      // these a timed-out call would log durationMs = the deadline and error = null,
+      // indistinguishable
+      // from a call that genuinely completed in that time. That is the original
+      // defect relocated into the telemetry.
+      let deadlineBreached = false;
+      let timedOutElapsedMs: number | undefined;
       try {
-        const text = await fn(input);
+        // spec-562 dec-3 — bound how long this call may run before the caller is
+        // answered. The deadline does NOT cancel the work: Postgres keeps going and
+        // the write may land after we have replied, which is why the response says
+        // UNKNOWN rather than failed (ac-10). True elapsed time is reported by
+        // onLateSettle when the abandoned work finally lands, so a breach is never
+        // recorded as a fast success (ac-11).
+        const outcome = await withDispatchDeadline(fn(input), {
+          toolName,
+          onLateSettle: ({ elapsedMs, error }) => {
+            timedOutElapsedMs = elapsedMs;
+            // ac-12: today this failure writes NOTHING to prod stderr, because
+            // nothing throws. The error OBJECT is logged, not String(err), so its
+            // stack survives (std-14).
+            console.error(
+              `[mcp-deadline] ${toolName} exceeded ${MCP_DISPATCH_DEADLINE_MS}ms — the caller was answered UNKNOWN at the deadline; the work settled after ${elapsedMs}ms`,
+              error ?? "(settled without error)",
+            );
+          },
+        });
+        if (outcome.timedOut) {
+          deadlineBreached = true;
+          return textResult(dispatchTimeoutMessage(toolName));
+        }
+        const text = outcome.value;
         resultText = text;
         // Emit AFTER a successful call only (a failed/throwing tool emits no
         // activity). Advisory + non-throwing — see emitMcpActivity.
@@ -296,8 +331,11 @@ export function createMcpServer(
             memexId: getMemexId?.() ?? null,
             toolName,
             args: input as unknown,
-            durationMs: Date.now() - started,
-            error: errorMessage ?? null,
+            durationMs: timedOutElapsedMs ?? Date.now() - started,
+            error: deadlineBreached
+              ? (errorMessage ??
+                `mcp-deadline: exceeded ${MCP_DISPATCH_DEADLINE_MS}ms; outcome UNKNOWN`)
+              : (errorMessage ?? null),
             resultText: resultText ?? null,
           });
         }
