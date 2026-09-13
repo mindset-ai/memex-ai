@@ -41,7 +41,7 @@ import {
 import { applyPhaseDescriptionOverrides } from "./phase-descriptions.js";
 import { resolveRef as resolveCanonicalRef } from "../services/resolver.js";
 import { parseRef } from "../services/refs.js";
-import { logToolCall } from "../services/mcp-telemetry.js";
+import { logToolCall, recordDeadlineElapsed } from "../services/mcp-telemetry.js";
 import { recordMcpToolCalled } from "../services/funnel-events.js";
 import { runToolWithSpecTraffic } from "../services/spec-traffic.js";
 import { memexContext } from "../db/connection.js";
@@ -273,6 +273,9 @@ export function createMcpServer(
       // into the telemetry. The work's true elapsed time is only known later
       // (onLateSettle) and reaches the row through a subsequent update.
       let deadlineBreached = false;
+      // ac-11: the row is written at the deadline, before the work's real cost is
+      // known. Holding its id lets the late settlement update it — see below.
+      let rowIdPromise: Promise<string | null> | undefined;
       try {
         // spec-562 dec-3 — bound how long this call may run before the caller is
         // answered. The deadline does NOT cancel the work: Postgres keeps going and
@@ -290,6 +293,12 @@ export function createMcpServer(
               `[mcp-deadline] ${toolName} exceeded ${MCP_DISPATCH_DEADLINE_MS}ms — the caller was answered UNKNOWN at the deadline; the work settled after ${elapsedMs}ms`,
               error ?? "(settled without error)",
             );
+            // ac-11: carry the TRUE elapsed time into the row. `rowIdPromise` is
+            // assigned in the `finally`, which has already run by the time any late
+            // settlement can occur — the deadline fires first, by construction.
+            void rowIdPromise?.then((rowId) => {
+              if (rowId) void recordDeadlineElapsed(rowId, elapsedMs, error);
+            });
           },
         });
         if (outcome.timedOut) {
@@ -325,7 +334,7 @@ export function createMcpServer(
         // rides as a low-cardinality, non-PII prop. distinct_id is the acting user.
         void recordMcpToolCalled(userId, toolName, getMemexId?.());
         if (sessionId) {
-          void logToolCall({
+          rowIdPromise = logToolCall({
             sessionId,
             userId,
             memexId: getMemexId?.() ?? null,

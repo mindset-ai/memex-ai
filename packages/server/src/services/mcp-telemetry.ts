@@ -216,7 +216,7 @@ function clip(s: string, max: number): string {
  * gating the text does, and it is what makes the answer half of a payload
  * measurable in production at all.
  */
-export async function logToolCall(input: LogToolCallInput): Promise<void> {
+export async function logToolCall(input: LogToolCallInput): Promise<string | null> {
   try {
     const error = input.error ? clip(input.error, MAX_ERROR_LENGTH) : null;
     const resultText =
@@ -253,7 +253,7 @@ export async function logToolCall(input: LogToolCallInput): Promise<void> {
     // null for personal-kind memexes (no owning org).
     const memexId = input.memexId ?? null;
     const orgId = memexId ? await lookupOrgForMemex(memexId) : null;
-    await db.insert(mcpToolCalls).values({
+    const [row] = await db.insert(mcpToolCalls).values({
       sessionId: input.sessionId,
       userId: input.userId,
       memexId,
@@ -267,8 +267,49 @@ export async function logToolCall(input: LogToolCallInput): Promise<void> {
       footerTextLength,
       resultTextLength,
       verb: input.verb ?? null,
-    });
+    }).returning({ id: mcpToolCalls.id });
+    // spec-562 ac-11: the id lets a deadline breach carry the work's TRUE elapsed
+    // time into the row once it is known. Null on a swallowed failure, which the
+    // caller must treat as "no row to update" rather than retrying.
+    return row?.id ?? null;
   } catch (err) {
     log("logToolCall failed", { toolName: input.toolName, err });
+    return null;
+  }
+}
+
+/**
+ * spec-562 ac-11 — carry a timed-out call's TRUE elapsed time into its row.
+ *
+ * `logToolCall` writes at the moment the caller is answered, which on a deadline
+ * breach is the deadline itself. The work runs on; only when it finally settles is
+ * its real cost known. Without this update the row says the call took exactly the
+ * deadline, which is the caller's truth but not the system's — and it is what makes
+ * a breach indistinguishable from a genuinely slow-but-complete call in aggregate.
+ *
+ * Error-swallowing, like its sibling: telemetry must never bubble into the tool
+ * path. Cost (std-39): one extra UPDATE by primary key, and ONLY on a breach —
+ * measured at zero per day in prod on 2026-09-13, so the write amplification is
+ * nil in the healthy case and bounded by the breach rate in the unhealthy one.
+ */
+export async function recordDeadlineElapsed(
+  rowId: string,
+  elapsedMs: number,
+  error?: unknown,
+): Promise<void> {
+  try {
+    const suffix = error ? `; the work then failed: ${clip(String(error), 500)}` : "";
+    await db
+      .update(mcpToolCalls)
+      .set({
+        durationMs: elapsedMs,
+        error: clip(
+          `mcp-deadline: caller answered UNKNOWN at the deadline; the work settled after ${elapsedMs}ms${suffix}`,
+          MAX_ERROR_LENGTH,
+        ),
+      })
+      .where(eq(mcpToolCalls.id, rowId));
+  } catch (err) {
+    log("recordDeadlineElapsed failed", { rowId, err });
   }
 }
