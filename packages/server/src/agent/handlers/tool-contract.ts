@@ -396,6 +396,35 @@ export const VERBOSE_FIELD = z
       "Default false returns a terse confirmation.",
   );
 
+/**
+ * spec-565 dec-1 / ac-4 — the CONTENT-bearing optional parameter names of a tool's
+ * schema, in declaration order. This is the ONE place the `verbose` exclusion is
+ * stated; every caller derives from here rather than hand-listing names.
+ *
+ * Why derive rather than hand-list: the ballot refusal names every absent optional,
+ * and a hand-kept list silently goes stale the day a verb gains a parameter — the
+ * message then describes a contract that no longer exists. spec-565 t-5 planned a
+ * std-16-style parity test binding list to schema; Zod 4's `.isOptional()` lets them
+ * be deduped instead, which is strictly better: a parity test reports a disagreement,
+ * derivation makes one unrepresentable.
+ *
+ * `verbose` is dropped by IDENTITY against VERBOSE_FIELD, not by name — the same
+ * invariant the tool-spec audit already enforces on `spec.schema.verbose`. A
+ * name-based check would drop a genuine content optional that happened to be called
+ * `verbose`, and keep a VERBOSE_FIELD bound under any other name.
+ */
+export function contentOptionalsOf(shape: ZodRawShape): string[] {
+  return Object.entries(shape)
+    .filter(([, field]) => {
+      if (field === VERBOSE_FIELD) return false;
+      // Zod 4 types a raw shape's values as `$ZodType`, which does not carry
+      // `isOptional()` at the type level even though every `ZodType` has it at
+      // runtime. Narrowed here, once, rather than loosening the parameter type.
+      return (field as unknown as z.ZodType).isOptional();
+    })
+    .map(([name]) => name);
+}
+
 // ══════════════════════════════════════
 // Helpers
 // ══════════════════════════════════════
