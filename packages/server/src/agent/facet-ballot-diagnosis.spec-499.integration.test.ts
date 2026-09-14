@@ -78,7 +78,16 @@ async function absentBallotMessage(receivedArgNames: string[] | undefined, noun:
     await requireBallotForMemex(
       memexId,
       { provided: false, ballot: EMPTY_BALLOT, receivedArgNames },
-      { noun, channel: "mcp" },
+      {
+        noun,
+        channel: "mcp",
+        // spec-565 dec-1 made this REQUIRED. The real verbs' lists, so these spec-499
+        // branches keep exercising a realistic call rather than an empty declaration.
+        declaredOptionals:
+          noun === "task"
+            ? ["acceptanceCriteria", "sectionRef", "facetBallot"]
+            : ["context", "status", "options", "facetBallot"],
+      },
     );
   } catch (err) {
     expect(err).toBeInstanceOf(ValidationError);
@@ -130,13 +139,14 @@ describe("spec-499 dec-2 — a genuine absence is evidenced by what did arrive",
     expect(msg).toMatch(/The arguments it did receive were: ref, title, context\./);
   });
 
-  it("keeps the stale-tool-list hint in the branch where a drop is actually possible (ac-9)", async () => {
-    tagAc(AC(9));
-    tagAc(AC(3));
-    const msg = await absentBallotMessage(["ref", "title", "context"], "decision");
-    expect(msg).toMatch(/cached\s+tool list/);
-    expect(msg).toMatch(/reconnect\/reload the Memex MCP server/);
-  });
+  // spec-565 dec-2 DELETED the stale-tool-list hint outright, and spec-565 dec-3 chose
+  // to delete this test rather than invert it: inverting would have left spec-499 ac-9
+  // — "the remediation sentence IS PRESENT in the no-near-miss branch" — reported green
+  // on a statement the code contradicts. ac-9 is superseded; its coverage is honestly
+  // one test lighter rather than dishonestly whole. Its stranded test_identifier was
+  // retired with discontinue_test_events [per std-48: the actor who changes the test
+  // retires the identifier]. The sibling below, which asserts the hint is ABSENT,
+  // survives and still passes — more completely than before.
 
   it("degrades gracefully when no argument names were threaded through (ac-8)", async () => {
     tagAc(AC(8));

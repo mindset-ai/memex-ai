@@ -142,22 +142,37 @@ export function nearMissBallotArg(receivedArgNames: string[]): string | undefine
 /** Re-handing message for a ballot that is REQUIRED but ABSENT: leads with why it
  *  failed and hands the full ballot shape + vocabulary (via reHand).
  *
- *  spec-499 dec-2 — the lead DISCRIMINATES, because "absent" covers three different
- *  situations and the old single message named only the one the server could see:
- *    • a near-miss key arrived (`facet_ballot`) → name what came and what was expected,
- *      and do NOT suggest reconnecting: we can see a ballot was sent, so the cache hint
- *      would send the caller chasing the wrong thing;
+ *  spec-499 dec-2 — the lead DISCRIMINATES, because "absent" covers more than one
+ *  situation and the old single message named only the one the server could see:
+ *    • a near-miss key arrived (`facet_ballot`) → name what came and what was expected;
  *    • nothing ballot-shaped arrived → echo the argument NAMES that did (never their
- *      values — see the disclosure note in the Spec's Architecture lens), which is what
- *      makes a client-side drop visible as evidence rather than inferred, and keep the
- *      stale-schema hint here, where it is genuinely a candidate.
- *  Per dec-3 a near-miss is named and REJECTED, never aliased into a valid ballot. */
+ *      values — see the disclosure note in spec-499's Architecture lens), which is what
+ *      makes a drop visible as evidence rather than inferred.
+ *  Per spec-499 dec-3 a near-miss is named and REJECTED, never aliased into a ballot.
+ *
+ *  spec-565 dec-1 adds the second half of the diagnosis: every DECLARED optional that
+ *  is also absent is named, so "no optional argument was sent" is stated rather than
+ *  left to be inferred from a ballot-shaped complaint.
+ *
+ *  spec-565 dec-2 removed the third element this doc used to describe — the
+ *  stale-tool-list hint kept on the no-near-miss branch. No branch names a cause the
+ *  caller cannot check; every branch ends in a call the caller can make. */
 function requireLead(
   vocab: VocabFacet[],
   opts: {
     noun: "task" | "decision";
     channel?: "mcp" | "in_app_agent";
     receivedArgNames?: string[];
+    /** spec-565 dec-1 — the CONTENT-bearing optional parameters the calling tool
+     *  declares, handed over by the handler (this module is tool-agnostic and must
+     *  stay that way: both handlers import it, so reading a tool schema from here
+     *  would invert a dependency that runs one way only).
+     *
+     *  Excludes `verbose`: it is the universal VERBOSE_FIELD present on every tool,
+     *  and naming it in a diagnosis about missing CONTENT would misdescribe the fault.
+     *  Exclusion is by construction — handlers pass content optionals — not by a
+     *  filter here; if this ever needs filtering, the wrong list is being passed. */
+    declaredOptionals: readonly string[];
   },
 ): string {
   // The ballot is forced at the CREATE site for both nouns (create_task / create_decision);
@@ -180,20 +195,55 @@ function requireLead(
     );
   }
 
-  let msg = reHand(
+  // spec-565 dec-1 — name EVERY absent optional, not just the ballot.
+  //
+  // The 2026-09-13 incident turned on this: nine `create_task` calls arrived with only
+  // ref/title/description, and the refusal described a ballot problem because that is
+  // the only parameter it knew about. The caller hunted a ballot-shaped fault for 42
+  // minutes. Every fact needed to say "no optional argument arrived at all" was already
+  // in hand — the received names on one side, the tool's declared optionals on the
+  // other — and was simply never diffed.
+  const receivedSet = new Set(received);
+  const absentOptionals = opts.declaredOptionals.filter((n) => !receivedSet.has(n));
+  const everyOptionalAbsent =
+    opts.declaredOptionals.length > 0 &&
+    absentOptionals.length === opts.declaredOptionals.length;
+  const absenceShape =
+    absentOptionals.length === 0
+      ? ""
+      : everyOptionalAbsent
+        ? ` NONE of \`${tool}\`'s optional arguments arrived: ${absentOptionals.join(", ")}.`
+        : ` Optional arguments absent from this call: ${absentOptionals.join(", ")}.`;
+
+  // spec-565 dec-2 — the remedy is the caller's OWN next call, and nothing else.
+  //
+  // This used to end with "your MCP client may be on a cached tool list — reconnect/
+  // reload the Memex MCP server, then retry" on every non-in_app_agent channel. That
+  // sentence was deleted, not narrowed. Measured over 30 days of prod telemetry: the
+  // gated variant ("show it only when some optional arrived") would still have fired on
+  // 69 of 76 `create_decision` refusals, because on that verb it merely detects whether
+  // `context` was sent — present on 98 % of calls. And the case it existed for has no
+  // observed support: across 111 ballot-less failures the unexpected argument names
+  // (`body`, `question`, `rationale`, `chosenOption`) were names that were NEVER
+  // parameters of the tool — confabulation, not a stale schema serving an older one.
+  //
+  // Its cost is measured too. On 2026-09-13 a caller followed it three times (four MCP
+  // session ids), re-sent the identical ballot-less call after each reconnect, and
+  // abandoned a 14-task graph to a markdown file. The message named an action, the
+  // caller took it, and it could never have helped.
+  //
+  // `channel` is deliberately still on the opts and deliberately not read here: the
+  // message is now channel-INVARIANT, and keeping the field is what makes that
+  // testable (ac-12) rather than merely asserted.
+  return reHand(
     vocab,
     `${preamble} No \`${BALLOT_ARG}\` argument reached the server. ` +
       (received.length > 0
         ? `The arguments it did receive were: ${received.join(", ")}.`
-        : `It received no arguments at all.`),
+        : `It received no arguments at all.`) +
+      absenceShape +
+      ` Re-send the call with \`${BALLOT_ARG}\` included.`,
   );
-  if (opts.channel !== "in_app_agent") {
-    msg +=
-      ` If you believe you sent \`${BALLOT_ARG}\`, it was dropped before reaching the server: ` +
-      `your MCP client may be on a cached tool list on which \`${tool}\` exposes no ` +
-      `\`${BALLOT_ARG}\` parameter — reconnect/reload the Memex MCP server to refresh it, then retry.`;
-  }
-  return msg;
 }
 
 /**
@@ -214,7 +264,16 @@ export async function requireBallotForMemex(
      *  `Object.keys(input)`; omitted, the message degrades to the un-echoed form. */
     receivedArgNames?: string[];
   },
-  opts: { noun: "task" | "decision"; channel?: "mcp" | "in_app_agent" },
+  opts: {
+    noun: "task" | "decision";
+    channel?: "mcp" | "in_app_agent";
+    /** spec-565 dec-1 — REQUIRED, and deliberately not optional. A verb added later
+     *  that forgets it must fail `tsc`, not degrade silently to a ballot-only
+     *  diagnosis [per std-50]. Only the create verbs reach this function: every
+     *  always-provided caller uses `validateBallotForMemex` instead, so none of them
+     *  carries a value it could never use. */
+    declaredOptionals: readonly string[];
+  },
 ): Promise<VocabFacet[]> {
   const vocab = await vocabForMemex(memexId);
   if (vocab.length === 0) return vocab; // no vocabulary → nothing to adjudicate
