@@ -4190,3 +4190,83 @@ export const rateLimitCounters = pgTable(
 
 export type RateLimitCounter = InferSelectModel<typeof rateLimitCounters>;
 export type RateLimitCounterInsert = InferInsertModel<typeof rateLimitCounters>;
+
+// ══════════════════════════════════════
+// Spec lifecycle journal (spec-566 dec-3) — the durable record of acts that
+// remove or reverse something
+// ══════════════════════════════════════
+//
+// FOUR WRITERS, ONE TABLE. dec-3 ruled the journal is BUILT ONCE: test-evidence
+// retirements (t-4), AC status transitions (t-6), gate overrides (t-7) and Spec
+// reopens (t-8) are the same object — an append-only row saying WHO removed or
+// reversed WHAT, WHEN, and WHY. A `kind` discriminator adds ONE arm to std-32's
+// activity union; four tables would have added four.
+//
+// WHY NOT `activity_log`. It is the obvious home and it is the wrong one, for two
+// reasons read against develop on 2026-09-15:
+//   1. `activity-log-sweep.ts` deletes rows older than PULSE_RETENTION_DAYS
+//      (default 30). A tombstone with a 30-day life is not a tombstone.
+//   2. `persistEvent` states it swallows its own failures so the emitter is never
+//      affected. A store permitted to silently miss writes cannot be a record.
+// Extending it would force the firehose to carry a system-of-record guarantee it
+// is explicitly designed not to give. This table is neither swept nor advisory.
+//
+// WHY NOT A REVIVAL OF `hidden`. spec-358 dec-1 removed a MUTABLE FLAG whose
+// purpose was RESTORING rows, and accepted losing that reversibility. This is the
+// opposite object: a write-once receipt that is never read back to restore
+// anything. The `test_events` rows still hard-delete. There is no restore path and
+// no update path here, and `__regression__/lifecycle-journal-guard` scans for both.
+//
+// STD-32. Load-bearing fields are COLUMNS: a consumer filters on `reason` (the
+// override and reopen counts), on `kind`, and on `test_identifier`. Deliberately
+// NO `payload`/`metadata` bag — there is nowhere to hide a load-bearing field, and
+// ac-14 asserts its absence. `actor_name` is the denormalised snapshot stamped at
+// write so a later rename cannot rewrite attribution.
+//
+// STD-39. Volume is tens of rows per year per Memex — rare deliberate acts, not
+// telemetry. Growth is a non-issue; the migration is the risk, and 0149 creates a
+// new table only, touching neither `test_events` nor `test_event_latest`.
+export const specLifecycleEvents = pgTable(
+  "spec_lifecycle_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    memexId: uuid("memex_id")
+      .notNull()
+      .references(() => memexes.id, { onDelete: "cascade" }),
+    // set null, not cascade: deleting a Spec or user must not erase the record of
+    // what was removed from it — same reasoning as activity_log.
+    briefId: uuid("brief_id").references(() => documents.id, { onDelete: "set null" }),
+    acId: uuid("ac_id").references(() => acs.id, { onDelete: "set null" }),
+    kind: text("kind").notNull(),
+    // NOT NULL and non-blank: every one of the four acts is a judgement, and a
+    // judgement with no stated reason is the quiet path this Spec exists to close.
+    reason: text("reason").notNull(),
+    commitSha: text("commit_sha"),
+    testIdentifier: text("test_identifier"),
+    fromStatus: text("from_status"),
+    toStatus: text("to_status"),
+    actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    actorName: text("actor_name"),
+    channel: text("channel").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("spec_lifecycle_events_memex_id_created_at_idx").on(table.memexId, table.createdAt),
+    index("spec_lifecycle_events_brief_id_created_at_idx").on(table.briefId, table.createdAt),
+    check(
+      "spec_lifecycle_events_kind_valid",
+      sql`${table.kind} IN ('test_retired', 'ac_status_changed', 'gate_overridden', 'spec_reopened')`
+    ),
+    check("spec_lifecycle_events_reason_present", sql`length(btrim(${table.reason})) > 0`),
+    // A retirement that cannot name what it retired answers none of the three
+    // consumers (ac-5, spec-554's silence signal, the coverage history).
+    check(
+      "spec_lifecycle_events_retirement_names_its_test",
+      sql`${table.kind} <> 'test_retired' OR ${table.testIdentifier} IS NOT NULL`
+    ),
+    activityChannelCheck(table.channel),
+  ]
+);
+
+export type SpecLifecycleEvent = InferSelectModel<typeof specLifecycleEvents>;
+export type SpecLifecycleEventInsert = InferInsertModel<typeof specLifecycleEvents>;
