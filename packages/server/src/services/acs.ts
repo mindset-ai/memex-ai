@@ -179,6 +179,64 @@ async function transitionStatus(
   );
 }
 
+/**
+ * The verification state of ONE criterion, for the guards below.
+ *
+ * spec-566 t-3. Deliberately NOT a denormalised `acs.is_verified` column: the
+ * value is derived from `test_event_latest` plus the acceptance overlay, and a
+ * stored copy would be a second source of truth for something `test_events`
+ * already owns — invalidated on every emission, every retirement and every
+ * manual accept [per std-50]. The read below is one indexed lookup on the
+ * (memex_id, subject_ref) index the AC-tab snapshot already relies on, returning
+ * one row per test_identifier — units, not thousands [per std-39].
+ */
+async function verificationStateOfAc(memexId: string, ac: Ac, slugs: BriefSlugs) {
+  const subjectRef = buildAcRef(slugs, ac.seq);
+  const summaryRows = await db
+    .select({
+      testIdentifier: testEventLatest.testIdentifier,
+      latestStatus: testEventLatest.latestStatus,
+      latestRunAt: testEventLatest.latestRunAt,
+      runCount: testEventLatest.runCount,
+    })
+    .from(testEventLatest)
+    .where(
+      and(eq(testEventLatest.memexId, memexId), eq(testEventLatest.subjectRef, subjectRef)),
+    );
+  const tests: AcTestSnapshot[] = summaryRows.map((r) => ({
+    testIdentifier: r.testIdentifier === "" ? null : r.testIdentifier,
+    latestStatus: r.latestStatus as "pass" | "fail" | "error",
+    latestRunAt: r.latestRunAt,
+    runCount: r.runCount,
+  }));
+  const latestRunAt = tests.reduce<Date | null>(
+    (acc, t) => (acc === null || t.latestRunAt > acc ? t.latestRunAt : acc),
+    null,
+  );
+  const daysSinceLastRun =
+    latestRunAt === null
+      ? null
+      : Math.floor((Date.now() - latestRunAt.getTime()) / (1000 * 60 * 60 * 24));
+  // Through the SAME derivation the AC tab and the board roll-up use, so a
+  // criterion can never be "verified enough to refuse an edit" while reading
+  // untested on the surface the author is looking at.
+  return deriveVerificationState(tests, daysSinceLastRun, ac.acceptedAt !== null);
+}
+
+/**
+ * The states that mean "this criterion currently reads as satisfied", and are
+ * therefore closed to a free rewrite [spec-566 dec-8].
+ *
+ * ⚠ ac-23 says "verified". This includes `accepted` as well, and that widening is
+ * deliberate: spec-188's manual-acceptance overlay presents as satisfied on every
+ * coverage surface, so leaving it freely editable would close dec-8's door on one
+ * hinge and leave it open on the other. `stale` and `failing` are NOT here — a
+ * criterion whose tests are red or have gone quiet is exactly the one most likely
+ * to need honest rewording, and refusing it would be the over-blocking ac-24
+ * exists to catch.
+ */
+const SATISFIED_STATES: ReadonlySet<VerificationState> = new Set(["verified", "accepted"]);
+
 export async function updateAc(
   memexId: string,
   acId: string,
@@ -189,6 +247,39 @@ export async function updateAc(
     throw new ValidationError("AC statement is required");
   }
   const ac = await getAc(memexId, acId); // tenancy check
+
+  // ── The two guards [spec-566 dec-8 / dec-9], HOISTED above the write ──
+  //
+  // Not wrapped around it and not checked afterwards: a guarded validation is an
+  // accepted invalid input [per std-53]. Both refusals name the call that clears
+  // them — "this criterion is verified" states the obstacle, which is a defect
+  // report, not a message.
+  const { slugs, docStatus } = await resolveBriefContext(ac.briefId);
+
+  if (docStatus === "done") {
+    // dec-9. The marginal population is the UNVERIFIED criteria of a closed Spec;
+    // the verified ones are already refused below. Where BOTH hold, say both
+    // steps — naming only the reopen would send the author down a path that ends
+    // in a second refusal.
+    const alsoSatisfied = SATISFIED_STATES.has(
+      await verificationStateOfAc(memexId, ac, slugs),
+    );
+    throw new ValidationError(
+      alsoSatisfied
+        ? "This Spec is closed and the criterion has already been verified, so its statement is frozen twice over. Reopen the Spec to make it editable again, then change this criterion with propose_ac_supersession — reopening alone will not unlock a verified criterion."
+        : "This Spec is closed, so its criteria are frozen — a closed Spec's record of what was accepted must not change after the fact. Reopen the Spec if the criterion genuinely needs to change; the reopen is recorded with its reason.",
+    );
+  }
+
+  if (SATISFIED_STATES.has(await verificationStateOfAc(memexId, ac, slugs))) {
+    // dec-8. This is the enforcement point of the whole Spec: without it, the
+    // cheapest way to clear dec-7's done-gate is to edit the criterion until it
+    // is true, and every other guard passes vacuously.
+    throw new ValidationError(
+      "This criterion has already been verified, so its wording is no longer a free edit — changing it now would retroactively change what the passing tests proved. Use propose_ac_supersession, which records the decision that authorises the change and leaves the original statement intact.",
+    );
+  }
+
   return mutate(
     ctx,
     { memexId, docId: ac.briefId, entity: "ac", action: "updated" },
@@ -370,7 +461,17 @@ interface BriefSlugs {
   briefHandle: string;
 }
 
-async function resolveBriefSlugsForRef(briefId: string): Promise<BriefSlugs> {
+/**
+ * The slugs a canonical AC ref needs, plus the owning Spec's phase.
+ *
+ * spec-566 t-3 added `docStatus` to the SAME row rather than to a second query:
+ * dec-9's guard needs the phase and dec-8's needs the ref, and both run on one
+ * `update_ac` call. One more column on a join that already happens costs nothing;
+ * a second round trip on the write path would [per std-39].
+ */
+async function resolveBriefContext(
+  briefId: string,
+): Promise<{ slugs: BriefSlugs; docStatus: string }> {
   // The canonical ref uses the namespace + memex + spec HANDLE. The handle
   // (`spec-N` for Specs) lives on documents.handle. We pull all three in a
   // single join so the snapshot query doesn't need to hop the DB four times.
@@ -379,6 +480,7 @@ async function resolveBriefSlugsForRef(briefId: string): Promise<BriefSlugs> {
       namespace: namespaces.slug,
       memex: memexes.slug,
       briefHandle: documents.handle,
+      docStatus: documents.status,
     })
     .from(documents)
     .innerJoin(memexes, eq(documents.memexId, memexes.id))
@@ -389,10 +491,17 @@ async function resolveBriefSlugsForRef(briefId: string): Promise<BriefSlugs> {
     throw new NotFoundError(`Spec ${briefId} not found or has no handle`);
   }
   return {
-    namespace: row.namespace,
-    memex: row.memex,
-    briefHandle: row.briefHandle,
+    slugs: {
+      namespace: row.namespace,
+      memex: row.memex,
+      briefHandle: row.briefHandle,
+    },
+    docStatus: row.docStatus,
   };
+}
+
+async function resolveBriefSlugsForRef(briefId: string): Promise<BriefSlugs> {
+  return (await resolveBriefContext(briefId)).slugs;
 }
 
 // Exported so the per-Spec aggregator (aggregateAcHealthForBriefs, b-66 t-2)
