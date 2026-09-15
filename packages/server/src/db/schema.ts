@@ -520,6 +520,12 @@ export const docComments = pgTable(
       .references(() => decisions.id, { onDelete: "cascade" }),
     taskId: uuid("task_id")
       .references(() => tasks.id, { onDelete: "cascade" }),
+    // spec-566 t-2 (0150) — the fourth target: an acceptance criterion. A
+    // supersession proposal is a `plan_revision` comment on the criterion itself,
+    // so ac-20's done-gate can ASK which criteria hold an unaccepted proposal
+    // instead of parsing comment bodies to find out [per std-32].
+    acId: uuid("ac_id")
+      .references(() => acs.id, { onDelete: "cascade" }),
     // spec-497 dec-3 (t-1) — the decision whose resolution TRIGGERED this drift
     // comment (distinct from decisionId, which is the comment's TARGET when a
     // comment is attached to a decision). Only ever set on drift comments, whose
@@ -591,7 +597,7 @@ export const docComments = pgTable(
   (table) => [
     check(
       "doc_comments_exactly_one_target",
-      sql`(CASE WHEN ${table.sectionId} IS NOT NULL THEN 1 ELSE 0 END + CASE WHEN ${table.decisionId} IS NOT NULL THEN 1 ELSE 0 END + CASE WHEN ${table.taskId} IS NOT NULL THEN 1 ELSE 0 END) = 1`
+      sql`(CASE WHEN ${table.sectionId} IS NOT NULL THEN 1 ELSE 0 END + CASE WHEN ${table.decisionId} IS NOT NULL THEN 1 ELSE 0 END + CASE WHEN ${table.taskId} IS NOT NULL THEN 1 ELSE 0 END + CASE WHEN ${table.acId} IS NOT NULL THEN 1 ELSE 0 END) = 1`
     ),
     check(
       "doc_comments_comment_type_valid",
@@ -653,6 +659,12 @@ export const docComments = pgTable(
     index("doc_comments_drift_decision_idx")
       .on(table.memexId, table.driftDecisionId)
       .where(sql`${table.driftDecisionId} IS NOT NULL AND ${table.resolvedAt} IS NULL`),
+    // spec-566 t-2 (0150) — ac-20's done-gate read path: does this criterion hold
+    // an unaccepted supersession proposal. Partial on both predicates so the index
+    // carries only open proposals and costs nothing on the non-AC write path.
+    index("doc_comments_open_ac_proposal_idx")
+      .on(table.acId)
+      .where(sql`${table.acId} IS NOT NULL AND ${table.resolvedAt} IS NULL`),
   ]
 );
 

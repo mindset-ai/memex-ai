@@ -1211,6 +1211,12 @@ const TOOL_RATIONALES: Record<string, string> = {
     "Accept an open proposal and apply it to the Standard: every clause operation lands, or none does, and the proposal is resolved 'accepted' in the same transaction. Takes the proposal's comment ref and nothing else, so what gets applied is exactly what was reviewed. Refuses, naming the clause and its current text, if the rule changed after the proposal was written.",
   facets:
     "Read (and later manage) your Memex's facet vocabulary — the closed, per-owner set of cross-cutting practice areas a standard's clauses are tagged with. Verb-dispatched so the surface stays one tool; v0 supports verb:'list'.",
+  propose_ac_supersession:
+    "spec-566: propose that an acceptance criterion be superseded — the call for when later work REVERSES a criterion, rather than rewriting it with update_ac. It changes nothing: the statement stays byte-identical and the verdict is untouched until a human accepts it in the Drift Inbox. You must name the superseding decision, and you never supply the criterion's current text — the server reads it, so the accept can tell whether the criterion moved underneath the proposal. Omit proposed_statement to retire a criterion with no replacement.",
+  accept_ac_supersession:
+    "spec-566: accept an open supersession proposal. The criterion is retired with its statement PRESERVED verbatim and its status set 'superseded'; where the proposal carried one, a replacement criterion is created under the superseding decision with no test evidence of its own, so the tests must earn its verdict against the new text. One transaction. Takes the proposal's comment ref and nothing else. Refuses, naming the current text, if the criterion changed after the proposal was written — and it never deletes the old evidence, which stays attached to the criterion that earned it.",
+  reject_ac_supersession:
+    "spec-566: decline an open supersession proposal. The criterion is untouched; only the proposal closes, resolved 'rejected'.",
   create_ac:
     'Create an Acceptance Criterion under a Spec. Scope ACs are manager-authored outcomes; implementation ACs are agent-spawned from resolved Decisions.',
   list_acs:

@@ -157,6 +157,22 @@ const MUTATING_MCP_TOOLS: Record<string, ToolMutation[]> = {
   link_ac_to_decision: [{ entity: "ac", action: "updated" }],
   // spec-127 / spec-358: hard-delete retirement of orphaned test-events emits ac:updated.
   discontinue_test_events: [{ entity: "ac", action: "updated" }],
+  // spec-566 t-2 — AC supersession. Propose touches nothing about the criterion
+  // (ac-7), but the coverage surfaces must still re-read to show the pending
+  // proposal, hence `ac updated` and not silence. Accept emits `ac updated` for the
+  // retirement, `ac created` for the successor the proposal carried, and `comment
+  // updated` so the open Drift Inbox row clears — all from ONE mutate() around one
+  // transaction, mirroring accept_standard_change below.
+  propose_ac_supersession: [
+    { entity: "ac", action: "updated" },
+    { entity: "comment", action: "created" },
+  ],
+  accept_ac_supersession: [
+    { entity: "ac", action: "updated" },
+    { entity: "ac", action: "created" },
+    { entity: "comment", action: "updated" },
+  ],
+  reject_ac_supersession: [{ entity: "comment", action: "updated" }],
   // issues.ts
   register_issue: [{ entity: "issue", action: "created" }],
   update_issue: [{ entity: "issue", action: "updated" }],

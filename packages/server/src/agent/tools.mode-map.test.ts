@@ -59,6 +59,10 @@ const EXPECTED: Record<Exclude<AgentMode, "spec">, string[]> = {
   drift: [
     // spec-530 t-4 (ac-13): the apply verb lives in BOTH Standards-handling modes.
     "accept_standard_change",
+    // spec-566 t-2 (dec-1 option C): AC supersessions share the Drift Inbox queue,
+    // so the drift agent owns their accept/reject too.
+    "accept_ac_supersession",
+    "reject_ac_supersession",
     "flag_drift",
     "propose_standard_change",
     "search_memex",

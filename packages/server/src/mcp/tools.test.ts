@@ -119,6 +119,7 @@ const COMMENT_ROW = {
   sectionId: TEST_SECTION_ID,
   decisionId: null,
   taskId: null,
+  acId: null,
   driftDecisionId: null,
 };
 
@@ -755,6 +756,7 @@ describe("MCP Tool handlers via HTTP", () => {
               sectionId: TEST_SECTION_ID,
               decisionId: null,
               taskId: null,
+              acId: null,
               driftDecisionId: null,
               authorName: "Alice",
               authorUserId: null,

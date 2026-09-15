@@ -46,6 +46,7 @@ function makeAc(seq: number, state: VerificationState): AcWithVerification {
         ? []
         : ([{ testIdentifier: `t-${seq}`, latestStatus: "pass", runCount: 1 }] as unknown as AcWithVerification["tests"]),
     verificationState: state,
+    supersessionProposed: false,
     daysSinceLastRun: state === "untested" ? null : 1,
     parents: [],
   };

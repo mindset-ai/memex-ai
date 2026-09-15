@@ -28,6 +28,7 @@ import {
   acs,
   acParentLinks,
   decisions,
+  docComments,
   documents,
   memexes,
   namespaces,
@@ -336,6 +337,18 @@ export interface AcWithVerification {
   canonicalRef: string;
   tests: AcTestSnapshot[];
   verificationState: VerificationState;
+  /**
+   * spec-566 t-2 (ac-7): this criterion holds an unaccepted supersession
+   * proposal.
+   *
+   * DELIBERATELY NOT a member of `VerificationState`. ac-7's claim is that
+   * proposing leaves the verdict UNCHANGED, and folding "supersession proposed"
+   * into that union would make the verdict change by definition — silently
+   * reclassifying the AC everywhere the union is switched on, including the
+   * `=== "verified"` coverage filter below and phase-assessment's rollup. It is a
+   * separate fact about the criterion, carried separately.
+   */
+  supersessionProposed: boolean;
   /** null when the AC has no test events ever (untested). */
   daysSinceLastRun: number | null;
   /**
@@ -486,6 +499,26 @@ export async function listAcsForBriefWithVerification(
       ),
     );
 
+  // spec-566 t-2 (ac-7): which of these criteria hold an unaccepted supersession
+  // proposal. ONE query for the whole page, not one per AC [per std-39], served by
+  // the partial index 0150 added on (ac_id) WHERE ac_id IS NOT NULL AND
+  // resolved_at IS NULL. Queried here rather than through the supersession
+  // service: that module imports the comment writer, which would close an import
+  // cycle back onto this one.
+  const acIdsForProposals = acRows.map((a) => a.id);
+  const openProposalRows = await db
+    .select({ acId: docComments.acId })
+    .from(docComments)
+    .where(
+      and(
+        eq(docComments.memexId, memexId),
+        inArray(docComments.acId, acIdsForProposals),
+        eq(docComments.commentType, "plan_revision"),
+        isNull(docComments.resolvedAt),
+      ),
+    );
+  const proposedAcIds = new Set(openProposalRows.map((r) => r.acId));
+
   // Pull every parent link for our AC set in one query. The Decisions tab
   // uses these to find "the ACs hanging off this resolved decision" without
   // making the React layer fetch per-decision.
@@ -543,6 +576,7 @@ export async function listAcsForBriefWithVerification(
         daysSinceLastRun,
         ac.acceptedAt !== null,
       ),
+      supersessionProposed: proposedAcIds.has(ac.id),
       daysSinceLastRun,
       parents: parentsByAcId.get(ac.id) ?? [],
     };

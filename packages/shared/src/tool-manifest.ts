@@ -699,6 +699,33 @@ export const toolManifest: ToolManifestEntry[] = [
     homePhase: 'specify',
   },
   {
+    name: 'propose_ac_supersession',
+    summary:
+      "Propose that an acceptance criterion be superseded — for when later work REVERSES it rather than rewriting it. Changes nothing until a human accepts in the Drift Inbox. Names the superseding decision; the server reads the current text.",
+    args: 'propose_ac_supersession(ref, decision_ref, proposed_statement?, rationale?)',
+    group: 'build',
+    readOnlyHint: false,
+    homePhase: null,
+  },
+  {
+    name: 'accept_ac_supersession',
+    summary:
+      "Accept an open supersession proposal: the criterion is retired with its statement PRESERVED verbatim, and any replacement is created under the superseding decision with no evidence of its own, so tests must earn its verdict anew.",
+    args: 'accept_ac_supersession(ref)',
+    group: 'build',
+    readOnlyHint: false,
+    homePhase: null,
+  },
+  {
+    name: 'reject_ac_supersession',
+    summary:
+      "Decline an open supersession proposal. The criterion is untouched; only the proposal closes, resolved 'rejected'.",
+    args: 'reject_ac_supersession(ref)',
+    group: 'build',
+    readOnlyHint: false,
+    homePhase: null,
+  },
+  {
     name: 'link_ac_to_decision',
     summary:
       "Attach a parent-Decision link to an existing AC (for cross-cutting Implementation ACs spawned from multiple Decisions). Typical Decision-spawned ACs use create_ac's parent_decision_ref instead.",

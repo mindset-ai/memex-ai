@@ -27,6 +27,11 @@ import {
   type AcWithVerification,
 } from "../../services/acs.js";
 import {
+  acceptAcSupersession,
+  proposeAcSupersession,
+  rejectAcSupersession,
+} from "../../services/ac-supersession.js";
+import {
   fetchTopic,
 } from "../../services/guidance.js";
 import {
@@ -722,6 +727,142 @@ export const acsTools: ToolSpec[] = [
         return `Deleted ref: ${acRef} (seq=${ac.seq}, kind=${ac.kind}) "${ac.statement}"`;
       }
       return `Deleted ref: ${acRef}`;
+    },
+  },
+
+  // ── AC supersession (spec-566 t-2, dec-1 option C) ───────
+  //
+  // The price of changing a criterion's meaning. `update_ac` above stays the free
+  // call for polishing wording; these three are what a MATERIAL change costs — a
+  // proposal a human accepts, in the same Drift Inbox queue standards proposals
+  // already use. Every one of them is a `render_confirmation` act, never something
+  // the agent completes on its own.
+  {
+    name: "propose_ac_supersession",
+    annotations: { title: "Propose AC supersession", readOnlyHint: false, destructiveHint: false },
+    description:
+      "Propose that an acceptance criterion be superseded — the call to make when later work REVERSES a criterion, rather than rewriting it with update_ac. " +
+      "This changes NOTHING: the statement stays byte-identical and the verification verdict is untouched until a human accepts. " +
+      "You must name the superseding decision (`decision_ref`) — a reversal with no recorded reason is exactly what this verb exists to prevent — and you never supply the criterion's current text: the server reads it, so the accept can tell whether the criterion moved underneath the proposal. " +
+      "Omit `proposed_statement` to retire a criterion with no replacement. Propose this through `render_confirmation` FIRST and never call it until the user confirms.",
+    schema: {
+      ref: z
+        .string()
+        .describe("Canonical ref to the criterion, e.g. `<ns>/<mx>/specs/spec-N/acs/ac-N`. NOT a UUID."),
+      decision_ref: z
+        .string()
+        .describe(
+          "Canonical ref to the superseding decision, e.g. `<ns>/<mx>/specs/spec-N/decisions/dec-M`. Mandatory. NOT a UUID.",
+        ),
+      proposed_statement: z
+        .string()
+        .optional()
+        .describe("The replacement statement. Omit to supersede with no successor."),
+      rationale: z.string().optional().describe("Why the criterion is being reversed."),
+      verbose: VERBOSE_FIELD,
+    },
+    async handler(input, ctx) {
+      const resolved = await resolveRefArg(ctx, input.ref as string);
+      if (resolved.entity.kind !== "ac") {
+        throw new ValidationError(
+          `propose_ac_supersession expects an ac ref; got ${resolved.entity.kind}.`,
+        );
+      }
+      // std-10: the decision is addressed by its canonical dec-N ref, and
+      // resolveRefArg is what rejects a raw UUID at the boundary — the same guard
+      // the `ref` argument gets, rather than a parallel check of our own (ac-18).
+      const resolvedDecision = await resolveRefArg(ctx, input.decision_ref as string);
+      if (resolvedDecision.entity.kind !== "decision") {
+        throw new ValidationError(
+          `propose_ac_supersession expects a decision ref for decision_ref; got ${resolvedDecision.entity.kind}.`,
+        );
+      }
+
+      const { memexId, doc, slugs, entity } = resolved;
+      const result = await proposeAcSupersession(
+        {
+          memexId,
+          acId: entity.row.id,
+          decisionId: resolvedDecision.entity.row.id,
+          proposedStatement: (input.proposed_statement as string | undefined) ?? null,
+          rationale: input.rationale as string | undefined,
+        },
+        reqCtx(ctx),
+      );
+      const commentRef = buildChildRef(slugs, doc, {
+        type: "comments",
+        seq: result.comment.seq,
+      });
+      return (
+        `Supersession PROPOSED (ref: ${commentRef}) — nothing has changed yet. ` +
+        `The criterion still reads as it did and keeps its current verdict; a human accepts it with accept_ac_supersession(${commentRef}).`
+      );
+    },
+  },
+  {
+    name: "accept_ac_supersession",
+    annotations: { title: "Accept AC supersession", readOnlyHint: false, destructiveHint: false },
+    description:
+      "Accept an open supersession proposal. The criterion is retired — its statement PRESERVED verbatim, its status set to superseded — and, where the proposal carried one, a replacement criterion is created under the superseding decision with no test evidence of its own, so the tests must earn its verdict against the new text. All of it in one transaction. " +
+      "Takes the proposal's comment ref and nothing else, so what lands is exactly what was reviewed. REFUSES, naming the current text, if the criterion changed after the proposal was written. Propose through `render_confirmation` FIRST.",
+    schema: {
+      ref: z
+        .string()
+        .describe(
+          "Canonical ref to the proposal comment, e.g. `<ns>/<mx>/specs/spec-N/comments/c-N`. NOT a UUID.",
+        ),
+      verbose: VERBOSE_FIELD,
+    },
+    async handler(input, ctx) {
+      const resolved = await resolveRefArg(ctx, input.ref as string);
+      if (resolved.entity.kind !== "comment") {
+        throw new ValidationError(
+          `accept_ac_supersession takes a proposal comment ref (c-N); got ${resolved.entity.kind} for "${input.ref as string}".`,
+        );
+      }
+      const { memexId, doc, slugs, entity } = resolved;
+      const result = await acceptAcSupersession(memexId, entity.row.id, reqCtx(ctx));
+      const retiredRef = buildChildRef(slugs, doc, {
+        type: "acs",
+        seq: result.superseded.seq,
+      });
+      if (!result.successor) {
+        return `Superseded ref: ${retiredRef} — retired with no replacement. Its statement is preserved as written.`;
+      }
+      const successorRef = buildChildRef(slugs, doc, {
+        type: "acs",
+        seq: result.successor.seq,
+      });
+      return (
+        `Superseded ref: ${retiredRef} (statement preserved as written) and created ref: ${successorRef} in its place. ` +
+        `${successorRef} is UNTESTED — it earns its own verdict; the old evidence stays attached to the criterion that earned it.`
+      );
+    },
+  },
+  {
+    name: "reject_ac_supersession",
+    annotations: { title: "Reject AC supersession", readOnlyHint: false, destructiveHint: false },
+    description:
+      "Decline an open supersession proposal. The criterion is untouched; only the proposal closes, resolved 'rejected'. Propose through `render_confirmation` FIRST.",
+    schema: {
+      ref: z
+        .string()
+        .describe(
+          "Canonical ref to the proposal comment, e.g. `<ns>/<mx>/specs/spec-N/comments/c-N`. NOT a UUID.",
+        ),
+      verbose: VERBOSE_FIELD,
+    },
+    async handler(input, ctx) {
+      const resolved = await resolveRefArg(ctx, input.ref as string);
+      if (resolved.entity.kind !== "comment") {
+        throw new ValidationError(
+          `reject_ac_supersession takes a proposal comment ref (c-N); got ${resolved.entity.kind} for "${input.ref as string}".`,
+        );
+      }
+      const { memexId, doc, slugs, entity } = resolved;
+      const comment = await rejectAcSupersession(memexId, entity.row.id, reqCtx(ctx));
+      const commentRef = buildChildRef(slugs, doc, { type: "comments", seq: comment.seq });
+      return `Rejected ref: ${commentRef}. The criterion is unchanged.`;
     },
   },
 
