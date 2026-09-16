@@ -106,6 +106,16 @@ afterAll(async () => {
 describe("spec-566 ac-20 — the gate refuses, and says what clears it", () => {
   it("BLOCKS verify→done and leaves the Spec in verify", async () => {
     tagAc(acRef(20));
+    // ── SCOPE AC ──
+    // ac-6, reworded 2026-09-16 under dec-8: "A Spec cannot be certified
+    // while one of its criteria carries a rewrite nobody accepted — the close
+    // is refused…". That first clause IS this case. The rest of its sentence is
+    // carried where each clause is actually proven: the two ac-21 cases below
+    // (the override states a reason; the close then succeeds through it),
+    // ac-update-guards (the refusal lands at the edit itself), override-count's
+    // DoneSummary case (the count renders in the open), and ac-supersession's
+    // accept case (the successor names the decision that authorises it).
+    tagAc(acRef(6));
 
     const { briefId } = await seedBlockedSpec();
 
@@ -185,6 +195,8 @@ describe("spec-566 ac-20 — the gate refuses, and says what clears it", () => {
 describe("spec-566 ac-21 — the override is attributed, or it is refused", () => {
   it("refuses an override with no reason, and clears nothing", async () => {
     tagAc(acRef(21));
+    // ac-6: "…an override that STATES A REASON…" — refused without one.
+    tagAc(acRef(6));
 
     const { briefId } = await seedBlockedSpec();
 
@@ -205,6 +217,8 @@ describe("spec-566 ac-21 — the override is attributed, or it is refused", () =
 
   it("records who, when and why as COLUMNS [std-32], and then the Spec closes", async () => {
     tagAc(acRef(21));
+    // ac-6: "…the only way past…" — the close actually succeeds through it.
+    tagAc(acRef(6));
 
     const { briefId } = await seedBlockedSpec();
 

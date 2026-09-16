@@ -280,6 +280,9 @@ describe("spec-566 t-2 — accepting supersedes without rewriting", () => {
     tagAc(`${SPEC}/acs/ac-4`);
     tagAc(`${SPEC}/acs/ac-1`);
     tagAc(`${SPEC}/acs/ac-3`);
+    // ac-6: "…the successor NAMES THE DECISION that authorises it" — proven
+    // below by traversing the superseding decision to reach the successor.
+    tagAc(`${SPEC}/acs/ac-6`);
 
     const { briefId, acId, ref, decisionId } = await seedVerifiedAc();
 

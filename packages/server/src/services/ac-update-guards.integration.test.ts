@@ -102,6 +102,9 @@ afterAll(async () => {
 describe("spec-566 t-3 — update_ac refuses a criterion that already reads as satisfied [dec-8]", () => {
   it("refuses a VERIFIED criterion and names the proposal path, leaving the statement untouched", async () => {
     tagAc(`${SPEC}/acs/ac-23`);
+    // ac-6: "A verified criterion cannot be rewritten outside that path at
+    // all: the refusal lands at the edit itself."
+    tagAc(`${SPEC}/acs/ac-6`);
 
     const { briefId, acId, original } = await seedAc({ green: true });
     // Precondition asserted, not assumed: a criterion that was not actually green

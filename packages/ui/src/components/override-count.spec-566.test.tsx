@@ -256,6 +256,10 @@ describe('ac-22 — the row-fed surfaces take it as a prop', () => {
 
   it('DoneSummary reads it off the doc payload', () => {
     tagAc(acRef(22));
+    // ac-6: "…and is COUNTED IN THE OPEN." The Done report is where that
+    // clause bites — a waved-through Spec must not read "2 ACs · 2 verified"
+    // with nothing beside it.
+    tagAc(acRef(6));
     const doc = {
       id: 'doc-uuid',
       handle: 'spec-566',
