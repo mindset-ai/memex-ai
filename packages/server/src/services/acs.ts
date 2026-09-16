@@ -32,6 +32,9 @@ import {
   documents,
   memexes,
   namespaces,
+  // spec-566 t-6 — the status journal the alignment series replays, so a
+  // supersession changes today's number without redrawing the past.
+  specLifecycleEvents,
   testEvents,
   testEventLatest,
 } from "../db/schema.js";
@@ -1618,21 +1621,45 @@ export interface AlignmentDay {
 /**
  * For each of the last `days` days × each AC `kind`, compute (verified, total)
  * where:
- *   - total  = ACs active on that day (created on or before; status='active'
- *              today — V0.0.1 simplification, we don't reconstruct historical
- *              status transitions, which would require an audit table)
+ *   - total  = ACs that were ACTIVE ON THAT DAY — created on or before it, and
+ *              holding status 'active' as of end-of-day, reconstructed from the
+ *              lifecycle journal rather than projected from today's status
  *   - verified = ACs that were GREEN as of end-of-day: on the most recent day the AC ran
  *                at all (≤ this day), every one of its tests passed
  *
- * V0.0.1 caveat: status reconstruction is not historical. An AC currently
- * `rejected` or `superseded` is excluded from the total even on days when it
- * was active. Acceptable for now — the sparkline tells the alignment story for
- * what we care about TODAY; backfilling true historical status would need a
- * status-event log we don't have.
+ * spec-566 t-6 — THE HISTORY NO LONGER REWRITES ITSELF. This used to build its AC
+ * set with `status = 'active'` (today's value) and said so in its own caveat: "An
+ * AC currently `rejected` or `superseded` is excluded from the total even on days
+ * when it was active." So superseding one criterion did not merely change today's
+ * number, it redrew the whole trend — a Spec that genuinely stood at 10 of 11 last
+ * Tuesday was shown as having stood at 10 of 10. The caveat closed with "backfilling
+ * true historical status would need a status-event log we don't have"; spec-566 t-1
+ * built it, and this reads it.
+ *
+ * The reconstruction: an AC's status at end-of-day D is the `from_status` of the
+ * EARLIEST transition recorded after D, or — when no transition follows D — its
+ * status today. Walking backwards from the present needs only the transitions that
+ * exist, so a Spec that has never superseded anything produces the same SQL it
+ * always did (plus a constant status filter) and the same numbers.
+ *
+ * Still not reconstructed, and deliberately: `accepted_at` is today's value, not
+ * replayed across un-accept cycles (the pre-existing spec-188 caveat).
  *
  * SQL fans days out via generate_series and, per (day × AC), reads the per-day ROLLUP —
  * not the raw log. Bounded by the AC set in the Spec, which is small (rarely >100), so
  * this stays cheap even at 90 days.
+ *
+ * COST, against the implementation this replaces [std-39]. The day × AC fan-out is
+ * unchanged, and so is the one correlated read per cell against `test_run_daily` that
+ * dominates it. Added: ONE extra round-trip fetching this Spec's `ac_status_changed`
+ * rows (indexed by `ac_id`, and a Spec accumulates these at the rate a human retires
+ * criteria — tens per year, not thousands per day), inlined as a CTE of literals. The
+ * per-cell lookup against it is a scan of a handful of in-memory rows, not an index
+ * probe on a table. The AC set itself grows by the superseded and proposed criteria
+ * that were previously filtered out in SQL — for a Spec with no supersessions that is
+ * zero extra rows, and the `transitions` CTE and its subquery are omitted from the
+ * statement entirely, so the SQL such a Spec runs is byte-identical to before apart
+ * from a constant `= 'active'` comparison.
  */
 export async function listAcAlignmentOverTime(
   memexId: string,
@@ -1642,14 +1669,33 @@ export async function listAcAlignmentOverTime(
   await assertBriefInMemex(memexId, briefId);
   const slugs = await resolveBriefSlugsForRef(briefId);
 
+  // spec-566 t-6: NO status filter. The set is every criterion the Spec has ever
+  // held, and which of them counted on a given day is decided per-day below. The
+  // old `eq(acs.status, "active")` here is the whole defect — it projected today's
+  // status backwards over thirty days of history.
   const acRows = await db.query.acs.findMany({
-    where: and(
-      eq(acs.memexId, memexId),
-      eq(acs.briefId, briefId),
-      eq(acs.status, "active"),
-    ),
+    where: and(eq(acs.memexId, memexId), eq(acs.briefId, briefId)),
   });
   if (acRows.length === 0) return [];
+
+  // The transitions to replay. One round-trip for the whole Spec; a criterion's
+  // status changes when a human accepts a supersession, so these are counted in
+  // tens per Spec at most.
+  const transitionRows = await db
+    .select({
+      acId: specLifecycleEvents.acId,
+      at: specLifecycleEvents.createdAt,
+      fromStatus: specLifecycleEvents.fromStatus,
+    })
+    .from(specLifecycleEvents)
+    .where(
+      and(
+        eq(specLifecycleEvents.memexId, memexId),
+        eq(specLifecycleEvents.briefId, briefId),
+        eq(specLifecycleEvents.kind, "ac_status_changed"),
+      ),
+    );
+  const replayable = transitionRows.filter((t) => t.acId !== null && t.fromStatus !== null);
 
   // Build ac_set as an inline VALUES list — avoids passing JS arrays through
   // unnest(...::text[]) (postgres-js doesn't auto-cast TS arrays to Postgres
@@ -1658,12 +1704,41 @@ export async function listAcAlignmentOverTime(
   const acSetValues = sql.join(
     acRows.map(
       (a) =>
-        sql`(${buildAcRef(slugs, a.seq)}, ${a.kind}, ${a.createdAt.toISOString()}::timestamptz, ${
+        sql`(${a.id}::uuid, ${buildAcRef(slugs, a.seq)}, ${a.kind}, ${a.createdAt.toISOString()}::timestamptz, ${
           a.acceptedAt ? a.acceptedAt.toISOString() : null
-        }::timestamptz)`,
+        }::timestamptz, ${a.status})`,
     ),
     sql`, `,
   );
+
+  // The status this criterion held at END of day `s.day`: the `from_status` of the
+  // earliest transition recorded AFTER that day, or today's status when none
+  // follows it.
+  //
+  // A Spec with no transitions omits both the CTE and this subquery, so its
+  // statement stays exactly what it was before spec-566 — the common case pays
+  // nothing for a feature it does not use.
+  const transitionsCte = replayable.length
+    ? sql`, transitions(ac_id, at, from_status) AS (
+      VALUES ${sql.join(
+        replayable.map(
+          (t) => sql`(${t.acId}::uuid, ${t.at.toISOString()}::timestamptz, ${t.fromStatus})`,
+        ),
+        sql`, `,
+      )}
+    )`
+    : sql``;
+  const statusOnDay = replayable.length
+    ? sql`COALESCE(
+          (
+            SELECT t.from_status FROM transitions t
+            WHERE t.ac_id = a.ac_id AND t.at >= s.day + INTERVAL '1 day'
+            ORDER BY t.at ASC
+            LIMIT 1
+          ),
+          a.status_today
+        )`
+    : sql`a.status_today`;
 
   // spec-520 t-11 (ac-24): per (day × AC), read the per-day ROLLUP — not the raw log.
   //
@@ -1693,9 +1768,9 @@ export async function listAcAlignmentOverTime(
   // them (ac-5); rendering them as a plain zero would let a deleted past read as measured
   // absence, which is the specific misreading ac-5 forbids.
   const rows = (await db.execute(sql`
-    WITH ac_set(subject_ref, kind, created_at, accepted_at) AS (
+    WITH ac_set(ac_id, subject_ref, kind, created_at, accepted_at, status_today) AS (
       VALUES ${acSetValues}
-    ),
+    )${transitionsCte},
     series AS (
       SELECT generate_series(
         date_trunc('day', now()) - (${days - 1} || ' days')::interval,
@@ -1713,6 +1788,9 @@ export async function listAcAlignmentOverTime(
         a.subject_ref,
         a.created_at,
         a.accepted_at,
+        -- spec-566 t-6: the status this criterion HELD on this day, not the one
+        -- it holds now.
+        ${statusOnDay} AS status_on_day,
         (
           -- The most recent day this AC ran at or before s.day, collapsed across all of
           -- its tests. NULL when it had not run by then — distinct from FALSE (ran, and
@@ -1734,7 +1812,10 @@ export async function listAcAlignmentOverTime(
     SELECT
       day::text AS date,
       kind,
-      COUNT(*) FILTER (WHERE created_at <= day + INTERVAL '1 day') AS total,
+      COUNT(*) FILTER (
+        WHERE created_at <= day + INTERVAL '1 day'
+          AND status_on_day = 'active'
+      ) AS total,
       -- Gate verified on AC existence too — otherwise history predating the AC's
       -- createdAt yields verified > total, which is nonsense.
       --
@@ -1746,6 +1827,7 @@ export async function listAcAlignmentOverTime(
       -- cycles.)
       COUNT(*) FILTER (
         WHERE created_at <= day + INTERVAL '1 day'
+          AND status_on_day = 'active'
           AND (
             green
             OR (
