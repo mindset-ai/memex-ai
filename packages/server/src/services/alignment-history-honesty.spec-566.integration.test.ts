@@ -162,6 +162,11 @@ afterAll(async () => {
 describe("spec-566 ac-12 — superseding a criterion changes today, never the past", () => {
   it("leaves every day before the supersession byte-identical", async () => {
     tagAc(acRef(12));
+    // ac-2's "a Spec's coverage can go DOWN", over time rather than in a
+    // snapshot: the counterpart assertion at the end of this case is that TODAY's
+    // total really drops from 2 to 1. A Spec whose live set can only ever grow is
+    // the structural incapacity ac-2 names.
+    tagAc(acRef(2));
 
     const { briefId, doomedAcId, decisionId } = await seedTwoOfTwo();
 

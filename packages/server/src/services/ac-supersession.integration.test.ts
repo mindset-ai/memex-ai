@@ -16,6 +16,7 @@ import { db } from "../db/connection.js";
 import {
   acs,
   acParentLinks,
+  decisions,
   documents,
   memexes,
   namespaces,
@@ -261,7 +262,24 @@ describe("spec-566 t-2 — accepting supersedes without rewriting", () => {
   });
 
   it("resets the verdict WITHOUT destroying the evidence that earned it", async () => {
+    // ── SCOPE ACs, tagged here because this case proves their whole sentence ──
+    //
+    // ac-1: "recorded as superseded — its original statement preserved verbatim,
+    // its successor named — without rewriting it, deleting it, or leaving it
+    // asserting something the code contradicts." All four clauses are below: the
+    // statement read back byte-identical, the successor reached by traversing the
+    // superseding decision, the row still present (retired, not deleted), and the
+    // status flipped so it no longer asserts against the live set.
+    //
+    // ac-3: "a material rewrite is a distinct, ATTRIBUTED act — not the same free
+    // call as fixing a typo." The distinct act is propose→accept; the attribution
+    // is the journal row's actor/channel/reason at the end of this case. The "not
+    // the same free call" half is ac-23/ac-24's guards, which is why ac-3 is NOT
+    // tagged on those alone — a criterion refused an edit proves the cost went up,
+    // not that the alternative path signs its name.
     tagAc(`${SPEC}/acs/ac-4`);
+    tagAc(`${SPEC}/acs/ac-1`);
+    tagAc(`${SPEC}/acs/ac-3`);
 
     const { briefId, acId, ref, decisionId } = await seedVerifiedAc();
 
@@ -277,7 +295,11 @@ describe("spec-566 t-2 — accepting supersedes without rewriting", () => {
       { memexId, acId, decisionId, proposedStatement: "A materially different claim." },
       {},
     );
-    const accepted = await acceptAcSupersession(memexId, proposed.comment.id, {});
+    const accepted = await acceptAcSupersession(memexId, proposed.comment.id, {
+      // ac-3's "attributed" half needs a real actor to assert against.
+      channel: "rest_ui",
+      actorName: "LJ Accepter",
+    });
 
     // The reset: the NEW statement is not green. It has to earn its own verdict.
     const after = await listAcsForBriefWithVerification(memexId, briefId);
@@ -305,6 +327,16 @@ describe("spec-566 t-2 — accepting supersedes without rewriting", () => {
     expect(journalled[0].kind).toBe("ac_status_changed");
     expect(journalled[0].fromStatus).toBe("active");
     expect(journalled[0].toStatus).toBe("superseded");
+
+    // …and ATTRIBUTED. ac-3's claim is that a material rewrite is "a distinct,
+    // ATTRIBUTED act — not the same free call as fixing a typo", and the second
+    // half of that sentence is what these three columns carry. They were written
+    // from the start and asserted by nothing, which is how a scope AC ends up
+    // green on the weaker half of its own claim.
+    expect(journalled[0].channel).toBe("rest_ui");
+    expect(journalled[0].actorName).toBe("LJ Accepter");
+    // WHY, in words a reviewer can read without joining back to the proposal.
+    expect(journalled[0].reason).toContain("Superseded under dec-");
   });
 
   it("refuses to apply a proposal whose criterion moved underneath it [spec-530 dec-3]", async () => {

@@ -115,6 +115,19 @@ afterAll(async () => {
 describe("spec-566 ac-13 — the card aggregate counts 10 live and 1 retired", () => {
   it("reports totalActive 10, verified 10 and superseded 1 — never a total of 11", async () => {
     tagAc(acRef(13));
+    // ── SCOPE AC ──
+    //
+    // ac-2: "A Spec's coverage can go DOWN. Superseding a criterion visibly
+    // reduces the live set rather than hiding it, so '10 of 10, one superseded'
+    // is expressible and a Spec is no longer structurally incapable of showing
+    // less than 100%." This case IS that worked example, read back from the
+    // aggregate every card percentage divides by: the live set shrank from 11 to
+    // 10, and the criterion that left is counted rather than hidden.
+    //
+    // The "can go DOWN" half is also proven over TIME in
+    // alignment-history-honesty.spec-566, where today's total drops from 2 to 1
+    // while the past holds — tagged there too rather than claimed here.
+    tagAc(acRef(2));
 
     const { briefId } = await seedTenOfEleven();
 
