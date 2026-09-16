@@ -148,7 +148,15 @@ describe('DriftInbox — loading always resolves to a non-spinner state', () => 
     expect(await screen.findByTestId('drift-empty-state')).toBeInTheDocument();
     // …and the spinner is gone (loading resolved).
     expect(screen.queryByText('Loading...')).not.toBeInTheDocument();
-    expect(screen.getByText('No open drift or proposals.')).toBeInTheDocument();
+    // spec-566 t-9 widened this copy: the queue now also carries criterion
+    // supersessions (dec-1 put them here rather than on a new surface), and an
+    // empty state that lists only drift and proposals reads as a page that
+    // cannot show them. This case's claim is unchanged — loading RESOLVED to a
+    // real empty state rather than spinning for ever — so it matches on the
+    // widened sentence rather than dropping the assertion.
+    expect(
+      screen.getByText('No open drift, standards proposals or criterion supersessions.'),
+    ).toBeInTheDocument();
   });
 
   it('a rejected fetch resolves loading and shows a non-spinner error state (not an infinite spinner, not the "all clear" empty state)', async () => {
