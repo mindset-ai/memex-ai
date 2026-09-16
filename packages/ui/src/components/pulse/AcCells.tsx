@@ -17,6 +17,7 @@ export function AcCells({ health }: { health: AcHealth | undefined }) {
   const annotations = coverageAnnotationLabels({
     superseded: health?.superseded ?? 0,
     overrides: health?.overrides ?? 0,
+    reopens: health?.reopens ?? 0,
   });
   const supersededLabel = annotations.length ? annotations.join(' · ') : null;
   if (!health || health.totalActive === 0) {

@@ -69,7 +69,7 @@ interface DoneSummaryProps {
    * Confirmed-reopen callback. The PARENT performs the status write (and the
    * refetch) — DoneSummary itself still makes no network call (ac-9).
    */
-  onReopen?: () => void | Promise<void>;
+  onReopen?: (reason: string) => void | Promise<void>;
   /**
    * spec-258/dec-3: when DoneSummary is the Done-TAB preview (the spec is NOT
    * yet closed — browsing Done before the move), the headline reads forward
@@ -137,6 +137,10 @@ export function DoneSummary({
   // sentence's no-modal posture). 'idle' → button; 'confirming' → question +
   // Yes/Cancel; 'submitting' while the parent's status write is in flight.
   const [reopenState, setReopenState] = useState<'idle' | 'confirming' | 'submitting'>('idle');
+  // spec-566 t-8 (dec-9): reopening is a RECORDED act, so the confirm collects
+  // the reason. The server refuses a blank one — this is not the authority, it
+  // is what stops a round-trip coming back with an error the user cannot act on.
+  const [reopenReason, setReopenReason] = useState('');
 
   // spec-196 dec-4: "Read the spec" — collapsed by default so the calm
   // retrospective stays the landing state; expanding is pure presentation
@@ -148,9 +152,10 @@ export function DoneSummary({
   const [qaOpen, setQaOpen] = useState(false);
 
   const handleReopenYes = async () => {
+    if (!reopenReason.trim()) return;
     setReopenState('submitting');
     try {
-      await onReopen?.();
+      await onReopen?.(reopenReason.trim());
     } finally {
       // If the write succeeded the parent re-renders away from `done` and
       // this component unmounts; on failure we fall back to the button.
@@ -183,6 +188,7 @@ export function DoneSummary({
   const acsAnnotations = coverageAnnotationLabels({
     superseded: acs.filter((a) => a.ac.status === 'superseded').length,
     overrides: doc.gateOverrides ?? 0,
+    reopens: doc.reopens ?? 0,
   });
   const acsSupersededLabel = acsAnnotations.length ? acsAnnotations.join(' · ') : null;
 
@@ -317,13 +323,26 @@ export function DoneSummary({
                 data-testid="done-reopen-confirm"
                 className="inline-flex flex-wrap items-center gap-2"
               >
-                Move this spec back to {phaseDisplayName('verify')}?
+                <span className="w-full">
+                  Move this spec back to {phaseDisplayName('verify')}? Closing
+                  certified this spec&apos;s criteria, so reopening is kept on the
+                  record — your name, the time, and why.
+                </span>
+                <input
+                  type="text"
+                  data-testid="done-reopen-reason"
+                  value={reopenReason}
+                  onChange={(e) => setReopenReason(e.target.value)}
+                  disabled={reopenState === 'submitting'}
+                  className="min-w-64 flex-1 rounded-md border border-edge bg-panel px-2 py-1 text-sm text-primary"
+                  placeholder="Why is this being reopened?"
+                />
                 <Button
                   type="button"
                   variant="primary"
                   size="sm"
                   data-testid="done-reopen-yes"
-                  disabled={reopenState === 'submitting'}
+                  disabled={reopenState === 'submitting' || !reopenReason.trim()}
                   onClick={() => void handleReopenYes()}
                 >
                   {reopenState === 'submitting' ? 'Reopening…' : 'Yes'}

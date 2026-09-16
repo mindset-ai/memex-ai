@@ -299,6 +299,8 @@ export interface SpecLifecycleSummary {
     superseded: number;
     /** spec-566 dec-7 — done-gate overrides on this Spec (ac-22). */
     overrides: number;
+    /** spec-566 dec-9 — reopens on this Spec (t-8). */
+    reopens: number;
   };
 }
 

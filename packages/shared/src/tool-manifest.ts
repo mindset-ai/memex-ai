@@ -184,7 +184,7 @@ export const toolManifest: ToolManifestEntry[] = [
     name: 'update_doc',
     summary:
       "Update a document's status, title, and/or tags; transitions a Spec through draft→specify→build→verify→done.",
-    args: 'update_doc(ref, status?, title?, tags?, removeTags?)',
+    args: 'update_doc(ref, status?, reason?, title?, tags?, removeTags?)',
     group: 'planning',
     readOnlyHint: false,
     homePhase: null,

@@ -77,6 +77,8 @@ interface AcPanelProps {
   /** spec-566 dec-7 (ac-22) — done-gate overrides on this Spec, from the doc
    *  payload. A Spec-level number, so the AC rows cannot carry it. */
   gateOverrides?: number;
+  /** spec-566 dec-9 (t-8) — reopens on this Spec, from the doc payload. */
+  reopens?: number;
 }
 
 const POLL_INTERVAL_MS = 3_000;
@@ -187,6 +189,7 @@ function UnifiedAcHeader({
   promptContext,
   orgBlocks,
   gateOverrides = 0,
+  reopens = 0,
 }: {
   rows: AcWithVerification[];
   history: AcAlignmentDay[];
@@ -195,6 +198,8 @@ function UnifiedAcHeader({
   /** spec-566 dec-7 (ac-22) — done-gate overrides on this Spec. A Spec-level
    *  number the AC rows cannot carry, so the page hands it down. */
   gateOverrides?: number;
+  /** spec-566 dec-9 (t-8) — reopens on this Spec. Spec-level, like the above. */
+  reopens?: number;
 }) {
   // spec-566 dec-2 — every figure below is over the LIVE set. A superseded
   // criterion was a commitment that got retired, so leaving it in the
@@ -207,6 +212,7 @@ function UnifiedAcHeader({
   const annotations = coverageAnnotationLabels({
     superseded: supersededCount,
     overrides: gateOverrides,
+    reopens,
   });
   const supersededLabel = annotations.length ? annotations.join(' · ') : null;
 
@@ -667,7 +673,7 @@ function AcRowMeta({
   );
 }
 
-export function AcPanel({ docId, focusedAcId, onFocusConsumed, specPhase, promptContext, orgBlocks, gateOverrides = 0 }: AcPanelProps) {
+export function AcPanel({ docId, focusedAcId, onFocusConsumed, specPhase, promptContext, orgBlocks, gateOverrides = 0, reopens = 0 }: AcPanelProps) {
   const [rows, setRows] = useState<AcWithVerification[] | null>(null);
   const [history, setHistory] = useState<AcAlignmentDay[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -800,7 +806,7 @@ export function AcPanel({ docId, focusedAcId, onFocusConsumed, specPhase, prompt
   }
 
   const aboutDialog = aboutOpen ? (
-    <AcAboutDialog rows={rows} gateOverrides={gateOverrides} onClose={() => setAboutOpen(false)} />
+    <AcAboutDialog rows={rows} gateOverrides={gateOverrides} reopens={reopens} onClose={() => setAboutOpen(false)} />
   ) : null;
 
   // Whole-tab empty state — the teaching moment for a Spec with zero ACs
@@ -947,6 +953,7 @@ export function AcPanel({ docId, focusedAcId, onFocusConsumed, specPhase, prompt
         promptContext={promptContext}
         orgBlocks={orgBlocks}
         gateOverrides={gateOverrides}
+        reopens={reopens}
       />
       <UnifiedAcList
         rows={rows}

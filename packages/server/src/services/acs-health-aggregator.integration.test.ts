@@ -106,6 +106,8 @@ describe("aggregateAcHealthForBriefs", () => {
       superseded: 0,
       // spec-566 dec-7: done-gate overrides, 0 for this fixture.
       overrides: 0,
+      // spec-566 dec-9: reopens, 0 for this fixture.
+      reopens: 0,
     });
   });
 
@@ -136,6 +138,8 @@ describe("aggregateAcHealthForBriefs", () => {
       superseded: 0,
       // spec-566 dec-7: done-gate overrides, 0 for this fixture.
       overrides: 0,
+      // spec-566 dec-9: reopens, 0 for this fixture.
+      reopens: 0,
     });
   });
 
@@ -170,6 +174,8 @@ describe("aggregateAcHealthForBriefs", () => {
       superseded: 0,
       // spec-566 dec-7: done-gate overrides, 0 for this fixture.
       overrides: 0,
+      // spec-566 dec-9: reopens, 0 for this fixture.
+      reopens: 0,
     });
   });
 
@@ -200,6 +206,8 @@ describe("aggregateAcHealthForBriefs", () => {
       superseded: 0,
       // spec-566 dec-7: done-gate overrides, 0 for this fixture.
       overrides: 0,
+      // spec-566 dec-9: reopens, 0 for this fixture.
+      reopens: 0,
     });
   });
 
@@ -226,6 +234,8 @@ describe("aggregateAcHealthForBriefs", () => {
       superseded: 0,
       // spec-566 dec-7: done-gate overrides, 0 for this fixture.
       overrides: 0,
+      // spec-566 dec-9: reopens, 0 for this fixture.
+      reopens: 0,
     });
   });
 

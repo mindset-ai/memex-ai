@@ -730,6 +730,8 @@ export interface SpecLifecycleSummary {
     superseded: number;
     /** spec-566 dec-7 (ac-22) — times the done-gate was overridden on this Spec. */
     overrides: number;
+    /** spec-566 dec-9 (t-8) — times this closed Spec was reopened. */
+    reopens: number;
   };
 }
 
@@ -766,6 +768,15 @@ export async function specLifecycleSummary(memexId: string, docId: string): Prom
     WHERE memex_id = ${memexId} AND brief_id = ${docId} AND kind = 'gate_overridden'
   `)) as unknown as Array<{ n: number }>;
 
+  // spec-566 dec-9 (t-8) — and the reopens. One query for both would read
+  // better; two is what keeps each count's predicate legible next to the field
+  // it fills, and the slice is a handful of rows either way [std-39].
+  const [reopenRow] = (await db.execute(sql`
+    SELECT count(*)::int AS n
+    FROM spec_lifecycle_events
+    WHERE memex_id = ${memexId} AND brief_id = ${docId} AND kind = 'spec_reopened'
+  `)) as unknown as Array<{ n: number }>;
+
   const now = Date.now();
   return {
     createdAt: new Date(doc.createdAt).toISOString(),
@@ -780,6 +791,7 @@ export async function specLifecycleSummary(memexId: string, docId: string): Prom
       covered: verification.verified + verification.failing,
       superseded: supersededRow?.n ?? 0,
       overrides: overrideRow?.n ?? 0,
+      reopens: reopenRow?.n ?? 0,
     },
   };
 }

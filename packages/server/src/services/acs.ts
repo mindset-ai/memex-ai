@@ -45,6 +45,7 @@ import { resolveActorColumns } from "./actor.js";
 import { recordLifecycleEvent } from "./lifecycle-journal.js";
 import { removeSummaryForPair } from "./test-event-latest.js";
 import { countGateOverridesForBriefs } from "./done-gate.js";
+import { countReopensForBriefs } from "./spec-reopen.js";
 import { nextSeq, withSeqRetry } from "./shared/sequence.js";
 
 export type Ac = InferSelectModel<typeof acs>;
@@ -1390,6 +1391,10 @@ export interface AcHealth {
    *  override from becoming the normal path with exactly one device: it is
    *  counted and shown. Outside every percentage, like `superseded`. */
   overrides: number;
+  /** spec-566 dec-9 — times this closed Spec was reopened. Same terms as the
+   *  other two: outside the maths, rendered beside it. A reopen that nobody
+   *  counts is the quiet route around dec-9's freeze. */
+  reopens: number;
 }
 
 const EMPTY_HEALTH: AcHealth = {
@@ -1402,6 +1407,7 @@ const EMPTY_HEALTH: AcHealth = {
   accepted: 0,
   superseded: 0,
   overrides: 0,
+  reopens: 0,
 };
 
 export async function aggregateAcHealthForBriefs(
@@ -1452,6 +1458,13 @@ export async function aggregateAcHealthForBriefs(
   for (const [briefId, n] of overrideCounts) {
     const entry = result.get(briefId);
     if (entry) entry.overrides = n;
+  }
+
+  // spec-566 dec-9 (t-8) — and the reopen tally, on the same terms.
+  const reopenCounts = await countReopensForBriefs(memexId, briefIds);
+  for (const [briefId, n] of reopenCounts) {
+    const entry = result.get(briefId);
+    if (entry) entry.reopens = n;
   }
 
   // Q1 — active ACs + their canonical-ref slug components in one join.

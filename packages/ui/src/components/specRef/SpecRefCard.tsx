@@ -38,6 +38,7 @@ export function SpecRefCard({ id, doc }: { id: string; doc: DocSummary }) {
   const annotations = coverageAnnotationLabels({
     superseded: health?.superseded ?? 0,
     overrides: health?.overrides ?? 0,
+    reopens: health?.reopens ?? 0,
   });
   const supersededLabel = annotations.length ? annotations.join(', ') : null;
   const inPhase = daysSince(doc.statusChangedAt);

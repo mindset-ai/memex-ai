@@ -110,6 +110,7 @@ const HEALTH_WITH_OVERRIDES: AcHealth = {
   accepted: 0,
   superseded: 0,
   overrides: 2,
+  reopens: 0,
 };
 const HEALTH_CLEAN: AcHealth = { ...HEALTH_WITH_OVERRIDES, overrides: 0 };
 
@@ -209,7 +210,7 @@ describe('ac-22 — the AcHealth-fed surfaces', () => {
       ageDays: 15,
       timeInCurrentPhaseDays: 5,
       tasks: { total: 8, complete: 4 },
-      acs: { total: 2, verified: 2, failing: 0, covered: 2, superseded: 0, overrides: 2 },
+      acs: { total: 2, verified: 2, failing: 0, covered: 2, superseded: 0, overrides: 2, reopens: 0 },
     };
     render(<SpecSummaryStrip summary={summary} />);
     expect(screen.getByTestId('spec-summary-strip')).toHaveTextContent(

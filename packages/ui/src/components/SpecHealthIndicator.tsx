@@ -103,6 +103,7 @@ export function SpecHealthChip({ health }: SpecHealthIndicatorProps) {
   const annotations = coverageAnnotationLabels({
     superseded: health?.superseded ?? 0,
     overrides: health?.overrides ?? 0,
+    reopens: health?.reopens ?? 0,
   });
   const supersededLabel = annotations.length ? annotations.join(' · ') : null;
   // A Spec with NO live criteria still renders when some were retired. Without

@@ -209,6 +209,8 @@ export interface AcHealth {
   superseded: number;
   /** spec-566 dec-7 — times the done-gate was overridden on this Spec (ac-22). */
   overrides: number;
+  /** spec-566 dec-9 — times this closed Spec was reopened (t-8). */
+  reopens: number;
 }
 
 export interface Doc {
@@ -247,6 +249,9 @@ export interface Doc {
    * surfaces read `acHealth.overrides` instead. Optional for payload tolerance.
    */
   gateOverrides?: number;
+  /** spec-566 dec-9 (t-8) — reopens on this Spec, carried alongside
+   *  `gateOverrides` for the same four row-fed coverage surfaces. */
+  reopens?: number;
   /**
    * spec-535 — the sensitivity flag + who to contact. `sensitive` is the
    * persisted boolean; `sensitiveByName` is the display snapshot denormalised at

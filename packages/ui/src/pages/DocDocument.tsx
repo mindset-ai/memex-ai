@@ -951,6 +951,7 @@ export function DocDocument() {
       decisions={decs}
       /* spec-566 dec-7 (ac-22): passed through to each DecisionAcStrip. */
       gateOverrides={doc.gateOverrides ?? 0}
+      reopens={doc.reopens ?? 0}
       commentsByDecision={commentsByDecision}
       onCommentsChange={handleDecisionCommentsChange}
       onUpdate={reloadDoc}
@@ -979,6 +980,7 @@ export function DocDocument() {
         specPhase={phase}
         /* spec-566 dec-7 (ac-22): a Spec-level count the AC rows cannot carry. */
         gateOverrides={doc.gateOverrides ?? 0}
+        reopens={doc.reopens ?? 0}
         focusedAcId={focusedAcId}
         onFocusConsumed={() => setFocusedAcId(null)}
         /* spec-247 dec-4: context for the "Wire the AC tests" handoff. */
@@ -1425,8 +1427,10 @@ export function DocDocument() {
              non-member. DoneSummary stays fetch-free (ac-9); after the write
              the view follows the move, like TransitionSentence's onTransitioned. */
           canReopen={canWrite}
-          onReopen={async () => {
-            await updateDocStatus(doc.id, 'verify');
+          onReopen={async (reason: string) => {
+            // spec-566 t-8 (dec-9): the reason rides with the phase move; the
+            // server refuses to reopen a closed Spec without one.
+            await updateDocStatus(doc.id, 'verify', reason);
             setSelectedTab(null);
             reloadDoc();
           }}

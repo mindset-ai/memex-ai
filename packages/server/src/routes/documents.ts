@@ -436,12 +436,21 @@ docs.get("/:id", async (c) => {
 docs.post("/:id/status", async (c) => {
   const memexId = requireMemexId(c);
   const id = c.req.param("id");
-  const body = await parseJsonBodyOrNull<{ status?: unknown }>(c);
+  const body = await parseJsonBodyOrNull<{ status?: unknown; reason?: unknown }>(c);
   const status = requireStringType(body?.status, "status", {
     message: "Body must include a 'status' string",
   });
+  // spec-566 t-8 (dec-9): optional on the wire so no existing client 400s, and
+  // REQUIRED by the service for the one move that needs it — leaving `done`.
+  // The refusal is typed (`REOPEN_NEEDS_REASON`), so the Done screen and the
+  // board can ask for a reason instead of reporting a fault.
+  const reason = typeof body?.reason === "string" ? body.reason : undefined;
   // spec-122 dec-3 — carry the actor/channel onto the status_changed journal row.
-  const updated = await updateDocStatus(memexId, id, status, { source: "rest", ctx: restCtx(c) });
+  const updated = await updateDocStatus(memexId, id, status, {
+    source: "rest",
+    ctx: restCtx(c),
+    reason,
+  });
   return c.json(updated);
 });
 

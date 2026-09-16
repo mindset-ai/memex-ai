@@ -28,10 +28,12 @@ interface AcAboutDialogProps {
   rows: AcWithVerification[];
   /** spec-566 dec-7 (ac-22) — done-gate overrides on this Spec. */
   gateOverrides?: number;
+  /** spec-566 dec-9 (t-8) — reopens on this Spec. */
+  reopens?: number;
   onClose: () => void;
 }
 
-export function AcAboutDialog({ rows, gateOverrides = 0, onClose }: AcAboutDialogProps) {
+export function AcAboutDialog({ rows, gateOverrides = 0, reopens = 0, onClose }: AcAboutDialogProps) {
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -53,6 +55,7 @@ export function AcAboutDialog({ rows, gateOverrides = 0, onClose }: AcAboutDialo
   const annotations = coverageAnnotationLabels({
     superseded: rows.filter((r) => r.ac.status === 'superseded').length,
     overrides: gateOverrides,
+    reopens,
   });
   const supersededLabel = annotations.length ? annotations.join(' · ') : null;
 

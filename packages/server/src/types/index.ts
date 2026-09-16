@@ -150,4 +150,7 @@ export interface AcHealth {
   /** spec-566 dec-7 — times this Spec's done-gate was overridden, rendered
    *  beside coverage so the escape hatch cannot quietly become the norm. */
   overrides: number;
+  /** spec-566 dec-9 — times this closed Spec was reopened, rendered beside
+   *  coverage so reopening cannot quietly become the route around the freeze. */
+  reopens: number;
 }

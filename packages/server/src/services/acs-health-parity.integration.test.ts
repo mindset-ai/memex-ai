@@ -119,6 +119,8 @@ function tallyTabPayload(
     superseded: 0,
     // spec-566 dec-7: done-gate overrides, 0 for this fixture.
     overrides: 0,
+    // spec-566 dec-9: reopens, 0 for this fixture.
+    reopens: 0,
   };
   for (let i = 0; i < states.length; i++) {
     if (hadTests[i]) tally.covered += 1;
@@ -205,6 +207,8 @@ describe("aggregateAcHealthForBriefs parity with listAcsForBriefWithVerification
       superseded: 0,
       // spec-566 dec-7: done-gate overrides, 0 for this fixture.
       overrides: 0,
+      // spec-566 dec-9: reopens, 0 for this fixture.
+      reopens: 0,
     });
   });
 

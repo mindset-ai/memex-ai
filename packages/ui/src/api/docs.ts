@@ -393,11 +393,17 @@ export async function fetchDoc(id: string): Promise<DocWithGraph> {
  */
 export const DONE_GATE_BLOCKED = 'DONE_GATE_BLOCKED';
 
-export async function updateDocStatus(docId: string, status: DocStatus): Promise<void> {
+export async function updateDocStatus(
+  docId: string,
+  status: DocStatus,
+  /** spec-566 t-8 (dec-9) — required by the server for ONE move: leaving `done`.
+   *  Omitted everywhere else, where the server ignores it. */
+  reason?: string,
+): Promise<void> {
   const res = await fetchWithRetry(`${tBase()}/docs/${docId}/status`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status }),
+    body: JSON.stringify(reason === undefined ? { status } : { status, reason }),
   });
   if (!res.ok) {
     // spec-566 ac-29: throw the TYPED error, not a bare one. This call site was

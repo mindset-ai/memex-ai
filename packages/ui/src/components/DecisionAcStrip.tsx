@@ -26,6 +26,8 @@ interface DecisionAcStripProps {
   /** spec-566 dec-7 (ac-22) — done-gate overrides on the owning Spec. A
    *  Spec-level number the AC rows cannot carry, so the panel hands it down. */
   gateOverrides?: number;
+  /** spec-566 dec-9 (t-8) — reopens on the owning Spec. */
+  reopens?: number;
   /** Click on a pill → call this with the AC's id; caller switches to the
    *  AC tab and focuses the row. */
   onJumpToAc?: (acId: string) => void;
@@ -35,6 +37,7 @@ export function DecisionAcStrip({
   acs,
   decisionId,
   gateOverrides = 0,
+  reopens = 0,
   onJumpToAc,
 }: DecisionAcStripProps) {
   const own = acs.filter((r) =>
@@ -59,6 +62,7 @@ export function DecisionAcStrip({
   const annotations = coverageAnnotationLabels({
     superseded: own.filter((r) => r.ac.status === 'superseded').length,
     overrides: gateOverrides,
+    reopens,
   });
   const supersededLabel = annotations.length ? annotations.join(' · ') : null;
 

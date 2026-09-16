@@ -56,12 +56,12 @@ export function SpecSummaryStrip({ summary }: Props) {
       <Stat
         label="ACs verified"
         value={`${acPct}%`}
-        sub={`${summary.acs.verified}/${summary.acs.total} verified${coverageAnnotationSuffix({ superseded: summary.acs.superseded, overrides: summary.acs.overrides })}`}
+        sub={`${summary.acs.verified}/${summary.acs.total} verified${coverageAnnotationSuffix({ superseded: summary.acs.superseded, overrides: summary.acs.overrides, reopens: summary.acs.reopens })}`}
       />
       <Stat
         label="AC coverage"
         value={summary.acs.total > 0 ? `${Math.round((summary.acs.covered / summary.acs.total) * 100)}%` : '—'}
-        sub={`${summary.acs.covered}/${summary.acs.total} tested${coverageAnnotationSuffix({ superseded: summary.acs.superseded, overrides: summary.acs.overrides })}`}
+        sub={`${summary.acs.covered}/${summary.acs.total} tested${coverageAnnotationSuffix({ superseded: summary.acs.superseded, overrides: summary.acs.overrides, reopens: summary.acs.reopens })}`}
       />
     </div>
   );
