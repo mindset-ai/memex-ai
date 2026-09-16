@@ -111,7 +111,50 @@ describe('DeleteTestEventsDialog', () => {
         onClose={onClose}
       />,
     );
+    // spec-566 t-4 made the reason mandatory, so the flow now has a step before
+    // Delete becomes clickable.
+    fireEvent.change(screen.getByTestId('delete-test-events-reason'), {
+      target: { value: 'deleted in the repo when the exporter was rewritten' },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
     expect(onConfirm).toHaveBeenCalledTimes(1);
+    // ...and the reason reaches the caller, trimmed. A dialog that collected it
+    // and dropped it would pass the call-count assertion alone.
+    expect(onConfirm).toHaveBeenCalledWith(
+      'deleted in the repo when the exporter was rewritten',
+    );
+  });
+
+  // ── spec-566 t-4 (ac-5): the reason is REQUIRED ──
+  it('keeps Delete disabled until a reason is given, and trims it [spec-566 ac-5]', () => {
+    tagAc('mindset-prod/memex-building-itself/specs/spec-566/acs/ac-5');
+    const onConfirm = vi.fn(async () => undefined);
+    render(
+      <DeleteTestEventsDialog
+        testIdentifier="t_y"
+        count={1}
+        onConfirm={onConfirm}
+        onClose={vi.fn()}
+      />,
+    );
+    const del = screen.getByRole('button', { name: 'Delete' });
+    expect(del).toBeDisabled();
+
+    // Whitespace is not a reason. The server refuses it too; the point of
+    // disabling here is that discovering that AFTER clicking Delete on an
+    // irreversible action is the wrong place to learn it.
+    fireEvent.change(screen.getByTestId('delete-test-events-reason'), {
+      target: { value: '   ' },
+    });
+    expect(del).toBeDisabled();
+    fireEvent.click(del);
+    expect(onConfirm).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByTestId('delete-test-events-reason'), {
+      target: { value: '  renamed to exporter-v2.test.ts  ' },
+    });
+    expect(del).toBeEnabled();
+    fireEvent.click(del);
+    expect(onConfirm).toHaveBeenCalledWith('renamed to exporter-v2.test.ts');
   });
 });

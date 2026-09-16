@@ -674,8 +674,8 @@ export const toolManifest: ToolManifestEntry[] = [
   {
     name: 'discontinue_test_events',
     summary:
-      'Hard-delete an orphaned test_identifier on an AC (a renamed/deleted test whose stale fail pins the AC red): removes its emissions + summary. Irreversible; a fresh emission re-enters the verdict. Only for identifiers gone from the code.',
-    args: 'discontinue_test_events(ref, test_identifier)',
+      'Hard-delete an orphaned test_identifier on an AC (a renamed/deleted test whose stale fail pins the AC red): removes its emissions + summary, and keeps a durable receipt of who, when, why and the commit. Reason required. Irreversible.',
+    args: 'discontinue_test_events(ref, test_identifier, reason)',
     group: 'build',
     readOnlyHint: false,
     homePhase: null,

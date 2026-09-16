@@ -54,6 +54,12 @@ export interface LifecycleEventInput {
   commitSha?: string | null;
   /** Required when kind === 'test_retired' — the DB CHECK enforces it too. */
   testIdentifier?: string | null;
+  /**
+   * spec-566 t-4 — the canonical AC ref the retired evidence was tagged to, kept
+   * verbatim. `acId` is the join and degrades to NULL when the criterion is
+   * deleted; this is the name, and it does not.
+   */
+  subjectRef?: string | null;
   fromStatus?: string | null;
   toStatus?: string | null;
   actorUserId?: string | null;
@@ -101,6 +107,7 @@ export async function recordLifecycleEvent(
       reason: input.reason.trim(),
       commitSha: input.commitSha ?? null,
       testIdentifier: input.testIdentifier ?? null,
+      subjectRef: input.subjectRef ?? null,
       fromStatus: input.fromStatus ?? null,
       toStatus: input.toStatus ?? null,
       actorUserId: input.actorUserId ?? null,

@@ -4255,6 +4255,12 @@ export const specLifecycleEvents = pgTable(
     reason: text("reason").notNull(),
     commitSha: text("commit_sha"),
     testIdentifier: text("test_identifier"),
+    // spec-566 t-4 (0151) — the canonical AC ref the retired evidence was tagged
+    // to, kept verbatim as `test_events.subject_ref` recorded it. `acId` above is
+    // the JOIN (ON DELETE SET NULL, so a deleted criterion does not erase the
+    // record); this is the NAME, which still reads once that link is gone.
+    // Meaningful only on `kind = 'test_retired'`.
+    subjectRef: text("subject_ref"),
     fromStatus: text("from_status"),
     toStatus: text("to_status"),
     actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),

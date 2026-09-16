@@ -159,14 +159,22 @@ export async function fetchAcTestMatrix(
 }
 
 /**
- * Discontinue every emission for `(acId, testIdentifier)`. Hard-delete; per
- * b-96 dec-14 no audit record is written. Returns the number of rows removed.
+ * Discontinue every emission for `(acId, testIdentifier)`. Hard-delete of the
+ * emissions — but NOT of the act: spec-566 t-4 writes a durable journal row
+ * naming who, when, why, the commit the retired evidence carried, the test
+ * identifier and the subject ref. `reason` is mandatory and is that row's WHY;
+ * the server refuses a blank one rather than inventing a reason of its own.
+ *
+ * (This supersedes b-96 dec-14's "no audit record is written" — that decision
+ * removed a MUTABLE restore switch, and spec-566 dec-3 adds a write-once
+ * receipt, which is the opposite object. The emissions still go.)
  */
 export async function discontinueAcTestEvents(
   acId: string,
   testIdentifier: string,
+  reason: string,
 ): Promise<{ deleted: number }> {
-  const url = `${tBase()}/acs/${acId}/test-events?test_identifier=${encodeURIComponent(testIdentifier)}`;
+  const url = `${tBase()}/acs/${acId}/test-events?test_identifier=${encodeURIComponent(testIdentifier)}&reason=${encodeURIComponent(reason)}`;
   const res = await fetchWithRetry(url, { method: 'DELETE' });
   if (!res.ok)
     throw new Error(`Failed to discontinue test events: ${res.status}`);

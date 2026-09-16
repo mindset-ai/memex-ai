@@ -587,6 +587,12 @@ export const acsTools: ToolSpec[] = [
         "The exact test_identifier to retire (as shown by get_test_matrix), " +
           "e.g. `tests/cache.test.ts::uses redis`.",
       ),
+      reason: z.string().describe(
+        "Why this evidence is being retired — what actually happened to the test " +
+          "(renamed, deleted, moved, superseded by another test). REQUIRED: the " +
+          "emissions are hard-deleted, and this sentence is the only thing left " +
+          "behind. Say what you observed, not that it was 'no longer needed'.",
+      ),
       verbose: VERBOSE_FIELD,
     },
     async handler(input, ctx) {
@@ -605,10 +611,22 @@ export const acsTools: ToolSpec[] = [
       }
       const { memexId, doc, slugs, entity } = resolved;
       const acRef = buildChildRef(slugs, doc, { type: "acs", seq: entity.row.seq });
+      const reason = input.reason as string;
+      if (!reason?.trim()) {
+        throw new ValidationError(
+          "reason is required — a retirement hard-deletes evidence and the record of why is all that survives it.",
+        );
+      }
       const result = await discontinueTestEventsForAc(
         memexId,
         entity.row.id,
         testIdentifier,
+        reason,
+        // spec-566 t-4: thread the invoking surface so the retirement is attributed
+        // to the actor (mcp vs in_app_agent) rather than defaulting to channel
+        // 'server' — "who retired this evidence" is exactly the question the
+        // activity contract exists to answer [per std-32].
+        reqCtx(ctx),
       );
       const state = await verificationStateForAc(memexId, doc.id, entity.row.id);
       if (result.deleted === 0) {

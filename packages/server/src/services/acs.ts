@@ -39,6 +39,7 @@ import type { InferSelectModel } from "drizzle-orm";
 import { ConflictError, NotFoundError, ValidationError } from "../types/errors.js";
 import { mutate, type Mutated, type RequestCtx } from "./mutate.js";
 import { resolveActorColumns } from "./actor.js";
+import { recordLifecycleEvent } from "./lifecycle-journal.js";
 import { removeSummaryForPair } from "./test-event-latest.js";
 import { nextSeq, withSeqRetry } from "./shared/sequence.js";
 
@@ -1163,13 +1164,36 @@ export async function discontinueTestEventsForAc(
   memexId: string,
   acId: string,
   testIdentifier: string,
+  // spec-566 t-4 (ac-5). Mandatory, and supplied by the ACTOR — the server does
+  // not invent one [spec-127 dec-1]. Before this, the only trace a retirement
+  // left was an `activity_log` row reading "ac updated": no identifier, no
+  // reason, no commit, deleted after PULSE_RETENTION_DAYS, and written
+  // best-effort by a function that swallows its own failures. Unnamed, expiring,
+  // best-effort — which is a narrower gap than "nothing is recorded", and still
+  // not a record.
+  reason: string,
+  ctx: RequestCtx = {},
 ): Promise<Mutated<{ deleted: number }>> {
+  // Validation HOISTED above the write it protects [per std-53] — a guarded
+  // validation is an accepted invalid input, and here that would mean evidence
+  // deleted with the refusal arriving afterwards.
+  if (!reason?.trim()) {
+    throw new ValidationError(
+      "A retirement needs a stated reason — it hard-deletes evidence, and the record of why is the only thing left behind. Say what happened to the test (renamed, deleted, moved) so the next reader does not have to guess.",
+    );
+  }
+
   const ac = await getAc(memexId, acId); // tenancy check; 404 via NotFoundError
   const slugs = await resolveBriefSlugsForRef(ac.briefId);
   const subjectRef = buildAcRef(slugs, ac.seq);
 
+  // Resolved before the transaction opens (an indexed users lookup), so the tx
+  // carries no extra round trip — the idiom standard-accept.ts uses. This is what
+  // makes the retirement attributable: WHO retired it and HOW [per std-32].
+  const actor = await resolveActorColumns(ctx);
+
   return mutate(
-    {},
+    ctx,
     { memexId, docId: ac.briefId, entity: "ac", action: "updated" },
     // spec-162 dec-1 / ac-7: hard-delete the log rows AND drop the summary row
     // for this pair in one transaction, so a discontinued test disappears from
@@ -1184,8 +1208,41 @@ export async function discontinueTestEventsForAc(
               eq(testEvents.testIdentifier, testIdentifier),
             ),
           )
-          .returning({ id: testEvents.id });
+          // spec-566 t-4: take the commit back out of the rows on their way out.
+          // ac-5 asks the tombstone to say "against which commit", and the only
+          // honest answer is the commit the retired EVIDENCE carried (spec-528
+          // made it a column) — the server has no idea what the retirer's HEAD is,
+          // and claiming it would be fiction.
+          .returning({ id: testEvents.id, commitSha: testEvents.commitSha, createdAt: testEvents.createdAt });
         await removeSummaryForPair(tx, subjectRef, testIdentifier);
+
+        // The receipt, written through the CALLER's transaction so it and the
+        // deletion commit together (t-1 ac-16). If this throws, the delete above
+        // rolls back and the evidence is still there — the property that separates
+        // this journal from `persistEvent`, which swallows its failures by design.
+        //
+        // spec-358 dec-1 is untouched: the rows still go. What survives is the ACT.
+        const newest = rows.reduce<{ commitSha: string | null; createdAt: Date } | null>(
+          (acc, r) => (acc === null || r.createdAt > acc.createdAt ? r : acc),
+          null,
+        );
+        await recordLifecycleEvent(
+          {
+            memexId,
+            briefId: ac.briefId,
+            acId: ac.id,
+            kind: "test_retired",
+            reason: reason.trim(),
+            testIdentifier,
+            subjectRef,
+            commitSha: newest?.commitSha ?? null,
+            actorUserId: actor.actorUserId ?? null,
+            actorName: actor.actorName ?? null,
+            channel: ctx.channel ?? "server",
+          },
+          tx,
+        );
+
         return { deleted: rows.length };
       });
     },

@@ -38,9 +38,9 @@ export function DeleteTestEventsButton({
 
   if (!canDelete) return null;
 
-  const handleConfirm = async (): Promise<void> => {
+  const handleConfirm = async (reason: string): Promise<void> => {
     try {
-      await discontinueAcTestEvents(acId, testIdentifier);
+      await discontinueAcTestEvents(acId, testIdentifier, reason);
       setError(null);
       setOpen(false);
       await onDeleted();

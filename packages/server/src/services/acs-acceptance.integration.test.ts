@@ -203,7 +203,7 @@ describe("manual verification acceptance (spec-188)", () => {
     await emitEvent(ref, "fail", new Date(), testIdentifier);
     expect((await stateOf(spec.id, ac.id)).verificationState).toBe("failing");
 
-    await discontinueTestEventsForAc(memexId, ac.id, testIdentifier);
+    await discontinueTestEventsForAc(memexId, ac.id, testIdentifier, "renamed away in the repo");
     expect((await stateOf(spec.id, ac.id)).verificationState).toBe("accepted");
   });
 

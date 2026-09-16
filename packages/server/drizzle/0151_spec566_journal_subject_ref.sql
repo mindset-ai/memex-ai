@@ -1,0 +1,36 @@
+-- spec-566 t-4 (ac-5) — the retirement tombstone keeps naming its subject after
+-- the subject is gone.
+--
+-- 0149 gave the journal `ac_id`, an FK with ON DELETE SET NULL: deleting a Spec or
+-- a criterion must not erase the record of what was removed from it. That is right
+-- for the LINK, and it is exactly why the link cannot also be the NAME. Delete the
+-- criterion and a `test_retired` row keeps its reason, its actor and its test
+-- identifier, but can no longer say what the retired evidence was tagged to — a
+-- tombstone with the name worn off.
+--
+-- `subject_ref` is the canonical AC ref (`<ns>/<mx>/specs/spec-N/acs/ac-N`) as
+-- `test_events.subject_ref` recorded it: the same string the emission carried, kept
+-- verbatim. It is the durable half of the pair — `ac_id` joins while the criterion
+-- lives, `subject_ref` still reads when it does not.
+--
+-- ⚠ NOT a payload bag by the back door [std-32]. This is one named column holding
+-- one load-bearing value: "what was this evidence attached to" is the first thing
+-- any reader of a retirement asks, and ac-5 names it in the tombstone's contents.
+--
+-- NULLABLE, because it is only meaningful on `kind = 'test_retired'`. The other
+-- three kinds (ac_status_changed, gate_overridden, spec_reopened) are acts on a
+-- Spec or a criterion, not on an emission subject, and a column forced onto rows
+-- with nothing true to put in it invites a placeholder.
+--
+-- STD-39 — LOCK PROFILE. ADD COLUMN, nullable, no default: a catalog-only change
+-- with no table rewrite (PG 11+), holding ACCESS EXCLUSIVE on
+-- `spec_lifecycle_events` for the duration of the catalog write. That table is
+-- new in 0149 and carries no production rows yet, so even the strong lock blocks
+-- nothing. No index: nothing filters by subject_ref — the retirement trace reads
+-- by `memex_id`/`brief_id`, which 0149 already indexed, and this column is read off
+-- rows that query already returned.
+--
+-- No backfill is possible or needed: every existing row predates the first writer.
+
+ALTER TABLE "spec_lifecycle_events"
+  ADD COLUMN IF NOT EXISTS "subject_ref" text;

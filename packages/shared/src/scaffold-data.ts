@@ -1228,7 +1228,7 @@ const TOOL_RATIONALES: Record<string, string> = {
   get_test_matrix:
     "Read an AC's per-test_identifier test-event digest by ref — latest status, emission count, and PINNING (holds the AC red) / retired (hidden) flags. The way to find which identifier is responsible for a failing/stale AC.",
   discontinue_test_events:
-    'Hard-delete an orphaned test_identifier on an AC — a renamed/deleted test whose stale fail still pins the AC red: removes the emissions and clears their summary. Irreversible; a fresh live emission re-enters the verdict. Only for identifiers truly gone from the codebase, never one merely not run this round.',
+    'Hard-delete an orphaned test_identifier on an AC — a renamed/deleted test whose stale fail still pins the AC red: removes the emissions and clears their summary. Takes a REQUIRED reason, which spec-566 keeps in a durable receipt alongside who retired it and the commit the deleted evidence ran against — the emissions go, the act does not. Irreversible; a fresh live emission re-enters the verdict. Only for identifiers truly gone from the codebase, never one merely not run this round.',
   update_ac:
     'Update an AC statement. Only the statement is mutable here; kind is fixed at creation; status transitions go through accept/reject_ac when those exist.',
   delete_ac:
