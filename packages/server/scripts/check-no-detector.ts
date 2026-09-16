@@ -18,7 +18,6 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import {
   GATE_MODULE,
-  DECLARED_IMPORTS,
   formatDetectorFailure,
   scanGateForDetectors,
   scanGateForUndeclaredImports,

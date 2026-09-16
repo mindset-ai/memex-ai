@@ -31,7 +31,7 @@
 // renders in neutral app tokens — claiming a reserved hue would assert a
 // meaning that belongs to something else.
 
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { tagAc } from '@memex-ai-ac/vitest';

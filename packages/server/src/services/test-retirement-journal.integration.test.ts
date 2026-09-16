@@ -25,7 +25,6 @@ import { and, eq, inArray } from "drizzle-orm";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { db } from "../db/connection.js";
 import {
-  acs,
   documents,
   memexes,
   namespaces,

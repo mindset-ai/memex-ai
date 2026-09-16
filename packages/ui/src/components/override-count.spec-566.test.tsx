@@ -22,7 +22,7 @@
 // the one that would silently render 0 for ever if the plumbing broke, because
 // its default is 0 and nothing would look wrong.
 
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { tagAc } from '@memex-ai-ac/vitest';
