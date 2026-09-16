@@ -292,3 +292,21 @@ export async function seedClauses(opts: {
 }): Promise<{ clauseIds: string[] }> {
   return call("POST", "/seed-clauses", opts);
 }
+
+/**
+ * spec-566 t-11: seed an AC supersession proposal through the real verb.
+ *
+ * The web offers no control to propose one — it is MCP-only by design (dec-1),
+ * which is what makes the human accept a deliberate act rather than a click — so
+ * a journey asserting the /drift row, the done-gate refusal or the override has
+ * to have the state seeded.
+ */
+export async function seedAcProposal(opts: {
+  memexId: string;
+  acId: string;
+  decisionId: string;
+  proposedStatement?: string;
+  rationale?: string;
+}): Promise<{ commentId: string; commentSeq: number }> {
+  return call("POST", "/seed-ac-proposal", opts);
+}
