@@ -711,7 +711,18 @@ export interface SpecLifecycleSummary {
   ageDays: number;
   timeInCurrentPhaseDays: number;
   tasks: { total: number; complete: number };
-  acs: { total: number; verified: number; failing: number; covered: number };
+  /**
+   * `total` is the LIVE set — `specAcVerification` has always filtered to
+   * `status = 'active'`, so the strip's percentages already exclude superseded
+   * criteria (spec-566 ac-13's arithmetic half was true here before the Spec).
+   * `superseded` is the count that rides beside them (ac-11).
+   *
+   * ⚠ `covered` here is `verified + failing`, NOT "has at least one tagged
+   * test" as it is on every other coverage surface. That divergence predates
+   * spec-566 and is left standing rather than changed under a rendering task —
+   * see spec-566 issue-2.
+   */
+  acs: { total: number; verified: number; failing: number; covered: number; superseded: number };
 }
 
 /** The lifecycle summary strip: created/phase/age/time-in-phase, task progress, AC health (dec-5). */
@@ -730,6 +741,16 @@ export async function specLifecycleSummary(memexId: string, docId: string): Prom
 
   const verification = await specAcVerification(memexId, docId);
 
+  // spec-566 dec-2 — the retired criteria, counted beside the maths. Its own
+  // count rather than a field on AcVerificationSummary: that type is shared with
+  // the workspace-wide donut (`acVerification`), which has no Spec to scope a
+  // supersession tally to. One extra COUNT on an analytics endpoint that already
+  // issues three [std-39].
+  const [supersededRow] = (await db.execute(sql`
+    SELECT count(*)::int AS n
+    FROM acs WHERE memex_id = ${memexId} AND brief_id = ${docId} AND status = 'superseded'
+  `)) as unknown as Array<{ n: number }>;
+
   const now = Date.now();
   return {
     createdAt: new Date(doc.createdAt).toISOString(),
@@ -742,6 +763,7 @@ export async function specLifecycleSummary(memexId: string, docId: string): Prom
       verified: verification.verified,
       failing: verification.failing,
       covered: verification.verified + verification.failing,
+      superseded: supersededRow?.n ?? 0,
     },
   };
 }
@@ -805,6 +827,33 @@ export async function specAcVerification(memexId: string, docId: string): Promis
   const prefix = await specAcUidPrefix(memexId, docId);
   if (!prefix) return { total, verified: 0, failing: 0, untested: total };
 
+  // spec-566 — EXCLUDE the retired criteria's evidence from the rollup.
+  //
+  // `total` counts ACs (active only); the rollup counts subject_refs under the
+  // Spec's prefix. Those two populations agreed right up until a criterion could
+  // be superseded, because supersession deliberately does NOT delete its test
+  // events (dec-3 / ac-5 — the evidence is the record). Without this the
+  // eleventh criterion kept reporting `verified` against a denominator of ten,
+  // and the Stats strip rendered 110%.
+  //
+  // Cost [std-39]: one extra query returning the seqs of the Spec's superseded
+  // ACs — almost always zero rows, in which case the SQL below is byte-identical
+  // to what it was, with no added bind parameters. `NOT IN` over a handful of
+  // literal refs is the right shape here, unlike the 3,745-ref `IN` spec-520
+  // removed from the tenant-wide read: this list is per-Spec and tiny.
+  const supersededSeqs = (await db.execute(sql`
+    SELECT seq FROM acs
+    WHERE memex_id = ${memexId} AND brief_id = ${docId} AND status = 'superseded'
+  `)) as unknown as Array<{ seq: number }>;
+  const retiredRefs = supersededSeqs.map((r) => `${prefix}ac-${r.seq}`);
+  const excludeRetired =
+    retiredRefs.length > 0
+      ? sql`AND subject_ref NOT IN (${sql.join(
+          retiredRefs.map((r) => sql`${r}`),
+          sql`, `,
+        )})`
+      : sql``;
+
   const [rollup] = (await db.execute(sql`
     SELECT
       count(*) FILTER (WHERE has_fail)::int AS failing,
@@ -815,7 +864,7 @@ export async function specAcVerification(memexId: string, docId: string): Promis
         bool_or(latest_status IN ('fail', 'error')) AS has_fail,
         bool_or(latest_status = 'pass') AS has_pass
       FROM test_event_latest
-      WHERE subject_ref LIKE ${prefix + "%"}
+      WHERE subject_ref LIKE ${prefix + "%"} ${excludeRetired}
       GROUP BY subject_ref
     ) per_ac
   `)) as unknown as Array<{ failing: number; verified: number }>;

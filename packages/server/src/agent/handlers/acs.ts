@@ -6,6 +6,9 @@
 import {
   z,
 } from "zod";
+// spec-566 dec-2 — the live-set rule, shared with the coverage helper itself so
+// the headline and the breakdown below it can never count different rows.
+import { isLiveAcStatus } from "@memex/shared";
 import {
   buildChildRef,
 } from "../../mcp/refs.js";
@@ -347,13 +350,23 @@ export const acsTools: ToolSpec[] = [
       // headline through the shared `formatAcCoverageSummary` so it leads with
       // the not-verified gap (and the filter-hiding warning) instead of a
       // self-flattering "verified (of covered)" trophy.
-      const covered = rows.filter((r) => r.tests.length > 0).length;
-      const untested = rows.length - covered;
-      const verified = rows.filter((r) => r.verificationState === "verified").length;
-      const failing = rows.filter((r) => r.verificationState === "failing").length;
-      const stale = rows.filter((r) => r.verificationState === "stale").length;
+      // spec-566 dec-2 — the breakdown counts the SAME population the headline
+      // does, or the superseded criterion the headline just excluded reappears
+      // one line down as an UNTESTED gap, and the response contradicts itself
+      // inside a single payload (ac-13).
+      const live = rows.filter((r) => isLiveAcStatus(r.ac.status));
+      const covered = live.filter((r) => r.tests.length > 0).length;
+      const untested = live.length - covered;
+      const verified = live.filter((r) => r.verificationState === "verified").length;
+      const failing = live.filter((r) => r.verificationState === "failing").length;
+      const stale = live.filter((r) => r.verificationState === "stale").length;
 
-      const summary = formatAcCoverageSummary(rows, { hiddenByFilter });
+      // spec-566 dec-2 — the superseded tally is counted over `allRows`, never
+      // over the filtered set. `list_acs({ status: 'active' })` is the query an
+      // agent runs to ask "is this Spec done?", and it is precisely the one that
+      // would otherwise show a clean 100% with the retirement nowhere in sight.
+      const supersededTotal = allRows.filter((r) => r.ac.status === "superseded").length;
+      const summary = formatAcCoverageSummary(rows, { hiddenByFilter, supersededTotal });
       // Full state distribution stays below the headline as a breakdown.
       const breakdown: string[] = [];
       if (verified > 0) breakdown.push(`${verified} verified`);

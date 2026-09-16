@@ -1377,6 +1377,11 @@ export interface AcHealth {
    *  toward the verified percentage in UI metrics but is tallied separately
    *  so surfaces can keep the human-vs-test distinction visible. */
   accepted: number;
+  /** spec-566 dec-2 — criteria retired by an accepted supersession. NOT part of
+   *  `totalActive` and never in any percentage: the maths stays about the live
+   *  set, and this rides beside it so a Spec cannot reach 100% by retiring what
+   *  it could not satisfy. Zero for every Spec that has never superseded one. */
+  superseded: number;
 }
 
 const EMPTY_HEALTH: AcHealth = {
@@ -1387,6 +1392,7 @@ const EMPTY_HEALTH: AcHealth = {
   stale: 0,
   untested: 0,
   accepted: 0,
+  superseded: 0,
 };
 
 export async function aggregateAcHealthForBriefs(
@@ -1400,6 +1406,34 @@ export async function aggregateAcHealthForBriefs(
   // can compare against this constant.
   for (const id of briefIds) result.set(id, { ...EMPTY_HEALTH });
   if (briefIds.length === 0) return result;
+
+  // Q0 — spec-566 dec-2: the superseded tally, counted BESIDE the maths.
+  //
+  // A separate aggregate rather than a widened Q1 filter, deliberately. Q1's
+  // rows become canonical AC refs that drive the test_event_latest join; letting
+  // a superseded AC into that set would put its retired evidence back into
+  // `covered` / `verified`, which is the exact arithmetic dec-2 rejects. This
+  // asks a narrower question and cannot contaminate the answer to the other one.
+  //
+  // Cost [std-39]: one extra round-trip per listDocs page, a COUNT over the same
+  // (memex_id, brief_id) slice Q1 already reads, returning at most one row per
+  // Spec on the page. It runs BEFORE Q1's early return so a Spec whose criteria
+  // were ALL superseded still reports its count instead of looking untouched.
+  const supersededRows = await db
+    .select({ briefId: acs.briefId, n: sql<number>`count(*)::int` })
+    .from(acs)
+    .where(
+      and(
+        eq(acs.memexId, memexId),
+        eq(acs.status, "superseded"),
+        inArray(acs.briefId, briefIds as string[]),
+      ),
+    )
+    .groupBy(acs.briefId);
+  for (const row of supersededRows) {
+    const entry = result.get(row.briefId);
+    if (entry) entry.superseded = row.n;
+  }
 
   // Q1 — active ACs + their canonical-ref slug components in one join.
   // Tenancy is double-locked (memexId on acs AND briefId in the set) so

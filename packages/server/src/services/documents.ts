@@ -760,7 +760,12 @@ export async function listDocs(
         // and renders the card with no border/chip/strip in both cases; keeping
         // the wire shape sparse means the same response works for legacy
         // clients that don't know about acHealth at all.
-        if (h && h.totalActive > 0) s.acHealth = h;
+        // spec-566 dec-2: `|| h.superseded > 0`. Absence still means "no
+        // commitments yet" (b-66 Scope AC-4), but a Spec that RETIRED all of
+        // its criteria is not a Spec that never wrote any — and omitting the
+        // payload made those two read identically on every card. That is the
+        // unfalsifiable badge this Spec exists to kill, in its purest form.
+        if (h && (h.totalActive > 0 || h.superseded > 0)) s.acHealth = h;
       }
     }
   }

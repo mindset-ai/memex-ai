@@ -1,5 +1,7 @@
 import type { DocSummary } from '../../api/types';
 import { Badge } from '../ui';
+// spec-566 dec-2 — one rendering decision for the superseded count.
+import { supersededCountLabel } from '@memex/shared';
 
 /**
  * spec-529 t-5 — the card behind a reference pill.
@@ -32,6 +34,8 @@ function daysSince(iso: string): number | null {
 export function SpecRefCard({ id, doc }: { id: string; doc: DocSummary }) {
   const progress = doc.taskProgress;
   const health = doc.acHealth;
+  // spec-566 dec-2 — the retired count, beside the percentage and outside it.
+  const supersededLabel = supersededCountLabel(health?.superseded ?? 0);
   const inPhase = daysSince(doc.statusChangedAt);
 
   return (
@@ -93,6 +97,15 @@ export function SpecRefCard({ id, doc }: { id: string; doc: DocSummary }) {
             {/* Untested is reported as what it is — nothing has been asserted yet
                 — never folded in with failures. */}
             {health.untested > 0 && `, ${health.untested} untested`}
+            {/* spec-566 ac-11 — outside the percentage, named beside it. */}
+            {supersededLabel && `, ${supersededLabel}`}
+          </span>
+        ) : supersededLabel ? (
+          // No live criteria, but some were retired. "No acceptance criteria
+          // yet" here would be false: there WERE criteria, and they were
+          // superseded — which is the whole thing this Spec makes visible.
+          <span data-testid="spec-ref-acs">
+            No live acceptance criteria — {supersededLabel}
           </span>
         ) : (
           <span data-testid="spec-ref-acs">No acceptance criteria yet</span>

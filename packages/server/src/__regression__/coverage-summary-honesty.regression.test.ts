@@ -160,17 +160,37 @@ describe("ac-4 — single shared helper consumed by both call sites", () => {
     expect(TOOL_SPECS_SRC).toMatch(/export function formatAcCoverageSummary\(/);
   });
 
-  it("formatCoverageHeader routes its headline through the helper", () => {
+  // spec-566 dec-2 moved the POPULATION rule inside the helper: it is handed
+  // every row and filters to `active` itself, so superseded criteria can leave
+  // the maths and be counted beside it in one place. This assertion used to pin
+  // `formatAcCoverageSummary(active)` — the pre-filter at the call site. That
+  // pre-filter WAS the drift spec-207 ac-4 exists to prevent: the get_doc header
+  // passed an active-only set while the list_acs handler passed the unfiltered
+  // one, so the two renderers agreed on the wording and disagreed on the number.
+  // Pinning the unfiltered hand-off is the stronger form of the same claim.
+  it("formatCoverageHeader routes its headline through the helper, unfiltered", () => {
     tagAc(acRef(4));
     expect(TOOL_SPECS_SRC).toMatch(
-      /\*\*AC coverage:\*\* \$\{formatAcCoverageSummary\(active\)\}/,
+      /\*\*AC coverage:\*\* \$\{formatAcCoverageSummary\(rows\)\}/,
     );
   });
 
+  it("neither call site pre-filters the rows it hands the helper", () => {
+    tagAc(acRef(4));
+    // The exact shape the divergence took. Its absence is what makes "one
+    // helper" a claim about the number, not just the sentence.
+    expect(TOOL_SPECS_SRC).not.toMatch(/formatAcCoverageSummary\(active\)/);
+  });
+
+  // spec-566 added a second option (`supersededTotal`), so the pin allows further
+  // keys after `hiddenByFilter` rather than pinning the brace list byte-for-byte.
+  // The claim spec-207 ac-4 makes is "this call site routes through the helper AND
+  // passes the filter delta" — both are still asserted; what is no longer asserted
+  // is that nobody may ever add an option, which was never the claim.
   it("the list_acs handler routes its headline through the helper, with the filter delta", () => {
     tagAc(acRef(4));
     expect(TOOL_SPECS_SRC).toMatch(
-      /formatAcCoverageSummary\(rows,\s*\{\s*hiddenByFilter\s*\}\)/,
+      /formatAcCoverageSummary\(rows,\s*\{\s*hiddenByFilter\b[^}]*\}\)/,
     );
   });
 

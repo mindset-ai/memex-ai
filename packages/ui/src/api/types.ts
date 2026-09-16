@@ -200,6 +200,13 @@ export interface AcHealth {
   failing: number;
   stale: number;
   untested: number;
+  /** spec-188 dec-1 — manually accepted. Already sent by the server; the type
+   *  had simply never named it. Pure type correction, no runtime change. */
+  accepted: number;
+  /** spec-566 dec-2 — criteria retired by an accepted supersession. Outside
+   *  `totalActive` and outside every percentage; every surface that renders a
+   *  coverage figure renders this beside it (ac-11). */
+  superseded: number;
 }
 
 export interface Doc {

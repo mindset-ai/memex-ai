@@ -5,6 +5,8 @@
 
 import type { SpecLifecycleSummary } from '../../api/insights';
 import { phaseLabel, shortDate, useChartPalette } from './theme';
+// spec-566 dec-2 — one rendering decision for the superseded count.
+import { supersededSuffix } from '@memex/shared';
 
 interface Props {
   summary: SpecLifecycleSummary;
@@ -47,15 +49,19 @@ export function SpecSummaryStrip({ summary }: Props) {
         value={`${taskPct}%`}
         sub={`${summary.tasks.complete}/${summary.tasks.total} complete`}
       />
+      {/* spec-566 ac-11/ac-13 — `summary.acs.total` is already the LIVE set (the
+          server filters to status = 'active'), so the percentages were right;
+          what was missing is that the retirement left no trace on the strip.
+          The count rides in the sub-line of both AC stats, outside the maths. */}
       <Stat
         label="ACs verified"
         value={`${acPct}%`}
-        sub={`${summary.acs.verified}/${summary.acs.total} verified`}
+        sub={`${summary.acs.verified}/${summary.acs.total} verified${supersededSuffix(summary.acs.superseded)}`}
       />
       <Stat
         label="AC coverage"
         value={summary.acs.total > 0 ? `${Math.round((summary.acs.covered / summary.acs.total) * 100)}%` : '—'}
-        sub={`${summary.acs.covered}/${summary.acs.total} tested`}
+        sub={`${summary.acs.covered}/${summary.acs.total} tested${supersededSuffix(summary.acs.superseded)}`}
       />
     </div>
   );

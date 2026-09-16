@@ -231,6 +231,11 @@ describe("spec-520 ac-10: the AC-health payload, pinned bucket by bucket", () =>
       stale: 1, // seq 3
       untested: 1, // seq 4
       accepted: 1, // seq 5 — presents over its own stale passing test
+      // spec-566 dec-2: the retired seq 7 stays invisible to every counter
+      // above AND is reported here. "Excluded from the maths" and "silently
+      // dropped" produce identical numbers everywhere else on this object;
+      // this field is the only place they differ.
+      superseded: 1,
     });
   });
 
@@ -248,6 +253,8 @@ describe("spec-520 ac-10: the AC-health payload, pinned bucket by bucket", () =>
       stale: 0,
       untested: 0,
       accepted: 0,
+      // spec-566 dec-2: the retired-criteria tally, 0 for this fixture.
+      superseded: 0,
     });
   });
 
@@ -276,6 +283,8 @@ describe("spec-520 ac-10: tenancy — the parity risk t-4 actually introduces", 
       stale: 0,
       untested: 0,
       accepted: 0,
+      // spec-566 dec-2: the retired-criteria tally, 0 for this fixture.
+      superseded: 0,
     });
     // …and asking as the OTHER tenant must not surface this one's Spec either.
     const reverse = await aggregateAcHealthForBriefs(otherMemexId, [richDocId, otherDocId]);

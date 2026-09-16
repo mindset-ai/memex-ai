@@ -191,3 +191,7 @@ export { timeAgo } from './relative-time.js';
 export { docTypePath } from './doc-type-path.js';
 // spec-259 dec-4: conservative display-name capitalization, render-layer only.
 export { capitalizeDisplayName } from './display-name.js';
+// spec-566 dec-2: the superseded count's wording + the live-set rule, shared by
+// the MCP coverage header and all eight React coverage surfaces so "one
+// rendering decision" is one function rather than nine that agree today.
+export { isLiveAcStatus, supersededCountLabel, supersededSuffix } from './ac-coverage.js';

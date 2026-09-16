@@ -7,9 +7,29 @@
 // No bar at all = the spec has no ACs.
 
 import type { AcHealth } from '../../api/types';
+// spec-566 dec-2 — one rendering decision for the superseded count.
+import { supersededCountLabel } from '@memex/shared';
 
 export function AcCells({ health }: { health: AcHealth | undefined }) {
-  if (!health || health.totalActive === 0) return null;
+  // spec-566 ac-11 — this is the component that renders HotSpecs' number
+  // (`{passing}/{totalActive}`), so the count lands here rather than in
+  // HotSpecs itself, which only passes `health` down.
+  const supersededLabel = supersededCountLabel(health?.superseded ?? 0);
+  if (!health || health.totalActive === 0) {
+    // No live criteria, but some were retired: say so instead of rendering
+    // nothing, which would read as a Spec that never committed to anything.
+    if (!supersededLabel) return null;
+    return (
+      <div className="flex items-center gap-2" data-testid="ac-cells">
+        <span
+          data-testid="ac-cells-superseded"
+          className="shrink-0 font-mono text-[10px] tabular-nums text-muted"
+        >
+          {supersededLabel}
+        </span>
+      </div>
+    );
+  }
   const { totalActive, verified, failing, stale } = health;
   const passing = verified + stale; // stale tests did pass, just aged → green
   const untested = Math.max(0, totalActive - passing - failing);
@@ -21,7 +41,7 @@ export function AcCells({ health }: { health: AcHealth | undefined }) {
       <div
         className="flex flex-1 h-2 rounded-xs overflow-hidden"
         role="img"
-        aria-label={`${passing} of ${totalActive} acceptance criteria passing${failing ? `, ${failing} failing` : ''}${untested ? `, ${untested} untested` : ''}`}
+        aria-label={`${passing} of ${totalActive} acceptance criteria passing${failing ? `, ${failing} failing` : ''}${untested ? `, ${untested} untested` : ''}${supersededLabel ? `, ${supersededLabel}` : ''}`}
       >
         {passing > 0 && <span data-cell="verified" className="h-full bg-green-500" style={{ width: pct(passing) }} />}
         {failing > 0 && <span data-cell="failing" className="h-full bg-rose-500" style={{ width: pct(failing) }} />}
@@ -29,6 +49,9 @@ export function AcCells({ health }: { health: AcHealth | undefined }) {
       </div>
       <span className="shrink-0 font-mono text-[10px] tabular-nums text-muted">
         {passing}/{totalActive}
+        {supersededLabel && (
+          <span data-testid="ac-cells-superseded"> · {supersededLabel}</span>
+        )}
       </span>
     </div>
   );

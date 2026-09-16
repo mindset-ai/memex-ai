@@ -31,7 +31,8 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import { MarkdownText } from './chat/MarkdownText';
-import { isQaReportSectionType } from '@memex/shared';
+// spec-566 dec-2 — one rendering decision for the superseded count.
+import { isQaReportSectionType, isLiveAcStatus, supersededCountLabel } from '@memex/shared';
 import type { Decision, Task, Issue, DocWithGraph } from '../api/types';
 import type { AcWithVerification, DocAssigneeView } from '../api/client';
 import { Button, Card } from './ui';
@@ -169,8 +170,17 @@ export function DoneSummary({
   const tasksKicked = tasks.length - tasksCompleted;
 
   // ── Acceptance: verified of total active ACs.
-  const acsTotal = acs.length;
-  const acsVerified = acs.filter((a) => a.verificationState === 'verified').length;
+  // spec-566 dec-2 — the retrospective counts the LIVE set and names the
+  // retired ones. This is the surface where an unfalsifiable badge does the most
+  // damage: the Done screen is the record a reader trusts, and dec-9 freezes it.
+  // "11 ACs · 10 verified" for a Spec that superseded the eleventh is exactly
+  // the sentence this Spec exists to make impossible.
+  const liveAcs = acs.filter((a) => isLiveAcStatus(a.ac.status));
+  const acsTotal = liveAcs.length;
+  const acsVerified = liveAcs.filter((a) => a.verificationState === 'verified').length;
+  const acsSupersededLabel = supersededCountLabel(
+    acs.filter((a) => a.ac.status === 'superseded').length,
+  );
 
   // ── Issues: raised (all) vs resolved-or-converted (wound down).
   const issuesRaised = issues.length;
@@ -236,6 +246,11 @@ export function DoneSummary({
 
         <ReportRow label="Acceptance">
           {acsTotal} AC{acsTotal === 1 ? '' : 's'} · {acsVerified} verified
+          {acsSupersededLabel && (
+            <span data-testid="done-superseded-count" className="text-muted">
+              {' '}· {acsSupersededLabel}
+            </span>
+          )}
         </ReportRow>
 
         <ReportRow label="Issues">
