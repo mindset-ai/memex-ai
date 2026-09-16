@@ -846,6 +846,9 @@ describe("audit: b-36 D-8 — every terse mutation/list response emits `ref:` an
   let acSeqForSupersede: number;
   let acceptSupersessionRef: string;
   let rejectSupersessionRef: string;
+  /** spec-566 t-7: the override probe needs a Spec that is actually BLOCKED, on
+   *  its own doc so it cannot depend on which sibling probes have run. */
+  let overrideGateDocHandle: string;
   // Issues (spec-112): one each for get/update/resolve probes.
   let issueSeqForGet: number;
   let issueSeqForUpdate: number;
@@ -999,6 +1002,33 @@ describe("audit: b-36 D-8 — every terse mutation/list response emits `ref:` an
       if (seq === 6) acceptSupersessionRef = ref;
       else rejectSupersessionRef = ref;
     }
+
+    // spec-566 t-7: `override_done_gate` REFUSES when nothing is blocked, so the
+    // probe needs a Spec holding an unaccepted proposal — on its own doc,
+    // because the proposals above are consumed by the accept/reject probes.
+    const gateDoc = await createDocDraft(memexId, "Gate override audit", "p", "spec");
+    cleanup.docs.push(gateDoc.id);
+    overrideGateDocHandle = gateDoc.handle;
+    const [gateAc] = await db
+      .insert(acs)
+      .values({
+        memexId,
+        briefId: gateDoc.id,
+        seq: 1,
+        kind: "implementation",
+        statement: "probe override done gate",
+      } as never)
+      .returning();
+    const [gateDec] = await db
+      .insert(decisions)
+      .values({ memexId, docId: gateDoc.id, seq: 1, title: "Gate audit decision" } as never)
+      .returning();
+    await proposeAcSupersession({
+      memexId,
+      acId: gateAc.id,
+      decisionId: gateDec.id,
+      rationale: "probe gate rationale",
+    });
 
     // Three Issues on the build Spec for the get/update/resolve probes
     // (spec-112). createIssue mints `issue-N` independent of the ac/task/etc. seq
@@ -1440,6 +1470,15 @@ describe("audit: b-36 D-8 — every terse mutation/list response emits `ref:` an
       ],
       ["accept_ac_supersession", { input: () => ({ ref: acceptSupersessionRef }) }],
       ["reject_ac_supersession", { input: () => ({ ref: rejectSupersessionRef }) }],
+      [
+        "override_done_gate",
+        {
+          input: () => ({
+            ref: `${slugs.namespace}/${slugs.memex}/specs/${overrideGateDocHandle}`,
+            reason: "probe override reason",
+          }),
+        },
+      ],
     ]);
   }
 

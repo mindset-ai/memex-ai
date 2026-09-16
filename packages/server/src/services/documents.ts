@@ -5,6 +5,8 @@ import type { Doc, DocSection, Decision } from "../db/schema.js";
 import type { DocSummary, TaskProgress, LastActivity } from "../types/index.js";
 import { NotFoundError, ValidationError } from "../types/errors.js";
 import { mutate, type ChangeKey, type Mutated, type RequestCtx } from "./mutate.js";
+// spec-566 t-7 (dec-10) — the done-gate refuses at this seam.
+import { assertDoneGateClear } from "./done-gate.js";
 import { resolveActorColumns } from "./actor.js";
 import { ARCHIVE_REASON_MAX_LENGTH } from "./archived-docs.js";
 import { isUuid } from "./shared/identifiers.js";
@@ -1477,6 +1479,28 @@ export async function updateDocStatus(
   // `POST /:id/status`) funnels through here, and spec-258 guarantees an editor
   // always has a web-UI path forward. assess_spec still surfaces the same
   // untested/failing-AC and naked-decision conditions as advisory nudges.
+
+  // spec-566 t-7 (dec-7 option C, dec-10 option A) — THE DONE-GATE.
+  //
+  // This is a deliberate, decided exception to the paragraph above, not drift.
+  // dec-10 read spec-391's revert, spec-12 dec-3 and spec-258 dec-5 and chose
+  // this seam anyway, because it is the only one all four surfaces funnel
+  // through: a gate the kanban can walk around is a gate whose override count —
+  // dec-7's entire anti-decay device — undercounts by construction.
+  //
+  // What makes it survivable where spec-391's was not: the refusal is TYPED
+  // (`DONE_GATE_BLOCKED`, 409). The board switches on that code to open the
+  // override dialog instead of rolling the card back in silence, which was the
+  // "must never error out" experience that got the previous attempt reverted.
+  // spec-258's guarantee holds — an editor still always has a web-UI path
+  // forward — but the path is the override, not the drag (ac-29).
+  //
+  // Scoped as narrowly as the decision allows: Specs only, only on entry to
+  // `done`, and only when an unaccepted supersession proposal exists. Every
+  // other transition, and every Spec that has never had one, is untouched.
+  if (doc.docType === "spec" && status === "done" && doc.status !== "done") {
+    await assertDoneGateClear(memexId, id);
+  }
 
   // spec-179 (ac-5): a Spec status flip emits a second, payload-carrying event
   // alongside the plain "updated" one (per std-8 dec-2: one event per logical

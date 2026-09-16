@@ -34,6 +34,7 @@ import {
   proposeAcSupersession,
   rejectAcSupersession,
 } from "../../services/ac-supersession.js";
+import { overrideDoneGate } from "../../services/done-gate.js";
 import {
   fetchTopic,
 } from "../../services/guidance.js";
@@ -894,6 +895,46 @@ export const acsTools: ToolSpec[] = [
       const comment = await rejectAcSupersession(memexId, entity.row.id, reqCtx(ctx));
       const commentRef = buildChildRef(slugs, doc, { type: "comments", seq: comment.seq });
       return `Rejected ref: ${commentRef}. The criterion is unchanged.`;
+    },
+  },
+  {
+    name: "override_done_gate",
+    annotations: { title: "Override the done-gate", readOnlyHint: false, destructiveHint: false },
+    description:
+      "Close a Spec over an unaccepted supersession proposal, on the record. The done-gate refuses to certify a Spec holding a criterion whose rewrite nobody accepted; this is the sanctioned way past it. Records who, when and why, and the count is rendered beside the Spec's coverage from then on — an override is visible, not quiet. " +
+      "Deciding the proposal with accept_ac_supersession or reject_ac_supersession is the ordinary path; reach for this only when neither is right. REFUSES without a stated reason, and refuses when nothing is actually blocked. Propose through `render_confirmation` FIRST.",
+    schema: {
+      ref: z
+        .string()
+        .describe("Canonical ref to the Spec, e.g. `<ns>/<mx>/specs/spec-N`. NOT a UUID."),
+      reason: z
+        .string()
+        .describe(
+          "Why this Spec closes with the rewrite unaccepted. Recorded verbatim against your name — the server never invents one.",
+        ),
+      verbose: VERBOSE_FIELD,
+    },
+    async handler(input, ctx) {
+      const resolved = await resolveRefArg(ctx, input.ref as string);
+      if (!isDocLikeKind(resolved.entity.kind)) {
+        throw new ValidationError(
+          `override_done_gate expects a doc-level (Spec) ref; got ${resolved.entity.kind}.`,
+        );
+      }
+      const { memexId, doc, slugs } = resolved;
+      const result = await overrideDoneGate(
+        memexId,
+        doc.id,
+        input.reason as string,
+        reqCtx(ctx),
+      );
+      const specRef = `${slugs.namespace}/${slugs.memex}/specs/${doc.handle}`;
+      const n = result.overriddenCount;
+      return (
+        `Overrode ref: ${specRef} — the done-gate is clear over ${n} unaccepted supersession proposal${n === 1 ? "" : "s"}. ` +
+        `Your name, the time and your reason are on the record, and the override count now renders beside this Spec's coverage. ` +
+        `A proposal filed after this one re-arms the gate.`
+      );
     },
   },
 

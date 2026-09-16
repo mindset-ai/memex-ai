@@ -726,6 +726,15 @@ export const toolManifest: ToolManifestEntry[] = [
     homePhase: null,
   },
   {
+    name: 'override_done_gate',
+    summary:
+      "Close a Spec over an unaccepted supersession proposal, on the record: who, when and why, counted beside its coverage. Deciding the proposal is the ordinary path; this is the sanctioned way past the gate.",
+    args: 'override_done_gate(ref, reason)',
+    group: 'build',
+    readOnlyHint: false,
+    homePhase: null,
+  },
+  {
     name: 'link_ac_to_decision',
     summary:
       "Attach a parent-Decision link to an existing AC (for cross-cutting Implementation ACs spawned from multiple Decisions). Typical Decision-spawned ACs use create_ac's parent_decision_ref instead.",

@@ -173,6 +173,10 @@ const MUTATING_MCP_TOOLS: Record<string, ToolMutation[]> = {
     { entity: "comment", action: "updated" },
   ],
   reject_ac_supersession: [{ entity: "comment", action: "updated" }],
+  // spec-566 t-7 (dec-7 / dec-10): the override writes the journal row inside
+  // the mutate() callback and emits on the owning Spec, so the board and any
+  // open Spec page see the override count move in real time [std-8].
+  override_done_gate: [{ entity: "document", action: "updated" }],
   // issues.ts
   register_issue: [{ entity: "issue", action: "created" }],
   update_issue: [{ entity: "issue", action: "updated" }],

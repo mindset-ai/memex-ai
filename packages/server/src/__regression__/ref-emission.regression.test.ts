@@ -253,6 +253,9 @@ describe("regression: every entity-acting MCP tool emits `ref:` and no raw UUID 
   let openDecId: string;
   let acSeqForSupersede: number;
   let acceptSupersessionRef: string;
+  /** spec-566 t-7: the override probe needs a Spec that is actually BLOCKED, on
+   *  its own doc so it cannot depend on which sibling probes have run. */
+  let overrideGateDocHandle: string;
   let rejectSupersessionRef: string;
   let resolvedDecSeq: number;
   let candDecSeq1: number;
@@ -414,6 +417,34 @@ describe("regression: every entity-acting MCP tool emits `ref:` and no raw UUID 
       if (seq === 6) acceptSupersessionRef = ref;
       else rejectSupersessionRef = ref;
     }
+
+    // spec-566 t-7: `override_done_gate` REFUSES when nothing is blocked, so its
+    // probe needs a Spec holding an unaccepted proposal. Its own doc, because
+    // the proposals above are consumed by the accept/reject probes and the
+    // remaining ones depend on execution order.
+    const gateDoc = await createDocDraft(memexId, "RefEmit Gate Doc", "x", "spec");
+    overrideGateDocHandle = gateDoc.handle;
+    cleanup.docs.push(gateDoc.id);
+    const [gateAc] = await db
+      .insert(acs)
+      .values({
+        memexId,
+        briefId: gateDoc.id,
+        seq: 1,
+        kind: "implementation",
+        statement: "probe override done gate",
+      } as never)
+      .returning();
+    const [gateDec] = await db
+      .insert(decisions)
+      .values({ memexId, docId: gateDoc.id, seq: 1, title: "RefEmit gate decision" } as never)
+      .returning();
+    await proposeAcSupersession({
+      memexId,
+      acId: gateAc.id,
+      decisionId: gateDec.id,
+      rationale: "refemit gate rationale",
+    });
 
     // Three Issues on the build Spec for get/update/resolve probes (spec-112).
     const iGet = await createIssue({ memexId, docId, title: "RefEmit issue get", body: "x", type: "bug" });
@@ -814,6 +845,17 @@ describe("regression: every entity-acting MCP tool emits `ref:` and no raw UUID 
       ],
       ["accept_ac_supersession", { input: () => ({ ref: acceptSupersessionRef }) }],
       ["reject_ac_supersession", { input: () => ({ ref: rejectSupersessionRef }) }],
+      // spec-566 t-7: the Spec goes in as a canonical spec-N ref and the
+      // response leads with `ref:` and carries no raw UUID, like every sibling.
+      [
+        "override_done_gate",
+        {
+          input: () => ({
+            ref: refForDoc(slugs, overrideGateDocHandle),
+            reason: "refemit override reason",
+          }),
+        },
+      ],
     ]);
   }
 
