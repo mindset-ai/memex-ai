@@ -58,7 +58,7 @@ SHELL := /bin/bash
 ## The sub-minute guard battery: no database, no network. This is what replaces
 ## "push and wait for CI" as the tight feedback loop. Everything here is a pure
 ## static check — anything needing Postgres belongs in `make test`.
-check: check-url-shape check-portable-surface lint standards-check
+check: check-url-shape check-portable-surface check-no-detector lint standards-check
 	@node scripts/ci/workspace-alloc.mjs --all > /dev/null || \
 		{ echo "✗ workspace allocator failed — see scripts/ci/workspace-alloc.mjs"; exit 1; }
 	@echo "✓ offline guard battery passed"
@@ -91,6 +91,17 @@ check-url-shape:
 ## (portable-surface.portability.test.ts) so bypassing the hook does not bypass the rule.
 check-portable-surface:
 	cd packages/server && npx tsx scripts/check-portable-surface.ts
+
+## spec-566 t-10 (dec-8, ac-25) — the done-gate carries no change detector. dec-8 chose
+## to close the second door rather than detect changes, and that choice is invisible in
+## the code it produced: the gate is simply simple. A later reader adds a diff or a hash
+## FOR SAFETY and reintroduces the false-positive class the decision eliminated. Offline
+## by construction — pure file reads, no DB, no network. Twinned with
+## src/__regression__/no-detector.regression.test.ts [per std-2's pattern]: this lane is
+## what a developer meets before a push (pre-push skips `make check`), the suite lane is
+## what survives someone bypassing the hook.
+check-no-detector:
+	cd packages/server && npx tsx scripts/check-no-detector.ts
 
 ## Server: unit tests only (mocked, no DB required)
 test-unit:
