@@ -14,7 +14,7 @@ import type {
 } from './types';
 import type { AcWithVerification } from './acs';
 import { decodeHtmlEntities } from '../utils/decodeHtmlEntities';
-import { NotFoundError } from './errors';
+import { ApiError, NotFoundError } from './errors';
 import { fetchJson as fetchJsonRaw } from './fetchJson';
 import { fetchWithRetry } from './http';
 import { tBase } from './internal';
@@ -382,14 +382,43 @@ export async function fetchDoc(id: string): Promise<DocWithGraph> {
   return normalizeDocTitles(doc);
 }
 
-export async function updateDocStatus(docId: string, status: DocStatus): Promise<void> {
+/**
+ * spec-566 dec-10 (ac-29) — the code the done-gate refuses with.
+ *
+ * The board switches on this to tell "the gate blocked this close" from "the
+ * request failed", and that distinction is the whole reason a block at the
+ * shared seam is survivable: spec-391's attempt was reverted because a refused
+ * drag looked identical to a fault — the card just snapped back. Kept in step
+ * with `DONE_GATE_BLOCKED` in packages/server/src/services/done-gate.ts.
+ */
+export const DONE_GATE_BLOCKED = 'DONE_GATE_BLOCKED';
+
+export async function updateDocStatus(
+  docId: string,
+  status: DocStatus,
+  /** spec-566 t-8 (dec-9) — required by the server for ONE move: leaving `done`.
+   *  Omitted everywhere else, where the server ignores it. */
+  reason?: string,
+): Promise<void> {
   const res = await fetchWithRetry(`${tBase()}/docs/${docId}/status`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status }),
+    body: JSON.stringify(reason === undefined ? { status } : { status, reason }),
   });
   if (!res.ok) {
-    throw new Error(`Failed to update status: ${res.status}`);
+    // spec-566 ac-29: throw the TYPED error, not a bare one. This call site was
+    // hand-rolled — it discarded the body, so a gate refusal reached the board
+    // as `Failed to update status: 409` with no way to tell it from a fault.
+    const body = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      message?: string;
+      code?: string;
+    };
+    throw new ApiError(
+      res.status,
+      body.message ?? body.error ?? `Failed to update status: ${res.status}`,
+      body.code,
+    );
   }
 }
 
@@ -683,4 +712,27 @@ export async function clearDocSensitive(docId: string): Promise<void> {
     const text = await res.text().catch(() => '');
     throw new Error(text || `Failed to clear the sensitive flag: ${res.status}`);
   }
+}
+
+/**
+ * spec-566 t-7 (dec-7) — close a Spec over an unaccepted supersession proposal,
+ * on the record. Called by the board after `updateDocStatus` refuses with
+ * `DONE_GATE_BLOCKED`, and by the Spec page's own override control.
+ *
+ * The reason is mandatory and the server refuses a blank one: an override with
+ * no stated reason is the quiet path dec-7's count exists to close.
+ */
+export async function overrideDoneGate(
+  docId: string,
+  reason: string,
+): Promise<{ overriddenCount: number }> {
+  return fetchJsonRaw<{ overriddenCount: number }>(
+    fetchWithRetry,
+    `${tBase()}/docs/${docId}/done-gate-override`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason }),
+    },
+  );
 }

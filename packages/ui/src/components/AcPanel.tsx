@@ -46,6 +46,9 @@ import { PromptButton } from './PromptButton';
 import { phaseDisplayName } from '../utils/phaseDisplay';
 import { Metric, type BarSegment } from './MetricBar';
 import type { GuidanceBlock } from '@memex/shared';
+// spec-566 dec-2 — one rendering decision for the superseded count, shared with
+// the MCP coverage header and the other seven coverage surfaces.
+import { isLiveAcStatus, coverageAnnotationLabels } from '@memex/shared';
 
 interface AcPanelProps {
   docId: string;
@@ -71,6 +74,11 @@ interface AcPanelProps {
   promptContext?: Record<string, unknown>;
   /** Org scaffold appends threaded into toButtonPrompt (spec-159 ac-17). */
   orgBlocks?: readonly GuidanceBlock[];
+  /** spec-566 dec-7 (ac-22) — done-gate overrides on this Spec, from the doc
+   *  payload. A Spec-level number, so the AC rows cannot carry it. */
+  gateOverrides?: number;
+  /** spec-566 dec-9 (t-8) — reopens on this Spec, from the doc payload. */
+  reopens?: number;
 }
 
 const POLL_INTERVAL_MS = 3_000;
@@ -180,18 +188,40 @@ function UnifiedAcHeader({
   history,
   promptContext,
   orgBlocks,
+  gateOverrides = 0,
+  reopens = 0,
 }: {
   rows: AcWithVerification[];
   history: AcAlignmentDay[];
   promptContext?: Record<string, unknown>;
   orgBlocks?: readonly GuidanceBlock[];
+  /** spec-566 dec-7 (ac-22) — done-gate overrides on this Spec. A Spec-level
+   *  number the AC rows cannot carry, so the page hands it down. */
+  gateOverrides?: number;
+  /** spec-566 dec-9 (t-8) — reopens on this Spec. Spec-level, like the above. */
+  reopens?: number;
 }) {
-  const verified = rows.filter((r) => r.verificationState === 'verified');
-  const failing = rows.filter((r) => r.verificationState === 'failing');
-  const untested = rows.filter((r) => r.verificationState === 'untested');
-  const stale = rows.filter((r) => r.verificationState === 'stale');
-  const accepted = rows.filter((r) => r.verificationState === 'accepted');
-  const total = rows.length;
+  // spec-566 dec-2 — every figure below is over the LIVE set. A superseded
+  // criterion was a commitment that got retired, so leaving it in the
+  // denominator would drag the percentage down for a criterion nobody is
+  // expected to satisfy; leaving it out silently would let a Spec reach 100% by
+  // retiring what it could not satisfy. It leaves the maths and is counted
+  // beside it. `isLiveAcStatus` is the same rule the MCP coverage header uses.
+  const live = rows.filter((r) => isLiveAcStatus(r.ac.status));
+  const supersededCount = rows.filter((r) => r.ac.status === 'superseded').length;
+  const annotations = coverageAnnotationLabels({
+    superseded: supersededCount,
+    overrides: gateOverrides,
+    reopens,
+  });
+  const supersededLabel = annotations.length ? annotations.join(' · ') : null;
+
+  const verified = live.filter((r) => r.verificationState === 'verified');
+  const failing = live.filter((r) => r.verificationState === 'failing');
+  const untested = live.filter((r) => r.verificationState === 'untested');
+  const stale = live.filter((r) => r.verificationState === 'stale');
+  const accepted = live.filter((r) => r.verificationState === 'accepted');
+  const total = live.length;
 
   // Two metrics, both load-bearing:
   //   coverage    = ACs with at least one test / total. Drives the
@@ -207,7 +237,7 @@ function UnifiedAcHeader({
   // they join both the numerator and the denominator (an accepted AC usually
   // has no tests, so it wouldn't otherwise appear in either). The four states
   // verified / failing / stale / accepted partition that denominator exactly.
-  const covered = rows.filter((r) => r.tests.length > 0);
+  const covered = live.filter((r) => r.tests.length > 0);
   const pctCovered = total === 0 ? 0 : Math.round((covered.length / total) * 100);
   const testDerivedCount = verified.length + failing.length + stale.length;
   const accountable = testDerivedCount + accepted.length;
@@ -215,14 +245,36 @@ function UnifiedAcHeader({
     accountable === 0
       ? 0
       : Math.round(((verified.length + accepted.length) / accountable) * 100);
-  const lastVerified = lastVerifiedAt(rows);
-  const allUntested = covered.length === 0 && accepted.length === 0;
+  const lastVerified = lastVerifiedAt(live);
+  // The encouraging "ACs written, no tests yet" framing, unchanged — EXCEPT for
+  // a Spec whose criteria were ALL superseded. That one has no live criteria at
+  // all, so "the next step is wiring tests to each AC" would be a lie about work
+  // that no longer exists; it belongs in the metrics branch, where the
+  // superseded count is the only thing there is to say.
+  const nothingLiveButSomethingRetired = total === 0 && supersededCount > 0;
+  const allUntested =
+    covered.length === 0 && accepted.length === 0 && !nothingLiveButSomethingRetired;
 
   return (
     <div
       data-testid="ac-unified-header"
       className="mb-6 rounded-md bg-zinc-50 dark:bg-zinc-900/50 p-4"
     >
+      {/* spec-566 ac-11 — the superseded count, beside the maths and outside it.
+          Rendered ABOVE both branches so it is present whichever one the Spec is
+          in, and in neutral app tokens rather than a reserved hue: std-27's
+          palette is scoped to charts (cl-22/cl-24) and its hues carry reserved
+          meanings (cl-3), so tinting a plain count would claim a semantic that
+          belongs to something else. */}
+      {supersededLabel && (
+        <div
+          data-testid="ac-superseded-count"
+          className="mb-3 text-sm text-muted"
+          title="Criteria retired by an accepted supersession. Excluded from the percentages below."
+        >
+          {supersededLabel}
+        </div>
+      )}
       {allUntested ? (
         // ACs exist but ZERO have tests. Not a failure — usually the
         // normal starting state right after ACs are committed. Frame it
@@ -621,7 +673,7 @@ function AcRowMeta({
   );
 }
 
-export function AcPanel({ docId, focusedAcId, onFocusConsumed, specPhase, promptContext, orgBlocks }: AcPanelProps) {
+export function AcPanel({ docId, focusedAcId, onFocusConsumed, specPhase, promptContext, orgBlocks, gateOverrides = 0, reopens = 0 }: AcPanelProps) {
   const [rows, setRows] = useState<AcWithVerification[] | null>(null);
   const [history, setHistory] = useState<AcAlignmentDay[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -754,7 +806,7 @@ export function AcPanel({ docId, focusedAcId, onFocusConsumed, specPhase, prompt
   }
 
   const aboutDialog = aboutOpen ? (
-    <AcAboutDialog rows={rows} onClose={() => setAboutOpen(false)} />
+    <AcAboutDialog rows={rows} gateOverrides={gateOverrides} reopens={reopens} onClose={() => setAboutOpen(false)} />
   ) : null;
 
   // Whole-tab empty state — the teaching moment for a Spec with zero ACs
@@ -900,6 +952,8 @@ export function AcPanel({ docId, focusedAcId, onFocusConsumed, specPhase, prompt
         history={mergeAlignmentHistory(history)}
         promptContext={promptContext}
         orgBlocks={orgBlocks}
+        gateOverrides={gateOverrides}
+        reopens={reopens}
       />
       <UnifiedAcList
         rows={rows}

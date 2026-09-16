@@ -197,7 +197,7 @@ describe("test_event_latest maintenance (spec-162)", () => {
     await seedTestEvent({ subjectRef: ref, status: "fail", testIdentifier: tid });
     expect(await summaryRow(ref, tid)).toBeDefined();
 
-    await discontinueTestEventsForAc(memexId, ac.id, tid);
+    await discontinueTestEventsForAc(memexId, ac.id, tid, "test deleted in the repo");
 
     expect(await summaryRow(ref, tid)).toBeUndefined();
     // And the board read now sees the AC as untested (covered 0), not failing.

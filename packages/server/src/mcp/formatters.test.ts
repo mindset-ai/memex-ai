@@ -97,6 +97,7 @@ function makeComment(overrides: Partial<DocComment> = {}): DocComment {
     sectionId: "section-uuid-1",
     decisionId: null,
     taskId: null,
+    acId: null,
     driftDecisionId: null,
     authorName: "Alice",
     authorUserId: null,

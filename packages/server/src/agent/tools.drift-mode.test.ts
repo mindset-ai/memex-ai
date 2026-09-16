@@ -27,6 +27,10 @@ const EXPECTED_DRIFT_SERVER_TOOLS = [
   // sequence the agent performs. The Drift Inbox has no action controls (spec-143
   // dec-3), so this conversation is the only path a user can accept from.
   "accept_standard_change",
+  // spec-566 t-2 (dec-1 option C): AC supersessions land in the SAME queue, so the
+  // drift agent is the surface a user accepts one from too.
+  "accept_ac_supersession",
+  "reject_ac_supersession",
   "search_memex",
   "get_doc",
   // spec-143: the drift agent can now HANDLE drift, not just report it —

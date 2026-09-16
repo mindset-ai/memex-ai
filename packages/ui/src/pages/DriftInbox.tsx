@@ -54,8 +54,12 @@ export function DriftInbox() {
   const [error, setError] = useState<string | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const chat = useChat();
-  // `?doc=std-N` narrows the inbox to a single standard (the drift-badge
-  // deep-link). Absent → the full standards inbox.
+  // `?doc=<handle>` narrows the inbox to a single document — `std-N` from the
+  // per-standard drift badge, or `spec-N` since spec-566 t-9 put AC supersession
+  // proposals in this queue. The server matches on the handle column, so both
+  // forms already worked; what was Standards-only was the WORDING, and a comment
+  // that says "a single standard" is how the next reader concludes the page
+  // cannot show anything else.
   const docFilter = searchParams.get('doc');
 
   const load = useCallback(() => {
@@ -209,7 +213,8 @@ function DriftInboxBody({
         <div>
           <h1 className="text-2xl font-semibold text-heading">Drift Inbox</h1>
           <p className="text-xs text-muted mt-1">
-            Open drift findings and proposed changes across this Memex's Standards.
+            Open drift findings and proposed changes across this Memex's Standards
+            and acceptance criteria.
           </p>
         </div>
         {docFilter && (
@@ -244,7 +249,9 @@ function DriftInboxBody({
               className="border border-edge-subtle rounded-lg p-8 text-center bg-surface/40"
               data-testid="drift-empty-state"
             >
-              <p className="text-sm text-secondary mb-1">No open drift or proposals.</p>
+              <p className="text-sm text-secondary mb-1">
+                No open drift, standards proposals or criterion supersessions.
+              </p>
               <p className="text-xs text-muted">
                 When the agent flags drift on a standard or proposes a change,
                 it shows up here for review.
@@ -261,7 +268,13 @@ function DriftInboxBody({
             // Drift is standards-only (b-63), so every row links to a Standard.
             // tenantPath keeps the link under the current /:ns/:mx (a bare
             // /standards/... would drop the tenant prefix).
-            const docHref = tenantPath(`/standards/${item.doc.handle}`);
+            // spec-566 t-9: the queue now carries rows on Specs as well as
+            // Standards, and `/standards/spec-N` resolves to nothing.
+            const docHref = tenantPath(
+              item.doc.docType === 'standard'
+                ? `/standards/${item.doc.handle}`
+                : `/specs/${item.doc.handle}`,
+            );
             // The source decision's canonical URL — only when its owning spec is
             // known (there's no decision route without a spec); else no link.
             const decHref = item.decision?.specHandle
@@ -335,7 +348,21 @@ function DriftInboxBody({
                       className="flex items-baseline gap-1.5 text-sm min-w-0"
                       data-testid="drift-proposal-summary"
                     >
-                      <span className="flex-none text-muted">Proposes a change to</span>
+                      {/* spec-566 t-9 (ac-10): a supersession names the CRITERION,
+                          not just the Spec. "Proposes a change to spec-42" would
+                          leave the reviewer to hunt for which of its criteria. */}
+                      <span className="flex-none text-muted">
+                        {item.ac ? 'Proposes superseding' : 'Proposes a change to'}
+                      </span>
+                      {item.ac && (
+                        <span
+                          className="flex-none font-mono text-secondary"
+                          data-testid="drift-ac-handle"
+                        >
+                          {item.ac.handle}
+                        </span>
+                      )}
+                      <span className="flex-none text-muted">{item.ac ? 'on' : null}</span>
                       <Link
                         to={docHref}
                         onClick={(e) => e.stopPropagation()}

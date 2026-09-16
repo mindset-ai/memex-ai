@@ -1211,6 +1211,14 @@ const TOOL_RATIONALES: Record<string, string> = {
     "Accept an open proposal and apply it to the Standard: every clause operation lands, or none does, and the proposal is resolved 'accepted' in the same transaction. Takes the proposal's comment ref and nothing else, so what gets applied is exactly what was reviewed. Refuses, naming the clause and its current text, if the rule changed after the proposal was written.",
   facets:
     "Read (and later manage) your Memex's facet vocabulary — the closed, per-owner set of cross-cutting practice areas a standard's clauses are tagged with. Verb-dispatched so the surface stays one tool; v0 supports verb:'list'.",
+  propose_ac_supersession:
+    "spec-566: propose that an acceptance criterion be superseded — the call for when later work REVERSES a criterion, rather than rewriting it with update_ac. It changes nothing: the statement stays byte-identical and the verdict is untouched until a human accepts it in the Drift Inbox. You must name the superseding decision, and you never supply the criterion's current text — the server reads it, so the accept can tell whether the criterion moved underneath the proposal. Omit proposed_statement to retire a criterion with no replacement.",
+  accept_ac_supersession:
+    "spec-566: accept an open supersession proposal. The criterion is retired with its statement PRESERVED verbatim and its status set 'superseded'; where the proposal carried one, a replacement criterion is created under the superseding decision with no test evidence of its own, so the tests must earn its verdict against the new text. One transaction. Takes the proposal's comment ref and nothing else. Refuses, naming the current text, if the criterion changed after the proposal was written — and it never deletes the old evidence, which stays attached to the criterion that earned it.",
+  reject_ac_supersession:
+    "spec-566: decline an open supersession proposal. The criterion is untouched; only the proposal closes, resolved 'rejected'.",
+  override_done_gate:
+    "spec-566: close a Spec over an unaccepted supersession proposal, on the record. The done-gate refuses to certify a Spec holding a criterion whose rewrite nobody accepted; this is the sanctioned way past it. Records who, when and why, and the count renders beside the Spec's coverage from then on, so an override is visible rather than quiet. Deciding the proposal with accept_ac_supersession or reject_ac_supersession is the ordinary path — reach for this only when neither is right. Refuses without a stated reason, and refuses when nothing is blocked. A proposal filed afterwards re-arms the gate.",
   create_ac:
     'Create an Acceptance Criterion under a Spec. Scope ACs are manager-authored outcomes; implementation ACs are agent-spawned from resolved Decisions.',
   list_acs:
@@ -1222,7 +1230,7 @@ const TOOL_RATIONALES: Record<string, string> = {
   get_test_matrix:
     "Read an AC's per-test_identifier test-event digest by ref — latest status, emission count, and PINNING (holds the AC red) / retired (hidden) flags. The way to find which identifier is responsible for a failing/stale AC.",
   discontinue_test_events:
-    'Hard-delete an orphaned test_identifier on an AC — a renamed/deleted test whose stale fail still pins the AC red: removes the emissions and clears their summary. Irreversible; a fresh live emission re-enters the verdict. Only for identifiers truly gone from the codebase, never one merely not run this round.',
+    'Hard-delete an orphaned test_identifier on an AC — a renamed/deleted test whose stale fail still pins the AC red: removes the emissions and clears their summary. Takes a REQUIRED reason, which spec-566 keeps in a durable receipt alongside who retired it and the commit the deleted evidence ran against — the emissions go, the act does not. Irreversible; a fresh live emission re-enters the verdict. Only for identifiers truly gone from the codebase, never one merely not run this round.',
   update_ac:
     'Update an AC statement. Only the statement is mutable here; kind is fixed at creation; status transitions go through accept/reject_ac when those exist.',
   delete_ac:

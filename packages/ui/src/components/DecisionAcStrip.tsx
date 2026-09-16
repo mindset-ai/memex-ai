@@ -15,12 +15,19 @@
 
 import type { AcWithVerification } from '../api/client';
 import { AcPill } from './AcPill';
+// spec-566 dec-2 — one rendering decision for the superseded count.
+import { isLiveAcStatus, coverageAnnotationLabels } from '@memex/shared';
 
 interface DecisionAcStripProps {
   /** All ACs for the Spec — caller passes the unfiltered set, this
    *  component filters to the ACs whose parents include this decisionId. */
   acs: AcWithVerification[];
   decisionId: string;
+  /** spec-566 dec-7 (ac-22) — done-gate overrides on the owning Spec. A
+   *  Spec-level number the AC rows cannot carry, so the panel hands it down. */
+  gateOverrides?: number;
+  /** spec-566 dec-9 (t-8) — reopens on the owning Spec. */
+  reopens?: number;
   /** Click on a pill → call this with the AC's id; caller switches to the
    *  AC tab and focuses the row. */
   onJumpToAc?: (acId: string) => void;
@@ -29,6 +36,8 @@ interface DecisionAcStripProps {
 export function DecisionAcStrip({
   acs,
   decisionId,
+  gateOverrides = 0,
+  reopens = 0,
   onJumpToAc,
 }: DecisionAcStripProps) {
   const own = acs.filter((r) =>
@@ -45,10 +54,22 @@ export function DecisionAcStrip({
     return null;
   }
 
-  const verified = own.filter((r) => r.verificationState === 'verified');
-  const failing = own.filter((r) => r.verificationState === 'failing');
-  const untested = own.filter((r) => r.verificationState === 'untested');
-  const stale = own.filter((r) => r.verificationState === 'stale');
+  // spec-566 dec-2 — the caption counts the LIVE criteria this Decision spawned
+  // and names the retired ones. A Decision whose AC was superseded should read
+  // as one honoured claim plus one retired one, not as two claims one of which
+  // is silently untested forever.
+  const live = own.filter((r) => isLiveAcStatus(r.ac.status));
+  const annotations = coverageAnnotationLabels({
+    superseded: own.filter((r) => r.ac.status === 'superseded').length,
+    overrides: gateOverrides,
+    reopens,
+  });
+  const supersededLabel = annotations.length ? annotations.join(' · ') : null;
+
+  const verified = live.filter((r) => r.verificationState === 'verified');
+  const failing = live.filter((r) => r.verificationState === 'failing');
+  const untested = live.filter((r) => r.verificationState === 'untested');
+  const stale = live.filter((r) => r.verificationState === 'stale');
 
   // Caption order intentionally puts the win first ("4 verified") even
   // when there are failures — mirrors the green-first principle from the
@@ -58,14 +79,15 @@ export function DecisionAcStrip({
   if (failing.length > 0) parts.push(`${failing.length} failing`);
   if (untested.length > 0) parts.push(`${untested.length} untested`);
   if (stale.length > 0) parts.push(`${stale.length} stale`);
+  if (supersededLabel) parts.push(...annotations);
 
   return (
     <div
       className="mt-2 flex items-center gap-2 flex-wrap"
       onClick={(e) => e.stopPropagation()}
     >
-      <span className="text-xs text-muted">
-        {own.length} AC{own.length === 1 ? '' : 's'} · {parts.join(' · ')}
+      <span data-testid="decision-ac-strip-caption" className="text-xs text-muted">
+        {live.length} AC{live.length === 1 ? '' : 's'} · {parts.join(' · ')}
       </span>
       <div className="flex flex-wrap gap-1">
         {own.map((r) => (

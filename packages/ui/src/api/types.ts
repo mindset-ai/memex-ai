@@ -200,6 +200,17 @@ export interface AcHealth {
   failing: number;
   stale: number;
   untested: number;
+  /** spec-188 dec-1 — manually accepted. Already sent by the server; the type
+   *  had simply never named it. Pure type correction, no runtime change. */
+  accepted: number;
+  /** spec-566 dec-2 — criteria retired by an accepted supersession. Outside
+   *  `totalActive` and outside every percentage; every surface that renders a
+   *  coverage figure renders this beside it (ac-11). */
+  superseded: number;
+  /** spec-566 dec-7 — times the done-gate was overridden on this Spec (ac-22). */
+  overrides: number;
+  /** spec-566 dec-9 — times this closed Spec was reopened (t-8). */
+  reopens: number;
 }
 
 export interface Doc {
@@ -231,6 +242,16 @@ export interface Doc {
   groundedAt?: string | null;
   groundedByName?: string | null;
   groundedStale?: boolean;
+  /**
+   * spec-566 dec-7 (ac-22) — how many times this Spec's done-gate was
+   * overridden. Carried on the doc payload so the four coverage surfaces that
+   * render from AC ROWS can show it beside their figures; the AcHealth-shaped
+   * surfaces read `acHealth.overrides` instead. Optional for payload tolerance.
+   */
+  gateOverrides?: number;
+  /** spec-566 dec-9 (t-8) — reopens on this Spec, carried alongside
+   *  `gateOverrides` for the same four row-fed coverage surfaces. */
+  reopens?: number;
   /**
    * spec-535 — the sensitivity flag + who to contact. `sensitive` is the
    * persisted boolean; `sensitiveByName` is the display snapshot denormalised at

@@ -39,6 +39,7 @@ import { makeTestMemex } from "../services/test-helpers.js";
 import { createDocDraft } from "../services/documents.js";
 import { createStandard, proposeStandardChange } from "../services/standards.js";
 import { createClause } from "../services/clauses.js";
+import { proposeAcSupersession } from "../services/ac-supersession.js";
 import { createIssue } from "../services/issues.js";
 import { addSection } from "../services/sections.js";
 import { addComment } from "../services/comments.js";
@@ -249,6 +250,13 @@ describe("regression: every entity-acting MCP tool emits `ref:` and no raw UUID 
   let docInDraftHandle: string;
   let sectionSeq: number;
   let openDecSeq: number;
+  let openDecId: string;
+  let acSeqForSupersede: number;
+  let acceptSupersessionRef: string;
+  /** spec-566 t-7: the override probe needs a Spec that is actually BLOCKED, on
+   *  its own doc so it cannot depend on which sibling probes have run. */
+  let overrideGateDocHandle: string;
+  let rejectSupersessionRef: string;
   let resolvedDecSeq: number;
   let candDecSeq1: number;
   let candDecSeq2: number;
@@ -315,6 +323,7 @@ describe("regression: every entity-acting MCP tool emits `ref:` and no raw UUID 
       .values({ memexId, docId, seq: 100, title: "Open Q" } as never)
       .returning();
     openDecSeq = openDec.seq;
+    openDecId = openDec.id;
     const [resolvedDec] = await db
       .insert(decisions)
       .values({
@@ -377,6 +386,65 @@ describe("regression: every entity-acting MCP tool emits `ref:` and no raw UUID 
       .values({ memexId, briefId: docId, seq: 4, kind: "implementation", statement: "probe link_ac" } as never)
       .returning();
     acSeqForLink = ac4.seq;
+
+    // spec-566 t-2 (ac-18): the three supersession verbs. Each needs its OWN
+    // criterion — propose refuses a second proposal while one is open, and accept
+    // and reject each consume the one they are given.
+    const [ac5] = await db
+      .insert(acs)
+      .values({ memexId, briefId: docId, seq: 5, kind: "implementation", statement: "probe propose supersession" } as never)
+      .returning();
+    acSeqForSupersede = ac5.seq;
+    for (const [seq, statement] of [
+      [6, "probe accept supersession"],
+      [7, "probe reject supersession"],
+    ] as const) {
+      const [row] = await db
+        .insert(acs)
+        .values({ memexId, briefId: docId, seq, kind: "implementation", statement } as never)
+        .returning();
+      // Authored here rather than by the propose probe, so the comment seq is
+      // stable whichever probes run and in whatever order — the same reason
+      // acceptCommentRef above is seeded in beforeAll.
+      const proposal = await proposeAcSupersession({
+        memexId,
+        acId: row.id,
+        decisionId: openDecId,
+        proposedStatement: "RefEmit: superseding statement.",
+        rationale: "refemit supersession rationale",
+      });
+      const ref = `${refForDoc(slugs, docHandle)}/comments/c-${proposal.comment.seq}`;
+      if (seq === 6) acceptSupersessionRef = ref;
+      else rejectSupersessionRef = ref;
+    }
+
+    // spec-566 t-7: `override_done_gate` REFUSES when nothing is blocked, so its
+    // probe needs a Spec holding an unaccepted proposal. Its own doc, because
+    // the proposals above are consumed by the accept/reject probes and the
+    // remaining ones depend on execution order.
+    const gateDoc = await createDocDraft(memexId, "RefEmit Gate Doc", "x", "spec");
+    overrideGateDocHandle = gateDoc.handle;
+    cleanup.docs.push(gateDoc.id);
+    const [gateAc] = await db
+      .insert(acs)
+      .values({
+        memexId,
+        briefId: gateDoc.id,
+        seq: 1,
+        kind: "implementation",
+        statement: "probe override done gate",
+      } as never)
+      .returning();
+    const [gateDec] = await db
+      .insert(decisions)
+      .values({ memexId, docId: gateDoc.id, seq: 1, title: "RefEmit gate decision" } as never)
+      .returning();
+    await proposeAcSupersession({
+      memexId,
+      acId: gateAc.id,
+      decisionId: gateDec.id,
+      rationale: "refemit gate rationale",
+    });
 
     // Three Issues on the build Spec for get/update/resolve probes (spec-112).
     const iGet = await createIssue({ memexId, docId, title: "RefEmit issue get", body: "x", type: "bug" });
@@ -756,6 +824,36 @@ describe("regression: every entity-acting MCP tool emits `ref:` and no raw UUID 
         "accept_standard_change",
         {
           input: () => ({ ref: acceptCommentRef }),
+        },
+      ],
+      // ── AC supersession (spec-566 t-2, ac-18) ──
+      // Probed HERE rather than in a parallel check of their own, which is what
+      // ac-18 asks for: the criterion goes in as a canonical ac-N ref, the
+      // superseding decision as a canonical dec-N ref, and every response leads
+      // with a `ref:` and carries no raw UUID. The sibling
+      // uuid-input-rejection gate covers the `ref` argument for all three.
+      [
+        "propose_ac_supersession",
+        {
+          input: () => ({
+            ref: refForChild(slugs, docHandle, "acs", acSeqForSupersede),
+            decision_ref: refForChild(slugs, docHandle, "decisions", openDecSeq),
+            proposed_statement: "RefEmit: proposed superseding statement.",
+            rationale: "refemit rationale",
+          }),
+        },
+      ],
+      ["accept_ac_supersession", { input: () => ({ ref: acceptSupersessionRef }) }],
+      ["reject_ac_supersession", { input: () => ({ ref: rejectSupersessionRef }) }],
+      // spec-566 t-7: the Spec goes in as a canonical spec-N ref and the
+      // response leads with `ref:` and carries no raw UUID, like every sibling.
+      [
+        "override_done_gate",
+        {
+          input: () => ({
+            ref: refForDoc(slugs, overrideGateDocHandle),
+            reason: "refemit override reason",
+          }),
         },
       ],
     ]);

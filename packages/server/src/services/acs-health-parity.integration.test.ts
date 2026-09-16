@@ -112,6 +112,15 @@ function tallyTabPayload(
     stale: 0,
     untested: 0,
     accepted: 0,
+    // spec-566 dec-2: the tab payload this reduction stands in for carries only
+    // ACTIVE ACs, so its superseded tally is 0 by construction. The aggregator's
+    // own superseded count is asserted where superseded rows exist — here it is
+    // the parity baseline, not an untested field.
+    superseded: 0,
+    // spec-566 dec-7: done-gate overrides, 0 for this fixture.
+    overrides: 0,
+    // spec-566 dec-9: reopens, 0 for this fixture.
+    reopens: 0,
   };
   for (let i = 0; i < states.length; i++) {
     if (hadTests[i]) tally.covered += 1;
@@ -194,6 +203,12 @@ describe("aggregateAcHealthForBriefs parity with listAcsForBriefWithVerification
       stale: 1,
       untested: 1,
       accepted: 0,
+      // spec-566 dec-2: the retired-criteria tally, 0 for this fixture.
+      superseded: 0,
+      // spec-566 dec-7: done-gate overrides, 0 for this fixture.
+      overrides: 0,
+      // spec-566 dec-9: reopens, 0 for this fixture.
+      reopens: 0,
     });
   });
 

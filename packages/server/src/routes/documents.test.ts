@@ -237,7 +237,7 @@ describe("GET /api/docs/:id", () => {
       checkoutHolder: null,
       groundedStale: false,
       supersededByHandle: null,
-      replacesHandles: [],
+      replacesHandles: [], gateOverrides: 0, reopens: 0,
     });
 
     const res = await app.request("/api/docs/uuid-1");
@@ -289,7 +289,7 @@ describe("GET /api/docs/:id", () => {
       checkoutHolder: null,
       groundedStale: false,
       supersededByHandle: null,
-      replacesHandles: [],
+      replacesHandles: [], gateOverrides: 0, reopens: 0,
     });
 
     const res = await app.request("/api/docs/doc-1");
@@ -377,7 +377,7 @@ describe("POST /api/docs/sections/:sectionId/split", () => {
 function mockDoc(id: string, handle: string) {
   vi.mocked(getDoc).mockResolvedValue({
     supersededByHandle: null,
-    replacesHandles: [],
+    replacesHandles: [], gateOverrides: 0, reopens: 0,
     id,
     memexId: TEST_MEMEX_ID,
     handle,

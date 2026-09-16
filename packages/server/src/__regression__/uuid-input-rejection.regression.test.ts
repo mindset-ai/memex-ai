@@ -18,6 +18,7 @@
 // don't have a `ref` field to attack with, so they're out of scope here.
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { tagAc } from "@memex-ai-ac/vitest";
 import { eq, inArray } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import {
@@ -150,6 +151,46 @@ describe("regression: every ref-accepting MCP tool rejects a UUID input with the
       }
     }
     expect(failures, failures.length === 0 ? "" : failures.join("\n")).toEqual([]);
+  });
+
+  // spec-566 t-2 (ac-18). The sweep above probes the `ref` argument, which every
+  // catalogued tool has. `propose_ac_supersession` carries a SECOND ref —
+  // `decision_ref`, mandatory per dec-6 — and a second ref argument is exactly
+  // where the boundary guard gets forgotten: the sweep would stay green while the
+  // superseding decision was addressable by raw UUID. Extended here rather than in
+  // a parallel check of its own, per ac-18.
+  it("propose_ac_supersession rejects a UUID in decision_ref, not just in ref", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-566/acs/ac-18");
+
+    const spec = toolSpecs.find((s) => s.name === "propose_ac_supersession");
+    expect(spec, "propose_ac_supersession must be catalogued").toBeTruthy();
+
+    // `ref` resolves to a plausible AC so the handler reaches decision_ref; the
+    // guard under test is the one on the SECOND argument.
+    const ctx: ToolCtx = {
+      userId,
+      resolveMemexFromEntity: async () => memexId,
+      resolveMemex: async () => memexId,
+      resolveRef: async () => ({
+        entity: { kind: "ac", row: { id: "ac-row-id" } },
+        memexId,
+        doc: { id: "doc-id", memexId },
+        slugs: { namespace: "ns", memex: "mx" },
+      }),
+      workspaceUrl: async () => "",
+      verbose: false,
+    } as unknown as ToolCtx;
+
+    await expect(
+      spec!.handler(
+        {
+          ref: "ns/mx/specs/spec-1/acs/ac-1",
+          decision_ref: FAKE_UUID,
+          proposed_statement: "x",
+        },
+        ctx,
+      ),
+    ).rejects.toThrow(/UUID inputs no longer accepted/);
   });
 });
 

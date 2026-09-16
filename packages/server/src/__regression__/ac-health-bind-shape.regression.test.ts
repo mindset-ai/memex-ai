@@ -53,9 +53,21 @@ describe("spec-520 ac-7 / ac-11: no read binds one parameter per AC ref", () => 
     tagAc(AC_SCOPED);
     const text = src("services/acs.ts");
     // The whole function, isolated so a match elsewhere in this large file cannot pass it.
+    //
+    // Sliced to the NEXT top-level export rather than a fixed byte count. It was
+    // `start + 6000`, and spec-566 t-7 pushed the scoping line to offset 6238 by
+    // adding two counts ahead of it — so the guard went red while the tenancy
+    // predicate it exists to protect was untouched, three lines further down. A
+    // window that fails on a function growing is measuring the wrong thing, and
+    // this file's own comment already says the rule: locate by construct, not by
+    // line.
     const start = text.indexOf("export async function aggregateAcHealthForBriefs");
     expect(start).toBeGreaterThan(-1);
-    const body = text.slice(start, start + 6000);
+    const after = text.indexOf("\nexport ", start + 1);
+    const body = text.slice(start, after > -1 ? after : undefined);
+    // Vacuity guard: an empty or truncated slice would make the match below
+    // meaningless, and that is precisely how this broke.
+    expect(body.length).toBeGreaterThan(1000);
     expect(body).toMatch(/eq\(testEventLatest\.memexId, memexId\)/);
   });
 

@@ -699,6 +699,15 @@ export const docsTools: ToolSpec[] = [
           "Canonical ref to the document, e.g. `mindset/main/specs/spec-N` or `mindset/main/docs/doc-N`.",
         ),
       status: z.enum(DOC_STATUSES).optional().describe("New lifecycle status (spec/document)."),
+      reason: z
+        .string()
+        .optional()
+        .describe(
+          // No Spec handle here [per std-22 / spec-551 ac-10]: the tool surface
+          // ships to arbitrary codebases, where a handle from THIS repo resolves
+          // to nothing. The portability scan caught it.
+          "WHY a CLOSED Spec is being reopened. Required only when `status` moves a Spec out of 'done' — reopening is a recorded act, kept against your name and counted beside the Spec's coverage. Ignored for every other transition.",
+        ),
       title: z.string().optional().describe("New title (1-500 chars, trimmed)."),
       tags: z
         .array(z.string())
@@ -741,7 +750,12 @@ export const docsTools: ToolSpec[] = [
         // spec-122 dec-2/dec-5: thread the activity contract (WHO + HOW) onto the
         // status transition so Pulse attributes the phase move to the human +
         // surface.
-        await updateDocStatus(memexId, before.id, status, { ctx: reqCtx(ctx) });
+        await updateDocStatus(memexId, before.id, status, {
+          ctx: reqCtx(ctx),
+          // spec-566 t-8 (dec-9): the service requires this for one move only —
+          // leaving `done` — and refuses, typed, without it.
+          reason: input.reason as string | undefined,
+        });
         // spec-219 Phase 2 (sole-author): the transition guidance (assess_spec
         // tip + coverage nudge) is owned by composeGuidanceEnvelope; signal the
         // transition, don't author it here.

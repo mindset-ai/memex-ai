@@ -37,6 +37,7 @@ import { makeTestMemex } from "../services/test-helpers.js";
 import { createDocDraft } from "../services/documents.js";
 import { createStandard, proposeStandardChange } from "../services/standards.js";
 import { createClause } from "../services/clauses.js";
+import { proposeAcSupersession } from "../services/ac-supersession.js";
 import { createIssue } from "../services/issues.js";
 import { addSection } from "../services/sections.js";
 import { addComment } from "../services/comments.js";
@@ -841,6 +842,13 @@ describe("audit: b-36 D-8 — every terse mutation/list response emits `ref:` an
   let acSeqForUpdate: number;
   let acSeqForDelete: number;
   let acSeqForLink: number;
+  let openDecisionId: string;
+  let acSeqForSupersede: number;
+  let acceptSupersessionRef: string;
+  let rejectSupersessionRef: string;
+  /** spec-566 t-7: the override probe needs a Spec that is actually BLOCKED, on
+   *  its own doc so it cannot depend on which sibling probes have run. */
+  let overrideGateDocHandle: string;
   // Issues (spec-112): one each for get/update/resolve probes.
   let issueSeqForGet: number;
   let issueSeqForUpdate: number;
@@ -896,6 +904,7 @@ describe("audit: b-36 D-8 — every terse mutation/list response emits `ref:` an
       .values({ memexId, docId: doc.id, seq: 100, title: "Open Q" } as never)
       .returning();
     openDecisionSeq = openDec.seq;
+    openDecisionId = openDec.id;
     const [resolvedDec] = await db
       .insert(decisions)
       .values({
@@ -966,6 +975,60 @@ describe("audit: b-36 D-8 — every terse mutation/list response emits `ref:` an
       .values({ memexId, briefId: doc.id, seq: 4, kind: "implementation", statement: "probe link_ac" } as never)
       .returning();
     acSeqForLink = ac4.seq;
+
+    // spec-566 t-2 (ac-18): one criterion per supersession verb — propose refuses a
+    // second proposal while one is open, and accept/reject each consume theirs.
+    const [ac5] = await db
+      .insert(acs)
+      .values({ memexId, briefId: doc.id, seq: 5, kind: "implementation", statement: "probe propose supersession" } as never)
+      .returning();
+    acSeqForSupersede = ac5.seq;
+    for (const [seq, statement] of [
+      [6, "probe accept supersession"],
+      [7, "probe reject supersession"],
+    ] as const) {
+      const [row] = await db
+        .insert(acs)
+        .values({ memexId, briefId: doc.id, seq, kind: "implementation", statement } as never)
+        .returning();
+      const proposal = await proposeAcSupersession({
+        memexId,
+        acId: row.id,
+        decisionId: openDecisionId,
+        proposedStatement: "Probe: superseding statement.",
+        rationale: "probe supersession rationale",
+      });
+      const ref = `${slugs.namespace}/${slugs.memex}/specs/${docHandle}/comments/c-${proposal.comment.seq}`;
+      if (seq === 6) acceptSupersessionRef = ref;
+      else rejectSupersessionRef = ref;
+    }
+
+    // spec-566 t-7: `override_done_gate` REFUSES when nothing is blocked, so the
+    // probe needs a Spec holding an unaccepted proposal — on its own doc,
+    // because the proposals above are consumed by the accept/reject probes.
+    const gateDoc = await createDocDraft(memexId, "Gate override audit", "p", "spec");
+    cleanup.docs.push(gateDoc.id);
+    overrideGateDocHandle = gateDoc.handle;
+    const [gateAc] = await db
+      .insert(acs)
+      .values({
+        memexId,
+        briefId: gateDoc.id,
+        seq: 1,
+        kind: "implementation",
+        statement: "probe override done gate",
+      } as never)
+      .returning();
+    const [gateDec] = await db
+      .insert(decisions)
+      .values({ memexId, docId: gateDoc.id, seq: 1, title: "Gate audit decision" } as never)
+      .returning();
+    await proposeAcSupersession({
+      memexId,
+      acId: gateAc.id,
+      decisionId: gateDec.id,
+      rationale: "probe gate rationale",
+    });
 
     // Three Issues on the build Spec for the get/update/resolve probes
     // (spec-112). createIssue mints `issue-N` independent of the ac/task/etc. seq
@@ -1391,6 +1454,29 @@ describe("audit: b-36 D-8 — every terse mutation/list response emits `ref:` an
         "accept_standard_change",
         {
           input: () => ({ ref: acceptCommentRef }),
+        },
+      ],
+      // ── AC supersession (spec-566 t-2, ac-18) ──
+      [
+        "propose_ac_supersession",
+        {
+          input: () => ({
+            ref: childRef(slugs, docHandle, "acs", acSeqForSupersede),
+            decision_ref: childRef(slugs, docHandle, "decisions", openDecisionSeq),
+            proposed_statement: "Probe: proposed superseding statement.",
+            rationale: "probe rationale",
+          }),
+        },
+      ],
+      ["accept_ac_supersession", { input: () => ({ ref: acceptSupersessionRef }) }],
+      ["reject_ac_supersession", { input: () => ({ ref: rejectSupersessionRef }) }],
+      [
+        "override_done_gate",
+        {
+          input: () => ({
+            ref: `${slugs.namespace}/${slugs.memex}/specs/${overrideGateDocHandle}`,
+            reason: "probe override reason",
+          }),
         },
       ],
     ]);

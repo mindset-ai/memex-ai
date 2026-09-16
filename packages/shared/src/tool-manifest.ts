@@ -184,7 +184,7 @@ export const toolManifest: ToolManifestEntry[] = [
     name: 'update_doc',
     summary:
       "Update a document's status, title, and/or tags; transitions a Spec through draft→specify→build→verify→done.",
-    args: 'update_doc(ref, status?, title?, tags?, removeTags?)',
+    args: 'update_doc(ref, status?, reason?, title?, tags?, removeTags?)',
     group: 'planning',
     readOnlyHint: false,
     homePhase: null,
@@ -674,8 +674,8 @@ export const toolManifest: ToolManifestEntry[] = [
   {
     name: 'discontinue_test_events',
     summary:
-      'Hard-delete an orphaned test_identifier on an AC (a renamed/deleted test whose stale fail pins the AC red): removes its emissions + summary. Irreversible; a fresh emission re-enters the verdict. Only for identifiers gone from the code.',
-    args: 'discontinue_test_events(ref, test_identifier)',
+      'Hard-delete an orphaned test_identifier on an AC (a renamed/deleted test whose stale fail pins the AC red): removes its emissions + summary, and keeps a durable receipt of who, when, why and the commit. Reason required. Irreversible.',
+    args: 'discontinue_test_events(ref, test_identifier, reason)',
     group: 'build',
     readOnlyHint: false,
     homePhase: null,
@@ -697,6 +697,42 @@ export const toolManifest: ToolManifestEntry[] = [
     group: 'build',
     readOnlyHint: false,
     homePhase: 'specify',
+  },
+  {
+    name: 'propose_ac_supersession',
+    summary:
+      "Propose that an acceptance criterion be superseded — for when later work REVERSES it rather than rewriting it. Changes nothing until a human accepts in the Drift Inbox. Names the superseding decision; the server reads the current text.",
+    args: 'propose_ac_supersession(ref, decision_ref, proposed_statement?, rationale?)',
+    group: 'build',
+    readOnlyHint: false,
+    homePhase: null,
+  },
+  {
+    name: 'accept_ac_supersession',
+    summary:
+      "Accept an open supersession proposal: the criterion is retired with its statement PRESERVED verbatim, and any replacement is created under the superseding decision with no evidence of its own, so tests must earn its verdict anew.",
+    args: 'accept_ac_supersession(ref)',
+    group: 'build',
+    readOnlyHint: false,
+    homePhase: null,
+  },
+  {
+    name: 'reject_ac_supersession',
+    summary:
+      "Decline an open supersession proposal. The criterion is untouched; only the proposal closes, resolved 'rejected'.",
+    args: 'reject_ac_supersession(ref)',
+    group: 'build',
+    readOnlyHint: false,
+    homePhase: null,
+  },
+  {
+    name: 'override_done_gate',
+    summary:
+      "Close a Spec over an unaccepted supersession proposal, on the record: who, when and why, counted beside its coverage. Deciding the proposal is the ordinary path; this is the sanctioned way past the gate.",
+    args: 'override_done_gate(ref, reason)',
+    group: 'build',
+    readOnlyHint: false,
+    homePhase: null,
   },
   {
     name: 'link_ac_to_decision',

@@ -83,12 +83,17 @@ describe('DeleteTestEventsButton', () => {
       />,
     );
     fireEvent.click(screen.getByTestId('delete-test-events-button'));
+    // spec-566 t-4: the reason is mandatory, so Delete is inert until it is given.
+    fireEvent.change(screen.getByTestId('delete-test-events-reason'), {
+      target: { value: 'renamed in the repo' },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
 
     await waitFor(() =>
       expect(discontinueAcTestEvents).toHaveBeenCalledWith(
         'ac-uuid-1',
         't_alpha',
+        'renamed in the repo',
       ),
     );
     await waitFor(() => expect(onDeleted).toHaveBeenCalledTimes(1));
@@ -108,6 +113,10 @@ describe('DeleteTestEventsButton', () => {
       />,
     );
     fireEvent.click(screen.getByTestId('delete-test-events-button'));
+    // spec-566 t-4: the reason is mandatory, so Delete is inert until it is given.
+    fireEvent.change(screen.getByTestId('delete-test-events-reason'), {
+      target: { value: 'renamed in the repo' },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
 
     await waitFor(() =>

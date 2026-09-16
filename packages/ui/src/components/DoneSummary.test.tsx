@@ -302,11 +302,27 @@ describe('DoneSummary — Reopen (spec-164)', () => {
 
     // Confirm fires exactly once. (act flushes the microtask queue without
     // waitFor's real-timer polling, which the suite's fake timers would stall.)
+    //
+    // spec-566 t-8 (dec-9) added the REASON to this confirm, so the step below
+    // types one. The two-step shape spec-164 dec-5 chose is intact — affordance,
+    // then explicit confirm — and the Cancel path above is unchanged; what the
+    // second step now also collects is why. Reopening un-freezes criteria a
+    // closed Spec had certified, and dec-9 makes that a recorded act rather than
+    // a free one.
     fireEvent.click(screen.getByTestId('done-reopen'));
+    // And the confirm REFUSES until there is one — pinned here so the reason
+    // cannot quietly become optional again.
+    expect(screen.getByTestId('done-reopen-yes')).toBeDisabled();
+    fireEvent.change(screen.getByTestId('done-reopen-reason'), {
+      target: { value: 'the ledger criterion certified the wrong version' },
+    });
     await act(async () => {
       fireEvent.click(screen.getByTestId('done-reopen-yes'));
     });
     expect(onReopen).toHaveBeenCalledTimes(1);
+    // …and it carries the reason to the caller, which is what makes the act
+    // attributable at all.
+    expect(onReopen).toHaveBeenCalledWith('the ledger criterion certified the wrong version');
     // Still no fetch from inside the component (ac-9 preserved).
     expect(fetchSpy).not.toHaveBeenCalled();
   });
