@@ -55,6 +55,11 @@ const DENOMINATOR = [
   // "{n} AC" / "{n} ACs" — a count rendered immediately before the noun
   // (AcAboutDialog, DoneSummary, DecisionAcStrip).
   /\}\s*ACs?\b/,
+  // The same shape spelled out. `AcPanel` already renders "{rows.length}
+  // criteri{on|a}" beside its header, and a new surface that prefers the word
+  // "criteria" to "ACs" would otherwise be invisible to this scan — which is
+  // precisely the tenth-surface case ac-11 exists for.
+  /\}\s*criteri/,
   // "{covered.length} of {total}" — the AcPanel caption shape.
   /\.length\}\s+of\s/,
 ];
