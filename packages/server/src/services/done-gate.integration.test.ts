@@ -245,6 +245,17 @@ describe("spec-566 ac-21 — the override is attributed, or it is refused", () =
     expect(row!.channel).toBe("rest_ui");
     expect(row!.createdAt).toBeInstanceOf(Date);
 
+    // ac-6's "…and is COUNTED in the open". The counter every coverage surface
+    // reads, derived from a REAL override rather than a fixture. Every OTHER
+    // assertion on this counter in the repo is the zero case — the refused
+    // override above, the clean Spec below, and the health aggregators — and the
+    // UI's non-zero cases pass `gateOverrides` in as a prop. Without this line
+    // the seam between a real override and the number a reader sees is asserted
+    // nowhere, and "counted" would rest on hardcoded props alone.
+    expect(await countGateOverridesForBriefs(memexId, [briefId])).toEqual(
+      new Map([[briefId, 1]]),
+    );
+
     // …and the gate is clear. Read the status back: "the override returned
     // successfully" is not the claim.
     expect(await listDoneGateBlockers(memexId, briefId)).toEqual([]);
