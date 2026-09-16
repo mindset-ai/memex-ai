@@ -33,6 +33,9 @@ const AC_DRIFT_MODE =
 
 function row(overrides: Partial<DriftInboxRow> = {}): DriftInboxRow {
   return {
+    // spec-566 t-9: null on every row that is not an AC supersession proposal,
+    // which is every row this file builds.
+    ac: null,
     commentId: "c-1",
     commentHandle: "c-1",
     commentType: "drift",

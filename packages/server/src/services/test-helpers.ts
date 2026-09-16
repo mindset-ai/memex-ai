@@ -72,6 +72,12 @@ export async function seedTestEvent(input: SeedTestEventInput): Promise<void> {
         testIdentifier,
         hidden,
         runId: input.runId ?? null,
+        // spec-566 t-4: mirror the ROUTE's mapping rather than leaving the column
+        // null. routes/test-events.ts derives commit_sha from `metadata.commit`
+        // (the wire field and the metadata key differ by name, spec-528), so a
+        // fixture that skipped it would produce a shape production never writes —
+        // the same trap this helper's runId comment already warns about.
+        commitSha: (input.metadata?.commit as string | undefined) ?? null,
         metadata: input.metadata ?? null,
         ...(input.createdAt ? { createdAt: input.createdAt } : {}),
       })

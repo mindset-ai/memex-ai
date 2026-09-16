@@ -29,7 +29,14 @@ const VOCAB = [
   { key: "security", label: "Security", description: "authz, tenancy, secrets" },
 ];
 
-const OPTS = { noun: "task" as const, channel: "mcp" as const };
+// spec-565 dec-1 added `declaredOptionals` as a REQUIRED field on the create-verb
+// guard. These tests are about the validation staying FATAL (spec-560 ac-11), not about
+// the diagnosis wording, so any honest create_task list serves.
+const OPTS = {
+  noun: "task" as const,
+  channel: "mcp" as const,
+  declaredOptionals: ["acceptanceCriteria", "sectionRef", "facetBallot"],
+};
 
 describe("spec-560: pre-commit validation stays fatal", () => {
   it("an ABSENT ballot still throws where a vocabulary exists — nothing is created", async () => {

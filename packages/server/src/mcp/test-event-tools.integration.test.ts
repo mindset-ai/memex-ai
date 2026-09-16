@@ -156,7 +156,7 @@ describe("ref-keyed test-event MCP tools (spec-127 dec-2)", () => {
     const tid = "tests/gone.test.ts::renamed away";
     await seedTestEvent({ subjectRef: uid, status: "fail", testIdentifier: tid });
 
-    const out = text(await callTool(actor.user.id, "discontinue_test_events", { ref: acRef, test_identifier: tid }));
+    const out = text(await callTool(actor.user.id, "discontinue_test_events", { ref: acRef, test_identifier: tid, reason: "renamed away in the repo" }));
     expect(out).toContain(`ref: ${acRef}`);
     expect(out).toContain("retired (hard-deleted) 1 emission");
     // Verdict cleared: the only (failing) identifier's events are gone → untested.

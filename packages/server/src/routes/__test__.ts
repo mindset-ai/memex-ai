@@ -5,6 +5,9 @@
 
 import { Hono } from "hono";
 import { z } from "zod/v4";
+// spec-566 t-11 — the real supersession verb, so a seeded proposal carries the
+// shape the accept parses and the done-gate reads.
+import { proposeAcSupersession } from "../services/ac-supersession.js";
 import { eq, and } from "drizzle-orm";
 import {
   clearFakeQueue,
@@ -1568,4 +1571,34 @@ testOnlyRouter.post("/seed-clauses", async (c) => {
     { channel: "server", actorName: "e2e-seed" },
   );
   return c.json({ clauseIds: created.map((r) => r.id) });
+});
+
+// spec-566 t-11 — seed an AC supersession proposal through the REAL verb.
+//
+// The web offers no control to propose one (it is MCP-only by design, dec-1), so
+// a journey asserting the /drift row, the done-gate refusal or the override has
+// to have the state seeded. Through `proposeAcSupersession` rather than an
+// INSERT, so the seeded row carries the same payload shape the accept parses and
+// the gate reads — a hand-written comment would let the journey pass against a
+// shape production never writes.
+const seedAcProposalSchema = z.object({
+  memexId: z.string().uuid(),
+  acId: z.string().uuid(),
+  decisionId: z.string().uuid(),
+  proposedStatement: z.string().min(1).optional(),
+  rationale: z.string().optional(),
+});
+testOnlyRouter.post("/seed-ac-proposal", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = seedAcProposalSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { memexId, acId, decisionId, proposedStatement, rationale } = parsed.data;
+  const result = await proposeAcSupersession(
+    { memexId, acId, decisionId, proposedStatement, rationale },
+    // std-32: a seeded write is still an attributed write.
+    { channel: "server", actorName: "e2e-seed" },
+  );
+  return c.json({ commentId: result.comment.id, commentSeq: result.comment.seq });
 });

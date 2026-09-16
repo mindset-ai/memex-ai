@@ -51,6 +51,8 @@ const SCAN_DIRS = ["services", "routes", "agent", "mcp", "middleware"] as const;
 const ALLOWLIST: Record<string, string> = {
   "services/mutate.ts":
     "The wrapper itself — the legitimate single call site for all mutations.",
+  "services/lifecycle-journal.ts":
+    "spec-566 dec-3 journal — `recordLifecycleEvent` is a tx-helper invoked ONLY from inside the mutate() callbacks of its four writers (test retirement t-4, AC status transition t-6, gate override t-7, Spec reopen t-8), taking the caller's `conn` so the record and the act it records commit together. Wrapping it in its own mutate() would double-emit on the bus AND let the journal row commit while its operation rolled back — the opposite of the property. Same callback-scoped-heuristic blind spot as clauses.ts's regenerateSectionContentTx.",
   "routes/__test__.ts":
     "spec-172 test-only e2e seed router — NEVER mounted in production (env-gated in app.ts; pinned by test-router-env-gate.regression.test.ts, ac-9). SEEDING goes through real services (and therefore mutate(), asserted by __test__-router-coverage.integration.test.ts ac-8); the raw writes here are journey CLEANUP cascades (deleting throwaway orgs/namespaces/docs — emitting teardown events would spam the SSE bus the journeys are asserting) plus two seed nudges (decision options backfill, org-membership grant) with no SSE subscriber interest.",
   // spec-161 clause service — regenerateSectionContentTx is a tx-helper invoked
@@ -59,6 +61,8 @@ const ALLOWLIST: Record<string, string> = {
   // return Mutated<T> and dual-emit clause + section keys). The callback-scoped
   // heuristic (ac-24) cannot follow the helper indirection; the service-coverage
   // brand test still polices every public entry point of this file.
+  "services/ac-supersession.ts":
+    "spec-566 t-2 — `supersedeAcTx` / `createSuccessorAcTx` / `linkAcToDecisionTx` are private tx-helpers called ONLY from inside `acceptAcSupersession`'s own mutate() callback, in this same file. They take the caller's `tx` because accepting a supersession retires one criterion, mints its successor, writes the lifecycle journal row and resolves the proposal — a partial apply would leave a Spec whose criterion is superseded with nothing replacing it. Wrapping each in its own mutate() would emit several events for ONE reviewed act and let some commit while the rest rolled back. Same callback-scoped-heuristic blind spot as clauses.ts's regenerateSectionContentTx. The exemption is scoped to THIS module deliberately: the helpers were deliberately NOT left in services/acs.ts, because this allowlist is file-granular and an entry on a service that large would blunt the std-8 guard for every future writer in it.",
   "services/clauses.ts":
     "tx-helper indirection — regenerateSectionContentTx writes doc_sections.content only inside callers' mutate() callbacks; all public writers return Mutated<T> (verified by mutate-coverage.service).",
   // spec-179 clause_refs maintenance — syncClauseRefsTx is a tx-helper invoked

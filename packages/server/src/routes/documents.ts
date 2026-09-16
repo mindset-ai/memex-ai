@@ -9,6 +9,8 @@ import {
   setSensitive,
   clearSensitive,
 } from "../services/documents.js";
+// spec-566 t-7 — the attributed act that clears the done-gate.
+import { overrideDoneGate } from "../services/done-gate.js";
 import { restCtx } from "./_actor-ctx.js";
 import { moveDoc } from "../services/doc-move.js";
 import { splitSection, updateSection } from "../services/sections.js";
@@ -434,13 +436,46 @@ docs.get("/:id", async (c) => {
 docs.post("/:id/status", async (c) => {
   const memexId = requireMemexId(c);
   const id = c.req.param("id");
-  const body = await parseJsonBodyOrNull<{ status?: unknown }>(c);
+  const body = await parseJsonBodyOrNull<{ status?: unknown; reason?: unknown }>(c);
   const status = requireStringType(body?.status, "status", {
     message: "Body must include a 'status' string",
   });
+  // spec-566 t-8 (dec-9): optional on the wire so no existing client 400s, and
+  // REQUIRED by the service for the one move that needs it — leaving `done`.
+  // The refusal is typed (`REOPEN_NEEDS_REASON`), so the Done screen and the
+  // board can ask for a reason instead of reporting a fault.
+  const reason = typeof body?.reason === "string" ? body.reason : undefined;
   // spec-122 dec-3 — carry the actor/channel onto the status_changed journal row.
-  const updated = await updateDocStatus(memexId, id, status, { source: "rest", ctx: restCtx(c) });
+  const updated = await updateDocStatus(memexId, id, status, {
+    source: "rest",
+    ctx: restCtx(c),
+    reason,
+  });
   return c.json(updated);
+});
+
+// spec-566 t-7 (dec-7 / dec-10) — close a Spec over an unaccepted supersession
+// proposal, on the record. The board calls this after `POST /:id/status` comes
+// back with `code: "DONE_GATE_BLOCKED"`.
+//
+// AUTHORISATION, as it actually works here rather than as dec-10 imagined it.
+// dec-10 reasoned from spec-182 dec-4 that an override is a DISPOSITION and so
+// belongs on `canEdit`. Read against the code, no doc route enforces a posture
+// server-side: `requireMemexId` plus the memex resolver enforce org membership
+// [std-4], and a Spec outside the caller's reach 404s there [std-7], while the
+// canWrite/canEdit split gates the AFFORDANCE in the React UI. `/:id/archive` —
+// the nearest disposition — works exactly this way. Adding a posture check on
+// this one route would invent a mechanism no sibling has, so the override
+// follows the existing shape and the UI gates the control on `canEdit`.
+docs.post("/:id/done-gate-override", async (c) => {
+  const memexId = requireMemexId(c);
+  const id = c.req.param("id");
+  const body = await parseJsonBodyOrNull<{ reason?: unknown }>(c);
+  const reason = requireStringType(body?.reason, "reason", {
+    message: "Body must include a 'reason' string — an override with no stated reason is refused",
+  });
+  const result = await overrideDoneGate(memexId, id, reason, restCtx(c));
+  return c.json(result);
 });
 
 // spec-521 (ac-4) — archiving now records WHY, and threads the actor/channel so the

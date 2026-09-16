@@ -35,7 +35,23 @@ export interface DriftProposalOperation {
 export type DriftProposal =
   | { kind: 'clause-ops'; operations: DriftProposalOperation[] }
   | { kind: 'legacy'; proposed: string }
-  | { kind: 'unreadable' };
+  | { kind: 'unreadable' }
+  /**
+   * spec-566 t-9 (dec-1) — an AC supersession proposal, in the same queue as a
+   * standards one. `after: null` retires the criterion with no successor, which
+   * is a legitimate proposal rather than an empty payload. `current` is the
+   * criterion's live statement: the accept REFUSES when it moved underneath the
+   * proposal, so the reviewer sees that here instead of at accept time.
+   */
+  | { kind: 'ac-supersession'; before: string; after: string | null; current: string | null };
+
+/** spec-566 t-9 — the criterion a supersession proposal targets. */
+export interface DriftInboxAc {
+  /** `ac-N`. */
+  handle: string;
+  kind: string;
+  statement: string;
+}
 
 /**
  * Drift Inbox row — open `drift` or `plan_revision` typed comment with parent
@@ -66,6 +82,8 @@ export interface DriftInboxItem {
    * the row renders. `null` for a `drift` observation.
    */
   proposal: DriftProposal | null;
+  /** spec-566 t-9 — set when the row is an AC supersession proposal, null otherwise. */
+  ac?: DriftInboxAc | null;
   createdAt: string; // ISO timestamp from the JSON wire
   /**
    * The source DECISION a `drift` finding contradicts (spec-498 dec-4) — its

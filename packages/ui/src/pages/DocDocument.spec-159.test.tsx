@@ -60,10 +60,15 @@ vi.mock('../components/DoneSummary', () => ({
   // spec-164 dec-5: the stub surfaces the reopen wiring so the page-level
   // tests can assert DocDocument threads canReopen (editor posture) and that
   // onReopen performs the verify status write.
-  DoneSummary: (props: { canReopen?: boolean; onReopen?: () => void }) => (
+  // spec-566 t-8 (dec-9): `onReopen` now takes the REASON the real DoneSummary
+  // collects in its confirm — reopening a closed Spec is a recorded act, and the
+  // server refuses it without one. The stub passes a reason so this case keeps
+  // testing the WIRING (does the page hand the write down?) rather than becoming
+  // an accidental test of the guard.
+  DoneSummary: (props: { canReopen?: boolean; onReopen?: (reason: string) => void }) => (
     <div data-testid="done-summary" data-can-reopen={props.canReopen ? 'true' : 'false'}>
       {props.canReopen && (
-        <button data-testid="stub-reopen" onClick={() => props.onReopen?.()}>
+        <button data-testid="stub-reopen" onClick={() => props.onReopen?.('stub reason')}>
           reopen
         </button>
       )}
@@ -878,7 +883,12 @@ describe('done → verify reopen wiring (spec-164)', () => {
     expect(summary).toHaveAttribute('data-can-reopen', 'true');
 
     await userEvent.click(screen.getByTestId('stub-reopen'));
-    await waitFor(() => expect(updateDocStatus).toHaveBeenCalledWith('doc-uuid', 'verify'));
+    await waitFor(() =>
+      // The reason rides with the phase move (spec-566 t-8) — asserted here so a
+      // page that dropped it on the floor, leaving the server to refuse, fails
+      // in the wiring test rather than only in production.
+      expect(updateDocStatus).toHaveBeenCalledWith('doc-uuid', 'verify', 'stub reason'),
+    );
   });
 });
 

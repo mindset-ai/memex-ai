@@ -1,6 +1,6 @@
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "../db/connection.js";
-import { documents, docSections, docComments, decisions, tasks } from "../db/schema.js";
+import { documents, docSections, docComments, decisions, tasks, acs } from "../db/schema.js";
 import type { Doc, DocComment, DocSection, Decision, Task } from "../db/schema.js";
 import { NotFoundError, ValidationError } from "../types/errors.js";
 import {
@@ -586,7 +586,8 @@ interface CommentTargetDescriptor {
   listColumn:
     | typeof docComments.sectionId
     | typeof docComments.decisionId
-    | typeof docComments.taskId;
+    | typeof docComments.taskId
+    | typeof docComments.acId;
 }
 
 const SECTION_TARGET: CommentTargetDescriptor = {
@@ -638,6 +639,24 @@ const TASK_TARGET: CommentTargetDescriptor = {
   listColumn: docComments.taskId,
 };
 
+// spec-566 t-2. The criterion as a comment target — what a supersession proposal
+// hangs on. Memex-scoped in its own lookup like DECISION / TASK, and 404s with the
+// same `<Noun> ${id} not found` shape [per std-7]: a criterion in another memex is
+// indistinguishable from one that does not exist.
+const AC_TARGET: CommentTargetDescriptor = {
+  toTarget: (acId) => ({ kind: "ac", acId }),
+  resolveDocId: async (memexId, acId) => {
+    const item = await db.query.acs.findFirst({
+      where: and(eq(acs.id, acId), eq(acs.memexId, memexId)),
+    });
+    if (!item) {
+      throw new NotFoundError(`AC ${acId} not found`);
+    }
+    return item.briefId;
+  },
+  listColumn: docComments.acId,
+};
+
 // The single add path: resolve docId → mutate(comment created) → seq-retried
 // insert carrying the descriptor's FK column. Byte-for-byte the prior per-target
 // bodies, just parameterised.
@@ -648,6 +667,11 @@ async function addCommentForTarget(
   authorName: string,
   content: string,
   extras?: CommentExtras,
+  // spec-566 t-2: optional and defaulted to the historic `{}`, so every existing
+  // caller behaves byte-identically. A caller that HAS an identity — the
+  // supersession proposal does — passes it, and the activity contract's WHO/HOW
+  // reaches the row instead of being dropped on the floor [per std-32].
+  ctx: RequestCtx = {},
 ): Promise<Mutated<DocComment>> {
   const norm = await normalizeExtras(memexId, extras);
 
@@ -655,7 +679,7 @@ async function addCommentForTarget(
   const targetColumns = commentTargetToColumns(desc.toTarget(targetId));
 
   return mutate(
-    {},
+    ctx,
     { memexId, docId, entity: "comment", action: "created" },
     async () =>
       withSeqRetry(
@@ -828,6 +852,26 @@ export async function addTaskComment(
   extras?: CommentExtras,
 ): Promise<Mutated<DocComment>> {
   return addCommentForTarget(TASK_TARGET, memexId, taskId, authorName, content, extras);
+}
+
+// ── AC comments ─────────────────────────────────────────────
+
+/**
+ * Attach a comment to an acceptance criterion. spec-566 t-2's supersession
+ * proposal is the only caller today, and deliberately the only exported half of
+ * this target: nothing outside reads AC comments as a list yet [per std-51], and
+ * the gate's "is there an open proposal" question is a narrower query than a
+ * chronological listing, so it lives with the verb that asks it.
+ */
+export async function addAcComment(
+  memexId: string,
+  acId: string,
+  authorName: string,
+  content: string,
+  extras?: CommentExtras,
+  ctx: RequestCtx = {},
+): Promise<Mutated<DocComment>> {
+  return addCommentForTarget(AC_TARGET, memexId, acId, authorName, content, extras, ctx);
 }
 
 export async function listTaskComments(

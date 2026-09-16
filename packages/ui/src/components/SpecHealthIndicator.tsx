@@ -24,6 +24,8 @@
 // has no commitments yet — explicitly NOT a warning state.
 
 import type { AcHealth } from '../api/types';
+// spec-566 dec-2 — one rendering decision for the superseded count.
+import { coverageAnnotationLabels } from '@memex/shared';
 
 export type CardHealthState =
   | 'verified'
@@ -94,7 +96,33 @@ export function borderClassForHealth(health: AcHealth | undefined): string {
  */
 export function SpecHealthChip({ health }: SpecHealthIndicatorProps) {
   const state = deriveCardHealthState(health);
-  if (state === 'no-commitments' || !health) return null;
+  // spec-566 ac-11 — the retired count, beside the ratio and never inside it.
+  // `totalActive` is already the live set (the aggregate query filters to
+  // `status = 'active'`), so the ratio needed no change; what it needed was for
+  // the retirement to stop being invisible.
+  const annotations = coverageAnnotationLabels({
+    superseded: health?.superseded ?? 0,
+    overrides: health?.overrides ?? 0,
+    reopens: health?.reopens ?? 0,
+  });
+  const supersededLabel = annotations.length ? annotations.join(' · ') : null;
+  // A Spec with NO live criteria still renders when some were retired. Without
+  // this, "every criterion was superseded" and "no criteria were ever written"
+  // are the same card — the badge this Spec exists to make falsifiable.
+  // `deriveCardHealthState` is deliberately untouched: b-66's states are about
+  // live commitments, and a retirement is not one.
+  if (state === 'no-commitments' || !health) {
+    if (!supersededLabel) return null;
+    return (
+      <span
+        data-testid="spec-health-chip"
+        data-health-state={state}
+        className="inline-flex items-center rounded-xs px-1.5 py-0.5 text-[10px] font-mono tabular-nums text-muted"
+      >
+        {supersededLabel}
+      </span>
+    );
+  }
   const label = (() => {
     if (state === 'failing') {
       return `${health.failing} failing`;
@@ -113,6 +141,11 @@ export function SpecHealthChip({ health }: SpecHealthIndicatorProps) {
       className={`inline-flex items-center rounded-xs px-1.5 py-0.5 text-[10px] font-mono tabular-nums ${CHIP_BY_STATE[state]}`}
     >
       {label}
+      {supersededLabel && (
+        <span data-testid="spec-health-superseded" className="ml-1 text-muted">
+          · {supersededLabel}
+        </span>
+      )}
     </span>
   );
 }

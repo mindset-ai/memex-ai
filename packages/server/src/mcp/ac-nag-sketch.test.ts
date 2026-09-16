@@ -61,6 +61,7 @@ function makeAc(opts: {
     canonicalRef: acRef(opts.seq),
     tests: [],
     verificationState: opts.state,
+    supersessionProposed: false,
     daysSinceLastRun: null,
     parents: [],
   };

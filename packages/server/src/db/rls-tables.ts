@@ -39,6 +39,10 @@ export const RLS_TENANT_TABLES: ReadonlySet<string> = new Set([
   "presence",
   "qa_report_views",
   "repos",
+  // spec-566 t-1 — the Spec lifecycle journal, gated by migration 0149. Listing it
+  // here also arms spec-440's context guard, which is what makes a context-less
+  // write fail LOUDLY rather than writing a tenant-less row.
+  "spec_lifecycle_events",
   "standard_clause_facets",
   "standard_clauses",
   "tags",

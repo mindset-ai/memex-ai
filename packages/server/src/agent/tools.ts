@@ -459,6 +459,12 @@ const DRIFT_SERVER_TOOLS = new Set<string>([
   // (spec-143 dec-3), so this conversation is the only path. Presence here is the
   // definition filter; /tools/execute is the authoritative gate [per std-38].
   "accept_standard_change",
+  // spec-566 t-2 (dec-1 option C): AC supersessions land in the SAME queue, so the
+  // drift agent is the surface a user accepts one from — the Drift Inbox has no
+  // action controls (spec-143 dec-3), which makes this conversation the only path,
+  // exactly as it already is for standards proposals.
+  "accept_ac_supersession",
+  "reject_ac_supersession",
   "search_memex",
   "get_doc",
   "list_comments",

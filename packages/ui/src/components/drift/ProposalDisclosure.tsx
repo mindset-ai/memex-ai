@@ -27,6 +27,62 @@ export function ProposalDisclosure({ proposal }: { proposal: DriftProposal | nul
   const [open, setOpen] = useState(false);
   if (!proposal) return null;
 
+  // spec-566 t-9 (ac-10) — an AC supersession, BEFORE the unapplicable branch.
+  //
+  // Falling through to that branch would tell the reviewer this proposal "carries
+  // no readable changes" when it is a different, well-formed shape. Same posture
+  // as the clause diff: collapsed by default and collapsed means NOT RENDERED, so
+  // the row stays one scannable line (spec-498), and read-only — no Accept, no
+  // Reject (spec-143 dec-3). The reader forms a view and tells the agent.
+  if (proposal.kind === 'ac-supersession') {
+    const moved = proposal.current !== null && proposal.current !== proposal.before;
+    return (
+      <div className="mt-2">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setOpen((v) => !v);
+          }}
+          aria-expanded={open}
+          className="text-xs text-secondary hover:text-primary underline decoration-dotted"
+          data-testid="drift-ac-supersession-toggle"
+        >
+          {open ? 'Hide' : 'Show'} the criterion, before and after
+        </button>
+        {open && (
+          <div className="mt-2 space-y-2 text-xs" data-testid="drift-ac-supersession-diff">
+            <div data-testid="drift-ac-before">
+              <span className="text-muted">Criterion as written</span>
+              <p className="mt-0.5 text-secondary">{proposal.before}</p>
+            </div>
+            <div data-testid="drift-ac-after">
+              <span className="text-muted">
+                {proposal.after === null ? 'Proposed' : 'Proposed replacement'}
+              </span>
+              <p className="mt-0.5 text-primary">
+                {proposal.after === null
+                  ? 'Retire this criterion with no replacement.'
+                  : proposal.after}
+              </p>
+            </div>
+            {/* Only when it actually moved. Showing an unchanged "live now" beside
+                an identical "as written" is noise that trains the reader to skip
+                the one case where it matters. */}
+            {moved && (
+              <div data-testid="drift-ac-moved">
+                <span className="text-muted">
+                  ⚠ The criterion has changed since this was proposed — it now reads
+                </span>
+                <p className="mt-0.5 text-secondary">{proposal.current}</p>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   // A legacy or unreadable body has no operations to diff. Say so in one line rather
   // than dumping the body — an unapplicable row must cost one explanatory sentence, not
   // the wall of text spec-498 removed (spec-530 ac-18).

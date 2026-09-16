@@ -138,4 +138,19 @@ export interface AcHealth {
   failing: number;
   stale: number;
   untested: number;
+  /** spec-188 dec-1 — manually accepted. Was already on the wire (documents.ts
+   *  assigns the service's object whole) but missing from this declaration, so
+   *  the field reached clients untyped. Named here as a pure type correction:
+   *  no runtime change, nothing new is sent. */
+  accepted: number;
+  /** spec-566 dec-2 — criteria retired by an accepted supersession. Outside
+   *  `totalActive` and outside every percentage; rendered beside the coverage
+   *  figure so a Spec cannot reach 100% by retiring what it could not satisfy. */
+  superseded: number;
+  /** spec-566 dec-7 — times this Spec's done-gate was overridden, rendered
+   *  beside coverage so the escape hatch cannot quietly become the norm. */
+  overrides: number;
+  /** spec-566 dec-9 — times this closed Spec was reopened, rendered beside
+   *  coverage so reopening cannot quietly become the route around the freeze. */
+  reopens: number;
 }

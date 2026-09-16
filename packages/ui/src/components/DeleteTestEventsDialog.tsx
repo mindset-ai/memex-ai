@@ -10,6 +10,13 @@
 // Confirmation requires a deliberate "Delete" button click. Cancel button,
 // Escape key, and backdrop click all close the dialog WITHOUT issuing the
 // DELETE — the friction is a deliberate UX trade-off (per dec-13).
+//
+// spec-566 t-4 adds a REQUIRED reason. The emissions are still hard-deleted; what
+// changes is that the act now leaves a durable, named receipt instead of an
+// `activity_log` line reading "ac updated" that expires after 30 days. Delete
+// stays disabled until the reason is non-blank — the server refuses a blank one
+// anyway, and discovering that after clicking Delete on an irreversible action is
+// the wrong place to learn it.
 
 import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -17,7 +24,7 @@ import { createPortal } from 'react-dom';
 interface DeleteTestEventsDialogProps {
   testIdentifier: string;
   count: number;
-  onConfirm: () => Promise<void>;
+  onConfirm: (reason: string) => Promise<void>;
   onClose: () => void;
 }
 
@@ -28,6 +35,8 @@ export function DeleteTestEventsDialog({
   onClose,
 }: DeleteTestEventsDialogProps): React.ReactPortal {
   const [submitting, setSubmitting] = useState(false);
+  const [reason, setReason] = useState('');
+  const reasonReady = reason.trim().length > 0;
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -44,9 +53,10 @@ export function DeleteTestEventsDialog({
 
   const handleConfirm = async (): Promise<void> => {
     if (submitting) return;
+    if (!reasonReady) return;
     setSubmitting(true);
     try {
-      await onConfirm();
+      await onConfirm(reason.trim());
     } finally {
       setSubmitting(false);
     }
@@ -81,6 +91,28 @@ export function DeleteTestEventsDialog({
           <p className="font-mono text-xs text-muted truncate" title={testIdentifier}>
             {testIdentifier || '(unnamed)'}
           </p>
+          <div className="space-y-1.5">
+            <label
+              htmlFor="delete-test-events-reason"
+              className="block text-xs font-medium text-heading"
+            >
+              Why is this being retired?
+            </label>
+            <textarea
+              id="delete-test-events-reason"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              disabled={submitting}
+              rows={3}
+              placeholder="What happened to the test — renamed, deleted, moved, replaced by another test?"
+              className="w-full rounded-md border border-edge bg-panel px-2.5 py-1.5 text-sm text-body placeholder:text-muted focus:outline-hidden focus:ring-2 focus:ring-rose-500/40 disabled:opacity-50"
+              data-testid="delete-test-events-reason"
+            />
+            <p className="text-xs text-muted">
+              Kept with the retirement, alongside who did it and the commit the
+              deleted evidence ran against.
+            </p>
+          </div>
         </div>
         <div className="flex justify-end gap-2 px-5 py-3 border-t border-edge">
           <button
@@ -96,7 +128,8 @@ export function DeleteTestEventsDialog({
             onClick={() => {
               void handleConfirm();
             }}
-            disabled={submitting}
+            disabled={submitting || !reasonReady}
+            title={reasonReady ? undefined : 'Give a reason first'}
             className="px-3 py-1.5 text-sm rounded-md bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50"
           >
             {submitting ? 'Deleting…' : 'Delete'}

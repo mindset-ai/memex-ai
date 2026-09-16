@@ -32,6 +32,7 @@
 import { and, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { standardClauses } from "../db/schema.js";
+import { parseAcSupersessionBody } from "./ac-supersession.js";
 import { parseProposedChangeBody } from "./standards.js";
 
 /**
@@ -73,7 +74,28 @@ export interface DriftProposalOperation {
 export type DriftProposal =
   | { kind: "clause-ops"; operations: DriftProposalOperation[] }
   | { kind: "legacy"; proposed: string }
-  | { kind: "unreadable" };
+  | { kind: "unreadable" }
+  /**
+   * spec-566 t-9 (dec-1) — an AC supersession proposal, in the same queue.
+   *
+   * `before` is the criterion's statement when the proposal was written, `after`
+   * the replacement (NULL retires it with no successor — a legitimate proposal,
+   * not a corrupt one), and `current` its live statement now. Three fields
+   * rather than two because the accept REFUSES when the criterion moved
+   * underneath the proposal, and a reviewer should see that here rather than
+   * discover it at accept time — the same reason the clause variant carries
+   * `current`.
+   */
+  | { kind: "ac-supersession"; before: string; after: string | null; current: string | null };
+
+/** spec-566 t-9 — the criterion a supersession proposal targets. */
+export interface DriftInboxAc {
+  /** `ac-N`, so the row is referenceable the way the agent handoff needs. */
+  handle: string;
+  kind: string;
+  /** The criterion's LIVE statement. */
+  statement: string;
+}
 
 export interface DriftInboxRow {
   commentId: string;
@@ -146,6 +168,8 @@ export interface DriftInboxRow {
     docType: string;
     status: string;
   };
+  /** spec-566 t-9 — set when the row is an AC supersession proposal. */
+  ac: DriftInboxAc | null;
 }
 
 export interface ListDriftInboxOptions {
@@ -218,7 +242,13 @@ function normalizeProposedContent(
  */
 async function resolveProposals(
   memexId: string,
-  rows: { docId: string; commentType: "drift" | "plan_revision"; content: string }[],
+  rows: {
+    docId: string;
+    commentType: "drift" | "plan_revision";
+    content: string;
+    /** spec-566 t-9 — the criterion's LIVE statement, when this row is one. */
+    acStatement?: string | null;
+  }[],
 ): Promise<Map<string, DriftProposal | null>> {
   const out = new Map<string, DriftProposal | null>();
   const parsedByKey = new Map<string, ReturnType<typeof parseProposedChangeBody>>();
@@ -226,6 +256,9 @@ async function resolveProposals(
 
   rows.forEach((r, i) => {
     if (r.commentType !== "plan_revision") return;
+    // spec-566 t-9: an AC supersession carries a different payload and needs no
+    // clause lookup at all, so it never enters the seq-collection pass below.
+    if (r.acStatement !== undefined && r.acStatement !== null) return;
     const parsed = parseProposedChangeBody(r.content);
     parsedByKey.set(String(i), parsed);
     if (parsed?.kind !== "clause-ops") return;
@@ -265,6 +298,25 @@ async function resolveProposals(
   rows.forEach((r, i) => {
     if (r.commentType !== "plan_revision") {
       out.set(String(i), null);
+      return;
+    }
+    // spec-566 t-9 (dec-1) — the AC branch, BEFORE the clause parse. Running
+    // `parseProposedChangeBody` over a supersession body yields nothing, and the
+    // row would degrade to `unreadable`: the reviewer would be told the payload
+    // was corrupt when it is simply a different, well-formed shape.
+    if (r.acStatement !== undefined && r.acStatement !== null) {
+      const sup = parseAcSupersessionBody(r.content);
+      out.set(
+        String(i),
+        sup
+          ? {
+              kind: "ac-supersession",
+              before: sup.before,
+              after: sup.after,
+              current: r.acStatement,
+            }
+          : { kind: "unreadable" },
+      );
       return;
     }
     const parsed = parsedByKey.get(String(i));
@@ -316,6 +368,11 @@ interface RawRow {
   doc_title: string;
   doc_type: string;
   doc_status: string;
+  // spec-566 t-9 — null on every row that is not an AC supersession proposal.
+  ac_id: string | null;
+  ac_seq: number | null;
+  ac_kind: string | null;
+  ac_statement: string | null;
 }
 
 function encodeCursor(createdAt: Date | string, commentId: string): string {
@@ -395,22 +452,37 @@ export async function listDriftInbox(
       d.handle          AS doc_handle,
       d.title           AS doc_title,
       d.doc_type        AS doc_type,
-      d.status          AS doc_status
+      d.status          AS doc_status,
+      -- spec-566 t-9: the criterion a supersession proposal targets.
+      a.id              AS ac_id,
+      a.seq             AS ac_seq,
+      a.kind            AS ac_kind,
+      a.statement       AS ac_statement
     FROM doc_comments c
     LEFT JOIN doc_sections s ON s.id = c.section_id
+    LEFT JOIN acs a ON a.id = c.ac_id
     LEFT JOIN decisions dec ON dec.id = c.drift_decision_id
     -- The decision's owning SPEC (for the canonical /specs/:h/decisions/:h URL).
     -- Gated to doc_type='spec' so a decision on a non-spec doc degrades to no-link.
     LEFT JOIN documents dec_spec ON dec_spec.id = dec.doc_id AND dec_spec.doc_type = 'spec'
+    -- spec-566 t-9 adds a.brief_id. A supersession proposal hangs off ac_id,
+    -- which matched none of the three existing target columns, so before this
+    -- the row resolved no parent doc at all and the INNER JOIN dropped it.
+    -- (No backticks in here: this is inside a sql template literal.)
     INNER JOIN documents d ON d.id = COALESCE(
       s.doc_id,
       (SELECT doc_id FROM decisions WHERE id = c.decision_id),
-      (SELECT doc_id FROM tasks WHERE id = c.task_id)
+      (SELECT doc_id FROM tasks WHERE id = c.task_id),
+      a.brief_id
     )
     WHERE c.memex_id = ${memexId}
       AND c.resolved_at IS NULL
       AND c.comment_type IN ('drift', 'plan_revision')
-      AND d.doc_type = 'standard'
+      -- spec-566 t-9 (dec-1): standards proposals, OR a comment that targets a
+      -- CRITERION. Deliberately not "any Spec comment": widening that far would
+      -- put every review note on every Spec into the queue, and an inbox nobody
+      -- can use is a worse outcome than the row being missing.
+      AND (d.doc_type = 'standard' OR c.ac_id IS NOT NULL)
       AND d.archived_at IS NULL
       ${docFilter}
       ${cursorClause}
@@ -430,6 +502,7 @@ export async function listDriftInbox(
       docId: r.doc_id,
       commentType: r.comment_type,
       content: r.content,
+      acStatement: r.ac_statement,
     })),
   );
 
@@ -471,6 +544,14 @@ export async function listDriftInbox(
       docType: r.doc_type,
       status: r.doc_status,
     },
+    ac:
+      r.ac_id && r.ac_seq != null
+        ? {
+            handle: `ac-${r.ac_seq}`,
+            kind: r.ac_kind ?? "",
+            statement: r.ac_statement ?? "",
+          }
+        : null,
   }));
 
   return { items, nextCursor };

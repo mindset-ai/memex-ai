@@ -107,7 +107,27 @@ acsRouter.delete("/:acId/test-events", async (c) => {
   if (typeof testIdentifier !== "string" || testIdentifier.length === 0) {
     return c.json({ error: "test_identifier query parameter is required" }, 400);
   }
-  const result = await discontinueTestEventsForAc(memexId, acId, testIdentifier);
+  // spec-566 t-4 (ac-5): the retirement's reason. On the query string rather than a
+  // body because this is a DELETE and the existing contract already carries
+  // test_identifier there — one place to look, and no fetch client has to learn
+  // that this particular DELETE takes a body.
+  const reason = c.req.query("reason");
+  if (typeof reason !== "string" || reason.trim().length === 0) {
+    return c.json(
+      {
+        error:
+          "reason query parameter is required — retiring evidence hard-deletes it, and the record of why is all that survives.",
+      },
+      400,
+    );
+  }
+  const result = await discontinueTestEventsForAc(
+    memexId,
+    acId,
+    testIdentifier,
+    reason,
+    restCtx(c),
+  );
   return c.json(result);
 });
 

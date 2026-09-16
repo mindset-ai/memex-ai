@@ -229,7 +229,15 @@ describe("updateDocStatus", () => {
       "verify",
       "draft",
     ] as const) {
-      const updated = await updateDocStatus(memexId, draft.id, status);
+      // spec-566 t-8 (dec-9): leaving `done` on a Spec is a recorded act and
+      // needs a reason. `createDocDraft` here defaults to docType 'spec', so the
+      // `done` → `approved` step in this list is a reopen. The reason is supplied
+      // rather than the step dropped — this case's claim is that the COLUMN
+      // accepts every canonical status, and skipping a transition to dodge a
+      // guard would quietly shrink what it checks.
+      const updated = await updateDocStatus(memexId, draft.id, status, {
+        reason: "exercising the canonical status vocabulary",
+      });
       expect(updated.status).toBe(status);
     }
   });

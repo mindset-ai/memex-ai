@@ -25,7 +25,12 @@ import {
 // spec-423 dec-5 — the forced facet ballot + payoff readout. Vocab is read via
 // facet-ballot.ts → facet-vocab.ts (NO-LLM); the classifier engine is never imported
 // on this request path (the facet-classifier-no-request-path regression guard).
-import { requireBallotForMemex, taskBallotTrueFacets, facetKeysByTask } from "../../services/facet-ballot.js";
+import {
+  requireBallotForMemex,
+  validateBallotForMemex,
+  taskBallotTrueFacets,
+  facetKeysByTask,
+} from "../../services/facet-ballot.js";
 import { parseBallotArg, storeRouteAndReadout, routeAndReadout } from "../../services/facet-consume.js";
 import { afterCommit } from "../../services/after-commit.js";
 import {
@@ -45,6 +50,7 @@ import {
   reqCtx,
   resolveRefArg,
   type ToolSpec,
+  contentOptionalsOf,
 } from "./tool-contract.js";
 import { eq } from "drizzle-orm";
 import { db } from "../../db/connection.js";
@@ -237,7 +243,14 @@ export const tasksTools: ToolSpec[] = [
         // spec-499 dec-2 — see the matching call in handlers/decisions.ts: argument
         // NAMES only, so an absent ballot can be diagnosed rather than merely reported.
         { provided: hasBallot, ballot, receivedArgNames: Object.keys(input) },
-        { noun: "task", channel: ctx.channel },
+        {
+          noun: "task",
+          channel: ctx.channel,
+          // spec-565 ac-4 — DERIVED from create_task's own schema (below), never hand-listed:
+          // a literal here goes stale the day the verb gains an optional, and the
+          // refusal would then describe a contract that no longer exists.
+          declaredOptionals: CREATE_TASK_OPTIONALS,
+        },
       );
       const task = await createTask(
         memexId,
@@ -390,11 +403,10 @@ export const tasksTools: ToolSpec[] = [
         input.facetBallot !== undefined ? parseBallotArg(input.facetBallot) : undefined;
       const editVocab =
         editBallot !== undefined
-          ? await requireBallotForMemex(
-              memexId,
-              { provided: true, ballot: editBallot },
-              { noun: "task", channel: ctx.channel },
-            )
+          // spec-565 dec-1: guarded on the ballot being present, so the absent-ballot
+          // diagnosis is unreachable here and `declaredOptionals` would be a value this
+          // site could never use. Validate-only entry point.
+          ? await validateBallotForMemex(memexId, editBallot)
           : undefined;
       if (
         title !== undefined ||
@@ -595,3 +607,17 @@ export const tasksTools: ToolSpec[] = [
 
   // ── Comment CRUD ─────────────────────────────────────────
 ];
+
+/**
+ * spec-565 ac-4 — create_task's CONTENT-bearing optionals, derived from the schema the tool
+ * actually publishes rather than hand-listed beside it. Add an optional to the schema
+ * above and the ballot refusal names it automatically; a literal would have gone stale
+ * silently and left the message describing a contract that no longer exists.
+ *
+ * Declared after `tasksTools` on purpose: it reads that array's live schema object.
+ * Initialised at module load, consumed inside the handler at call time, so the
+ * ordering is sound. `contentOptionalsOf` owns the `verbose` exclusion (tool-contract).
+ */
+const CREATE_TASK_OPTIONALS: readonly string[] = contentOptionalsOf(
+  tasksTools.find((s) => s.name === "create_task")!.schema,
+);

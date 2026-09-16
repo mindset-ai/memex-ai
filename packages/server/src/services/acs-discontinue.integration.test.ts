@@ -116,7 +116,7 @@ describe("discontinue_test_events hard delete (spec-358 dec-1)", () => {
     expect(await summaryRow(ac.ref, tid)).toBeDefined();
     expect(await stateOf(ac.briefId, ac.id)).toBe("failing");
 
-    const result = await discontinueTestEventsForAc(memexId, ac.id, tid);
+    const result = await discontinueTestEventsForAc(memexId, ac.id, tid, "test deleted in the repo");
     expect(result.deleted).toBe(1);
 
     // Badge clears: the summary row is gone, so the verdict no longer sees it.
@@ -138,7 +138,7 @@ describe("discontinue_test_events hard delete (spec-358 dec-1)", () => {
     const tid = "tests/heal.test.ts::it works";
 
     await seedTestEvent({ subjectRef: ac.ref, status: "fail", testIdentifier: tid });
-    await discontinueTestEventsForAc(memexId, ac.id, tid);
+    await discontinueTestEventsForAc(memexId, ac.id, tid, "test deleted in the repo");
     expect(await summaryRow(ac.ref, tid)).toBeUndefined();
 
     // The same identifier emits live again — re-surfaces and re-enters the verdict.

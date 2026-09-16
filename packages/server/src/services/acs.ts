@@ -28,9 +28,13 @@ import {
   acs,
   acParentLinks,
   decisions,
+  docComments,
   documents,
   memexes,
   namespaces,
+  // spec-566 t-6 — the status journal the alignment series replays, so a
+  // supersession changes today's number without redrawing the past.
+  specLifecycleEvents,
   testEvents,
   testEventLatest,
 } from "../db/schema.js";
@@ -38,7 +42,10 @@ import type { InferSelectModel } from "drizzle-orm";
 import { ConflictError, NotFoundError, ValidationError } from "../types/errors.js";
 import { mutate, type Mutated, type RequestCtx } from "./mutate.js";
 import { resolveActorColumns } from "./actor.js";
+import { recordLifecycleEvent } from "./lifecycle-journal.js";
 import { removeSummaryForPair } from "./test-event-latest.js";
+import { countGateOverridesForBriefs } from "./done-gate.js";
+import { countReopensForBriefs } from "./spec-reopen.js";
 import { nextSeq, withSeqRetry } from "./shared/sequence.js";
 
 export type Ac = InferSelectModel<typeof acs>;
@@ -178,6 +185,64 @@ async function transitionStatus(
   );
 }
 
+/**
+ * The verification state of ONE criterion, for the guards below.
+ *
+ * spec-566 t-3. Deliberately NOT a denormalised `acs.is_verified` column: the
+ * value is derived from `test_event_latest` plus the acceptance overlay, and a
+ * stored copy would be a second source of truth for something `test_events`
+ * already owns — invalidated on every emission, every retirement and every
+ * manual accept [per std-50]. The read below is one indexed lookup on the
+ * (memex_id, subject_ref) index the AC-tab snapshot already relies on, returning
+ * one row per test_identifier — units, not thousands [per std-39].
+ */
+async function verificationStateOfAc(memexId: string, ac: Ac, slugs: BriefSlugs) {
+  const subjectRef = buildAcRef(slugs, ac.seq);
+  const summaryRows = await db
+    .select({
+      testIdentifier: testEventLatest.testIdentifier,
+      latestStatus: testEventLatest.latestStatus,
+      latestRunAt: testEventLatest.latestRunAt,
+      runCount: testEventLatest.runCount,
+    })
+    .from(testEventLatest)
+    .where(
+      and(eq(testEventLatest.memexId, memexId), eq(testEventLatest.subjectRef, subjectRef)),
+    );
+  const tests: AcTestSnapshot[] = summaryRows.map((r) => ({
+    testIdentifier: r.testIdentifier === "" ? null : r.testIdentifier,
+    latestStatus: r.latestStatus as "pass" | "fail" | "error",
+    latestRunAt: r.latestRunAt,
+    runCount: r.runCount,
+  }));
+  const latestRunAt = tests.reduce<Date | null>(
+    (acc, t) => (acc === null || t.latestRunAt > acc ? t.latestRunAt : acc),
+    null,
+  );
+  const daysSinceLastRun =
+    latestRunAt === null
+      ? null
+      : Math.floor((Date.now() - latestRunAt.getTime()) / (1000 * 60 * 60 * 24));
+  // Through the SAME derivation the AC tab and the board roll-up use, so a
+  // criterion can never be "verified enough to refuse an edit" while reading
+  // untested on the surface the author is looking at.
+  return deriveVerificationState(tests, daysSinceLastRun, ac.acceptedAt !== null);
+}
+
+/**
+ * The states that mean "this criterion currently reads as satisfied", and are
+ * therefore closed to a free rewrite [spec-566 dec-8].
+ *
+ * ⚠ ac-23 says "verified". This includes `accepted` as well, and that widening is
+ * deliberate: spec-188's manual-acceptance overlay presents as satisfied on every
+ * coverage surface, so leaving it freely editable would close dec-8's door on one
+ * hinge and leave it open on the other. `stale` and `failing` are NOT here — a
+ * criterion whose tests are red or have gone quiet is exactly the one most likely
+ * to need honest rewording, and refusing it would be the over-blocking ac-24
+ * exists to catch.
+ */
+const SATISFIED_STATES: ReadonlySet<VerificationState> = new Set(["verified", "accepted"]);
+
 export async function updateAc(
   memexId: string,
   acId: string,
@@ -188,6 +253,39 @@ export async function updateAc(
     throw new ValidationError("AC statement is required");
   }
   const ac = await getAc(memexId, acId); // tenancy check
+
+  // ── The two guards [spec-566 dec-8 / dec-9], HOISTED above the write ──
+  //
+  // Not wrapped around it and not checked afterwards: a guarded validation is an
+  // accepted invalid input [per std-53]. Both refusals name the call that clears
+  // them — "this criterion is verified" states the obstacle, which is a defect
+  // report, not a message.
+  const { slugs, docStatus } = await resolveBriefContext(ac.briefId);
+
+  if (docStatus === "done") {
+    // dec-9. The marginal population is the UNVERIFIED criteria of a closed Spec;
+    // the verified ones are already refused below. Where BOTH hold, say both
+    // steps — naming only the reopen would send the author down a path that ends
+    // in a second refusal.
+    const alsoSatisfied = SATISFIED_STATES.has(
+      await verificationStateOfAc(memexId, ac, slugs),
+    );
+    throw new ValidationError(
+      alsoSatisfied
+        ? "This Spec is closed and the criterion has already been verified, so its statement is frozen twice over. Reopen the Spec to make it editable again, then change this criterion with propose_ac_supersession — reopening alone will not unlock a verified criterion."
+        : "This Spec is closed, so its criteria are frozen — a closed Spec's record of what was accepted must not change after the fact. Reopen the Spec if the criterion genuinely needs to change; the reopen is recorded with its reason.",
+    );
+  }
+
+  if (SATISFIED_STATES.has(await verificationStateOfAc(memexId, ac, slugs))) {
+    // dec-8. This is the enforcement point of the whole Spec: without it, the
+    // cheapest way to clear dec-7's done-gate is to edit the criterion until it
+    // is true, and every other guard passes vacuously.
+    throw new ValidationError(
+      "This criterion has already been verified, so its wording is no longer a free edit — changing it now would retroactively change what the passing tests proved. Use propose_ac_supersession, which records the decision that authorises the change and leaves the original statement intact.",
+    );
+  }
+
   return mutate(
     ctx,
     { memexId, docId: ac.briefId, entity: "ac", action: "updated" },
@@ -336,6 +434,18 @@ export interface AcWithVerification {
   canonicalRef: string;
   tests: AcTestSnapshot[];
   verificationState: VerificationState;
+  /**
+   * spec-566 t-2 (ac-7): this criterion holds an unaccepted supersession
+   * proposal.
+   *
+   * DELIBERATELY NOT a member of `VerificationState`. ac-7's claim is that
+   * proposing leaves the verdict UNCHANGED, and folding "supersession proposed"
+   * into that union would make the verdict change by definition — silently
+   * reclassifying the AC everywhere the union is switched on, including the
+   * `=== "verified"` coverage filter below and phase-assessment's rollup. It is a
+   * separate fact about the criterion, carried separately.
+   */
+  supersessionProposed: boolean;
   /** null when the AC has no test events ever (untested). */
   daysSinceLastRun: number | null;
   /**
@@ -357,7 +467,17 @@ interface BriefSlugs {
   briefHandle: string;
 }
 
-async function resolveBriefSlugsForRef(briefId: string): Promise<BriefSlugs> {
+/**
+ * The slugs a canonical AC ref needs, plus the owning Spec's phase.
+ *
+ * spec-566 t-3 added `docStatus` to the SAME row rather than to a second query:
+ * dec-9's guard needs the phase and dec-8's needs the ref, and both run on one
+ * `update_ac` call. One more column on a join that already happens costs nothing;
+ * a second round trip on the write path would [per std-39].
+ */
+async function resolveBriefContext(
+  briefId: string,
+): Promise<{ slugs: BriefSlugs; docStatus: string }> {
   // The canonical ref uses the namespace + memex + spec HANDLE. The handle
   // (`spec-N` for Specs) lives on documents.handle. We pull all three in a
   // single join so the snapshot query doesn't need to hop the DB four times.
@@ -366,6 +486,7 @@ async function resolveBriefSlugsForRef(briefId: string): Promise<BriefSlugs> {
       namespace: namespaces.slug,
       memex: memexes.slug,
       briefHandle: documents.handle,
+      docStatus: documents.status,
     })
     .from(documents)
     .innerJoin(memexes, eq(documents.memexId, memexes.id))
@@ -376,10 +497,17 @@ async function resolveBriefSlugsForRef(briefId: string): Promise<BriefSlugs> {
     throw new NotFoundError(`Spec ${briefId} not found or has no handle`);
   }
   return {
-    namespace: row.namespace,
-    memex: row.memex,
-    briefHandle: row.briefHandle,
+    slugs: {
+      namespace: row.namespace,
+      memex: row.memex,
+      briefHandle: row.briefHandle,
+    },
+    docStatus: row.docStatus,
   };
+}
+
+async function resolveBriefSlugsForRef(briefId: string): Promise<BriefSlugs> {
+  return (await resolveBriefContext(briefId)).slugs;
 }
 
 // Exported so the per-Spec aggregator (aggregateAcHealthForBriefs, b-66 t-2)
@@ -486,6 +614,26 @@ export async function listAcsForBriefWithVerification(
       ),
     );
 
+  // spec-566 t-2 (ac-7): which of these criteria hold an unaccepted supersession
+  // proposal. ONE query for the whole page, not one per AC [per std-39], served by
+  // the partial index 0150 added on (ac_id) WHERE ac_id IS NOT NULL AND
+  // resolved_at IS NULL. Queried here rather than through the supersession
+  // service: that module imports the comment writer, which would close an import
+  // cycle back onto this one.
+  const acIdsForProposals = acRows.map((a) => a.id);
+  const openProposalRows = await db
+    .select({ acId: docComments.acId })
+    .from(docComments)
+    .where(
+      and(
+        eq(docComments.memexId, memexId),
+        inArray(docComments.acId, acIdsForProposals),
+        eq(docComments.commentType, "plan_revision"),
+        isNull(docComments.resolvedAt),
+      ),
+    );
+  const proposedAcIds = new Set(openProposalRows.map((r) => r.acId));
+
   // Pull every parent link for our AC set in one query. The Decisions tab
   // uses these to find "the ACs hanging off this resolved decision" without
   // making the React layer fetch per-decision.
@@ -543,6 +691,7 @@ export async function listAcsForBriefWithVerification(
         daysSinceLastRun,
         ac.acceptedAt !== null,
       ),
+      supersessionProposed: proposedAcIds.has(ac.id),
       daysSinceLastRun,
       parents: parentsByAcId.get(ac.id) ?? [],
     };
@@ -1020,13 +1169,36 @@ export async function discontinueTestEventsForAc(
   memexId: string,
   acId: string,
   testIdentifier: string,
+  // spec-566 t-4 (ac-5). Mandatory, and supplied by the ACTOR — the server does
+  // not invent one [spec-127 dec-1]. Before this, the only trace a retirement
+  // left was an `activity_log` row reading "ac updated": no identifier, no
+  // reason, no commit, deleted after PULSE_RETENTION_DAYS, and written
+  // best-effort by a function that swallows its own failures. Unnamed, expiring,
+  // best-effort — which is a narrower gap than "nothing is recorded", and still
+  // not a record.
+  reason: string,
+  ctx: RequestCtx = {},
 ): Promise<Mutated<{ deleted: number }>> {
+  // Validation HOISTED above the write it protects [per std-53] — a guarded
+  // validation is an accepted invalid input, and here that would mean evidence
+  // deleted with the refusal arriving afterwards.
+  if (!reason?.trim()) {
+    throw new ValidationError(
+      "A retirement needs a stated reason — it hard-deletes evidence, and the record of why is the only thing left behind. Say what happened to the test (renamed, deleted, moved) so the next reader does not have to guess.",
+    );
+  }
+
   const ac = await getAc(memexId, acId); // tenancy check; 404 via NotFoundError
   const slugs = await resolveBriefSlugsForRef(ac.briefId);
   const subjectRef = buildAcRef(slugs, ac.seq);
 
+  // Resolved before the transaction opens (an indexed users lookup), so the tx
+  // carries no extra round trip — the idiom standard-accept.ts uses. This is what
+  // makes the retirement attributable: WHO retired it and HOW [per std-32].
+  const actor = await resolveActorColumns(ctx);
+
   return mutate(
-    {},
+    ctx,
     { memexId, docId: ac.briefId, entity: "ac", action: "updated" },
     // spec-162 dec-1 / ac-7: hard-delete the log rows AND drop the summary row
     // for this pair in one transaction, so a discontinued test disappears from
@@ -1041,8 +1213,41 @@ export async function discontinueTestEventsForAc(
               eq(testEvents.testIdentifier, testIdentifier),
             ),
           )
-          .returning({ id: testEvents.id });
+          // spec-566 t-4: take the commit back out of the rows on their way out.
+          // ac-5 asks the tombstone to say "against which commit", and the only
+          // honest answer is the commit the retired EVIDENCE carried (spec-528
+          // made it a column) — the server has no idea what the retirer's HEAD is,
+          // and claiming it would be fiction.
+          .returning({ id: testEvents.id, commitSha: testEvents.commitSha, createdAt: testEvents.createdAt });
         await removeSummaryForPair(tx, subjectRef, testIdentifier);
+
+        // The receipt, written through the CALLER's transaction so it and the
+        // deletion commit together (t-1 ac-16). If this throws, the delete above
+        // rolls back and the evidence is still there — the property that separates
+        // this journal from `persistEvent`, which swallows its failures by design.
+        //
+        // spec-358 dec-1 is untouched: the rows still go. What survives is the ACT.
+        const newest = rows.reduce<{ commitSha: string | null; createdAt: Date } | null>(
+          (acc, r) => (acc === null || r.createdAt > acc.createdAt ? r : acc),
+          null,
+        );
+        await recordLifecycleEvent(
+          {
+            memexId,
+            briefId: ac.briefId,
+            acId: ac.id,
+            kind: "test_retired",
+            reason: reason.trim(),
+            testIdentifier,
+            subjectRef,
+            commitSha: newest?.commitSha ?? null,
+            actorUserId: actor.actorUserId ?? null,
+            actorName: actor.actorName ?? null,
+            channel: ctx.channel ?? "server",
+          },
+          tx,
+        );
+
         return { deleted: rows.length };
       });
     },
@@ -1177,6 +1382,19 @@ export interface AcHealth {
    *  toward the verified percentage in UI metrics but is tallied separately
    *  so surfaces can keep the human-vs-test distinction visible. */
   accepted: number;
+  /** spec-566 dec-2 — criteria retired by an accepted supersession. NOT part of
+   *  `totalActive` and never in any percentage: the maths stays about the live
+   *  set, and this rides beside it so a Spec cannot reach 100% by retiring what
+   *  it could not satisfy. Zero for every Spec that has never superseded one. */
+  superseded: number;
+  /** spec-566 dec-7 — times this Spec's done-gate was overridden. dec-7 keeps the
+   *  override from becoming the normal path with exactly one device: it is
+   *  counted and shown. Outside every percentage, like `superseded`. */
+  overrides: number;
+  /** spec-566 dec-9 — times this closed Spec was reopened. Same terms as the
+   *  other two: outside the maths, rendered beside it. A reopen that nobody
+   *  counts is the quiet route around dec-9's freeze. */
+  reopens: number;
 }
 
 const EMPTY_HEALTH: AcHealth = {
@@ -1187,6 +1405,9 @@ const EMPTY_HEALTH: AcHealth = {
   stale: 0,
   untested: 0,
   accepted: 0,
+  superseded: 0,
+  overrides: 0,
+  reopens: 0,
 };
 
 export async function aggregateAcHealthForBriefs(
@@ -1200,6 +1421,51 @@ export async function aggregateAcHealthForBriefs(
   // can compare against this constant.
   for (const id of briefIds) result.set(id, { ...EMPTY_HEALTH });
   if (briefIds.length === 0) return result;
+
+  // Q0 — spec-566 dec-2: the superseded tally, counted BESIDE the maths.
+  //
+  // A separate aggregate rather than a widened Q1 filter, deliberately. Q1's
+  // rows become canonical AC refs that drive the test_event_latest join; letting
+  // a superseded AC into that set would put its retired evidence back into
+  // `covered` / `verified`, which is the exact arithmetic dec-2 rejects. This
+  // asks a narrower question and cannot contaminate the answer to the other one.
+  //
+  // Cost [std-39]: one extra round-trip per listDocs page, a COUNT over the same
+  // (memex_id, brief_id) slice Q1 already reads, returning at most one row per
+  // Spec on the page. It runs BEFORE Q1's early return so a Spec whose criteria
+  // were ALL superseded still reports its count instead of looking untouched.
+  const supersededRows = await db
+    .select({ briefId: acs.briefId, n: sql<number>`count(*)::int` })
+    .from(acs)
+    .where(
+      and(
+        eq(acs.memexId, memexId),
+        eq(acs.status, "superseded"),
+        inArray(acs.briefId, briefIds as string[]),
+      ),
+    )
+    .groupBy(acs.briefId);
+  for (const row of supersededRows) {
+    const entry = result.get(row.briefId);
+    if (entry) entry.superseded = row.n;
+  }
+
+  // spec-566 dec-7 (ac-22) — the override tally, beside the maths for the same
+  // reason the superseded one is. Same shape, same early-return placement: a
+  // Spec whose criteria are all retired still reports how many times its gate
+  // was waved through.
+  const overrideCounts = await countGateOverridesForBriefs(memexId, briefIds);
+  for (const [briefId, n] of overrideCounts) {
+    const entry = result.get(briefId);
+    if (entry) entry.overrides = n;
+  }
+
+  // spec-566 dec-9 (t-8) — and the reopen tally, on the same terms.
+  const reopenCounts = await countReopensForBriefs(memexId, briefIds);
+  for (const [briefId, n] of reopenCounts) {
+    const entry = result.get(briefId);
+    if (entry) entry.reopens = n;
+  }
 
   // Q1 — active ACs + their canonical-ref slug components in one join.
   // Tenancy is double-locked (memexId on acs AND briefId in the set) so
@@ -1384,21 +1650,45 @@ export interface AlignmentDay {
 /**
  * For each of the last `days` days × each AC `kind`, compute (verified, total)
  * where:
- *   - total  = ACs active on that day (created on or before; status='active'
- *              today — V0.0.1 simplification, we don't reconstruct historical
- *              status transitions, which would require an audit table)
+ *   - total  = ACs that were ACTIVE ON THAT DAY — created on or before it, and
+ *              holding status 'active' as of end-of-day, reconstructed from the
+ *              lifecycle journal rather than projected from today's status
  *   - verified = ACs that were GREEN as of end-of-day: on the most recent day the AC ran
  *                at all (≤ this day), every one of its tests passed
  *
- * V0.0.1 caveat: status reconstruction is not historical. An AC currently
- * `rejected` or `superseded` is excluded from the total even on days when it
- * was active. Acceptable for now — the sparkline tells the alignment story for
- * what we care about TODAY; backfilling true historical status would need a
- * status-event log we don't have.
+ * spec-566 t-6 — THE HISTORY NO LONGER REWRITES ITSELF. This used to build its AC
+ * set with `status = 'active'` (today's value) and said so in its own caveat: "An
+ * AC currently `rejected` or `superseded` is excluded from the total even on days
+ * when it was active." So superseding one criterion did not merely change today's
+ * number, it redrew the whole trend — a Spec that genuinely stood at 10 of 11 last
+ * Tuesday was shown as having stood at 10 of 10. The caveat closed with "backfilling
+ * true historical status would need a status-event log we don't have"; spec-566 t-1
+ * built it, and this reads it.
+ *
+ * The reconstruction: an AC's status at end-of-day D is the `from_status` of the
+ * EARLIEST transition recorded after D, or — when no transition follows D — its
+ * status today. Walking backwards from the present needs only the transitions that
+ * exist, so a Spec that has never superseded anything produces the same SQL it
+ * always did (plus a constant status filter) and the same numbers.
+ *
+ * Still not reconstructed, and deliberately: `accepted_at` is today's value, not
+ * replayed across un-accept cycles (the pre-existing spec-188 caveat).
  *
  * SQL fans days out via generate_series and, per (day × AC), reads the per-day ROLLUP —
  * not the raw log. Bounded by the AC set in the Spec, which is small (rarely >100), so
  * this stays cheap even at 90 days.
+ *
+ * COST, against the implementation this replaces [std-39]. The day × AC fan-out is
+ * unchanged, and so is the one correlated read per cell against `test_run_daily` that
+ * dominates it. Added: ONE extra round-trip fetching this Spec's `ac_status_changed`
+ * rows (indexed by `ac_id`, and a Spec accumulates these at the rate a human retires
+ * criteria — tens per year, not thousands per day), inlined as a CTE of literals. The
+ * per-cell lookup against it is a scan of a handful of in-memory rows, not an index
+ * probe on a table. The AC set itself grows by the superseded and proposed criteria
+ * that were previously filtered out in SQL — for a Spec with no supersessions that is
+ * zero extra rows, and the `transitions` CTE and its subquery are omitted from the
+ * statement entirely, so the SQL such a Spec runs is byte-identical to before apart
+ * from a constant `= 'active'` comparison.
  */
 export async function listAcAlignmentOverTime(
   memexId: string,
@@ -1408,14 +1698,33 @@ export async function listAcAlignmentOverTime(
   await assertBriefInMemex(memexId, briefId);
   const slugs = await resolveBriefSlugsForRef(briefId);
 
+  // spec-566 t-6: NO status filter. The set is every criterion the Spec has ever
+  // held, and which of them counted on a given day is decided per-day below. The
+  // old `eq(acs.status, "active")` here is the whole defect — it projected today's
+  // status backwards over thirty days of history.
   const acRows = await db.query.acs.findMany({
-    where: and(
-      eq(acs.memexId, memexId),
-      eq(acs.briefId, briefId),
-      eq(acs.status, "active"),
-    ),
+    where: and(eq(acs.memexId, memexId), eq(acs.briefId, briefId)),
   });
   if (acRows.length === 0) return [];
+
+  // The transitions to replay. One round-trip for the whole Spec; a criterion's
+  // status changes when a human accepts a supersession, so these are counted in
+  // tens per Spec at most.
+  const transitionRows = await db
+    .select({
+      acId: specLifecycleEvents.acId,
+      at: specLifecycleEvents.createdAt,
+      fromStatus: specLifecycleEvents.fromStatus,
+    })
+    .from(specLifecycleEvents)
+    .where(
+      and(
+        eq(specLifecycleEvents.memexId, memexId),
+        eq(specLifecycleEvents.briefId, briefId),
+        eq(specLifecycleEvents.kind, "ac_status_changed"),
+      ),
+    );
+  const replayable = transitionRows.filter((t) => t.acId !== null && t.fromStatus !== null);
 
   // Build ac_set as an inline VALUES list — avoids passing JS arrays through
   // unnest(...::text[]) (postgres-js doesn't auto-cast TS arrays to Postgres
@@ -1424,12 +1733,41 @@ export async function listAcAlignmentOverTime(
   const acSetValues = sql.join(
     acRows.map(
       (a) =>
-        sql`(${buildAcRef(slugs, a.seq)}, ${a.kind}, ${a.createdAt.toISOString()}::timestamptz, ${
+        sql`(${a.id}::uuid, ${buildAcRef(slugs, a.seq)}, ${a.kind}, ${a.createdAt.toISOString()}::timestamptz, ${
           a.acceptedAt ? a.acceptedAt.toISOString() : null
-        }::timestamptz)`,
+        }::timestamptz, ${a.status})`,
     ),
     sql`, `,
   );
+
+  // The status this criterion held at END of day `s.day`: the `from_status` of the
+  // earliest transition recorded AFTER that day, or today's status when none
+  // follows it.
+  //
+  // A Spec with no transitions omits both the CTE and this subquery, so its
+  // statement stays exactly what it was before spec-566 — the common case pays
+  // nothing for a feature it does not use.
+  const transitionsCte = replayable.length
+    ? sql`, transitions(ac_id, at, from_status) AS (
+      VALUES ${sql.join(
+        replayable.map(
+          (t) => sql`(${t.acId}::uuid, ${t.at.toISOString()}::timestamptz, ${t.fromStatus})`,
+        ),
+        sql`, `,
+      )}
+    )`
+    : sql``;
+  const statusOnDay = replayable.length
+    ? sql`COALESCE(
+          (
+            SELECT t.from_status FROM transitions t
+            WHERE t.ac_id = a.ac_id AND t.at >= s.day + INTERVAL '1 day'
+            ORDER BY t.at ASC
+            LIMIT 1
+          ),
+          a.status_today
+        )`
+    : sql`a.status_today`;
 
   // spec-520 t-11 (ac-24): per (day × AC), read the per-day ROLLUP — not the raw log.
   //
@@ -1459,9 +1797,9 @@ export async function listAcAlignmentOverTime(
   // them (ac-5); rendering them as a plain zero would let a deleted past read as measured
   // absence, which is the specific misreading ac-5 forbids.
   const rows = (await db.execute(sql`
-    WITH ac_set(subject_ref, kind, created_at, accepted_at) AS (
+    WITH ac_set(ac_id, subject_ref, kind, created_at, accepted_at, status_today) AS (
       VALUES ${acSetValues}
-    ),
+    )${transitionsCte},
     series AS (
       SELECT generate_series(
         date_trunc('day', now()) - (${days - 1} || ' days')::interval,
@@ -1479,6 +1817,9 @@ export async function listAcAlignmentOverTime(
         a.subject_ref,
         a.created_at,
         a.accepted_at,
+        -- spec-566 t-6: the status this criterion HELD on this day, not the one
+        -- it holds now.
+        ${statusOnDay} AS status_on_day,
         (
           -- The most recent day this AC ran at or before s.day, collapsed across all of
           -- its tests. NULL when it had not run by then — distinct from FALSE (ran, and
@@ -1500,7 +1841,10 @@ export async function listAcAlignmentOverTime(
     SELECT
       day::text AS date,
       kind,
-      COUNT(*) FILTER (WHERE created_at <= day + INTERVAL '1 day') AS total,
+      COUNT(*) FILTER (
+        WHERE created_at <= day + INTERVAL '1 day'
+          AND status_on_day = 'active'
+      ) AS total,
       -- Gate verified on AC existence too — otherwise history predating the AC's
       -- createdAt yields verified > total, which is nonsense.
       --
@@ -1512,6 +1856,7 @@ export async function listAcAlignmentOverTime(
       -- cycles.)
       COUNT(*) FILTER (
         WHERE created_at <= day + INTERVAL '1 day'
+          AND status_on_day = 'active'
           AND (
             green
             OR (

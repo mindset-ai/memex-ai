@@ -370,7 +370,7 @@ describe("DELETE /api/:namespace/:memex/acs/:acId/test-events [b-96 t-2]", () =>
     expect(before[0].count).toBe(3);
 
     const res = await authedRequest(
-      `/api/${namespace}/${memex}/acs/${acId}/test-events?test_identifier=t_drop`,
+      `/api/${namespace}/${memex}/acs/${acId}/test-events?test_identifier=t_drop&reason=retired%20in%20the%20repo`,
       bearer,
       { method: "DELETE" },
     );
@@ -397,7 +397,7 @@ describe("DELETE /api/:namespace/:memex/acs/:acId/test-events [b-96 t-2]", () =>
     tagAc("mindset-prod/memex-building-itself/specs/spec-96/acs/ac-7");
 
     await authedRequest(
-      `/api/${namespace}/${memex}/acs/${acId}/test-events?test_identifier=t_drop`,
+      `/api/${namespace}/${memex}/acs/${acId}/test-events?test_identifier=t_drop&reason=retired%20in%20the%20repo`,
       bearer,
       { method: "DELETE" },
     );
@@ -416,7 +416,7 @@ describe("DELETE /api/:namespace/:memex/acs/:acId/test-events [b-96 t-2]", () =>
 
     // Discontinue t_drop.
     await authedRequest(
-      `/api/${namespace}/${memex}/acs/${acId}/test-events?test_identifier=t_drop`,
+      `/api/${namespace}/${memex}/acs/${acId}/test-events?test_identifier=t_drop&reason=retired%20in%20the%20repo`,
       bearer,
       { method: "DELETE" },
     );
@@ -456,7 +456,7 @@ describe("DELETE /api/:namespace/:memex/acs/:acId/test-events [b-96 t-2]", () =>
     const otherUserId = await seedUser();
     const otherBearer = signSessionToken(otherUserId);
     const res = await authedRequest(
-      `/api/${namespace}/${memex}/acs/${acId}/test-events?test_identifier=t_drop`,
+      `/api/${namespace}/${memex}/acs/${acId}/test-events?test_identifier=t_drop&reason=retired%20in%20the%20repo`,
       otherBearer,
       { method: "DELETE" },
     );
@@ -470,7 +470,18 @@ describe("DELETE /api/:namespace/:memex/acs/:acId/test-events [b-96 t-2]", () =>
     expect(remaining[0].count).toBe(3);
   });
 
-  it("writes no audit record: no comments on the spec, no other table touched [ac-8]", async () => {
+  // TITLE NARROWED by spec-566 t-4. The assertions below are UNCHANGED, because
+  // they were always narrower than the old title ("no other table touched")
+  // claimed: what b-96 dec-14 actually ruled out, and what this test actually
+  // checks, is an auto-comment on the Spec and a soft-delete flag on the AC. Both
+  // still hold.
+  //
+  // spec-566 dec-3 DOES now write one row to `spec_lifecycle_events` on this path,
+  // and that is not a reversal of dec-14: dec-14 removed a MUTABLE restore switch
+  // (spec-358 later dropped the `hidden` column outright), while the journal is a
+  // write-once receipt with no restore path anywhere — asserted by the ac-17
+  // source scan. The emissions still hard-delete; what survives is the ACT.
+  it("adds no auto-comment and flips no flag on the AC [ac-8]", async () => {
     tagAc("mindset-prod/memex-building-itself/specs/spec-96/acs/ac-8");
 
     const commentsBefore = await db
@@ -479,7 +490,7 @@ describe("DELETE /api/:namespace/:memex/acs/:acId/test-events [b-96 t-2]", () =>
       .where(eq(docComments.docId, briefId));
 
     await authedRequest(
-      `/api/${namespace}/${memex}/acs/${acId}/test-events?test_identifier=t_drop`,
+      `/api/${namespace}/${memex}/acs/${acId}/test-events?test_identifier=t_drop&reason=retired%20in%20the%20repo`,
       bearer,
       { method: "DELETE" },
     );

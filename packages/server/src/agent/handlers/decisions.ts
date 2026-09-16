@@ -39,7 +39,11 @@ import {
 // spec-423 dec-5/dec-6 — the facet ballot is FORCED at create_decision; resolve_decision
 // reuses that stored ballot (footer only) and never forces one. Vocab via
 // facet-ballot.ts → facet-vocab.ts (NO-LLM); classifier engine never imported here.
-import { requireBallotForMemex, decisionBallotTrueFacets } from "../../services/facet-ballot.js";
+import {
+  requireBallotForMemex,
+  validateBallotForMemex,
+  decisionBallotTrueFacets,
+} from "../../services/facet-ballot.js";
 import { parseBallotArg, storeRouteAndReadout, routeAndReadout } from "../../services/facet-consume.js";
 import {
   formatState,
@@ -54,6 +58,7 @@ import {
   reqCtx,
   resolveRefArg,
   type ToolSpec,
+  contentOptionalsOf,
 } from "./tool-contract.js";
 
 export const decisionsTools: ToolSpec[] = [
@@ -124,7 +129,14 @@ export const decisionsTools: ToolSpec[] = [
         // (never their values) so an absent ballot is diagnosed — a near-miss key gets
         // named, and a genuine drop is evidenced by the names that did make it.
         { provided: hasBallot, ballot, receivedArgNames: Object.keys(input) },
-        { noun: "decision", channel: ctx.channel },
+        {
+          noun: "decision",
+          channel: ctx.channel,
+          // spec-565 ac-4 — DERIVED from create_decision's own schema (below), never
+          // hand-listed: a literal here goes stale the day the verb gains an optional,
+          // and the refusal would then describe a contract that no longer exists.
+          declaredOptionals: CREATE_DECISION_OPTIONALS,
+        },
       );
       const queryText = `${title}\n${context ?? ""}`;
 
@@ -321,11 +333,10 @@ export const decisionsTools: ToolSpec[] = [
       const editBallot = hasFacetEdit ? parseBallotArg(input.facetBallot) : undefined;
       const editVocab =
         editBallot !== undefined
-          ? await requireBallotForMemex(
-              memexId,
-              { provided: true, ballot: editBallot },
-              { noun: "decision", channel: ctx.channel },
-            )
+          // spec-565 dec-1: a ballot is always PRESENT here (the branch is guarded on
+          // it), so this site can never reach the absent-ballot diagnosis and has no
+          // use for `declaredOptionals`. It validates, nothing more.
+          ? await validateBallotForMemex(memexId, editBallot)
           : undefined;
 
       let mode: "reopened" | "restored" | "updated";
@@ -497,11 +508,12 @@ export const decisionsTools: ToolSpec[] = [
       const hasBallot = input.facetBallot !== undefined;
       const ballot = parseBallotArg(input.facetBallot);
       const storedFacets = hasBallot ? [] : await decisionBallotTrueFacets(entity.row.id);
-      let vocab: Awaited<ReturnType<typeof requireBallotForMemex>> = [];
+      let vocab: Awaited<ReturnType<typeof validateBallotForMemex>> = [];
       if (hasBallot) {
         // Only a PROVIDED ballot is validated (completeness + known keys); its absence
-        // is never an error at resolution.
-        vocab = await requireBallotForMemex(memexId, { provided: true, ballot }, { noun: "decision", channel: ctx.channel });
+        // is never an error at resolution — so, per spec-565 dec-1, this is the
+        // validate-only entry point, not the create-verb guard.
+        vocab = await validateBallotForMemex(memexId, ballot);
       }
       const decision = await resolveDecision(memexId, entity.row.id, resolution, chosenOptionIndex, reqCtx(ctx));
       const decRef = buildChildRef(slugs, doc, { type: "decisions", seq: decision.seq });
@@ -676,3 +688,17 @@ export const decisionsTools: ToolSpec[] = [
   // authored, plain-English) and 'implementation' (agent-spawned from resolved
   // Decisions). See docs/ac-primitive-hypothesis.md for the full thesis.
 ];
+
+/**
+ * spec-565 ac-4 — create_decision's CONTENT-bearing optionals, derived from the schema the tool
+ * actually publishes rather than hand-listed beside it. Add an optional to the schema
+ * above and the ballot refusal names it automatically; a literal would have gone stale
+ * silently and left the message describing a contract that no longer exists.
+ *
+ * Declared after `decisionsTools` on purpose: it reads that array's live schema object.
+ * Initialised at module load, consumed inside the handler at call time, so the
+ * ordering is sound. `contentOptionalsOf` owns the `verbose` exclusion (tool-contract).
+ */
+const CREATE_DECISION_OPTIONALS: readonly string[] = contentOptionalsOf(
+  decisionsTools.find((s) => s.name === "create_decision")!.schema,
+);

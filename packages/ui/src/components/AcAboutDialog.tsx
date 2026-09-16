@@ -21,13 +21,19 @@ import { useCallback, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from './ui';
 import type { AcWithVerification } from '../api/client';
+// spec-566 dec-2 — one rendering decision for the superseded count.
+import { isLiveAcStatus, coverageAnnotationLabels } from '@memex/shared';
 
 interface AcAboutDialogProps {
   rows: AcWithVerification[];
+  /** spec-566 dec-7 (ac-22) — done-gate overrides on this Spec. */
+  gateOverrides?: number;
+  /** spec-566 dec-9 (t-8) — reopens on this Spec. */
+  reopens?: number;
   onClose: () => void;
 }
 
-export function AcAboutDialog({ rows, onClose }: AcAboutDialogProps) {
+export function AcAboutDialog({ rows, gateOverrides = 0, reopens = 0, onClose }: AcAboutDialogProps) {
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -42,15 +48,26 @@ export function AcAboutDialog({ rows, onClose }: AcAboutDialogProps) {
 
   // Live counts from the current Spec — grounds the prose so the modal
   // reads as "about THIS Spec", not generic copy.
-  const scope = rows.filter((r) => r.ac.kind === 'scope');
-  const impl = rows.filter((r) => r.ac.kind === 'implementation');
-  const covered = rows.filter((r) => r.tests.length > 0);
-  const verified = rows.filter((r) => r.verificationState === 'verified');
-  const failing = rows.filter((r) => r.verificationState === 'failing');
-  const untested = rows.filter((r) => r.verificationState === 'untested');
-  const stale = rows.filter((r) => r.verificationState === 'stale');
+  // spec-566 dec-2 — count the LIVE set, and name the retired ones beside it.
+  // "Of the N ACs, M are currently verified" over the unfiltered rows would
+  // quietly hold a superseded criterion against the Spec forever.
+  const live = rows.filter((r) => isLiveAcStatus(r.ac.status));
+  const annotations = coverageAnnotationLabels({
+    superseded: rows.filter((r) => r.ac.status === 'superseded').length,
+    overrides: gateOverrides,
+    reopens,
+  });
+  const supersededLabel = annotations.length ? annotations.join(' · ') : null;
+
+  const scope = live.filter((r) => r.ac.kind === 'scope');
+  const impl = live.filter((r) => r.ac.kind === 'implementation');
+  const covered = live.filter((r) => r.tests.length > 0);
+  const verified = live.filter((r) => r.verificationState === 'verified');
+  const failing = live.filter((r) => r.verificationState === 'failing');
+  const untested = live.filter((r) => r.verificationState === 'untested');
+  const stale = live.filter((r) => r.verificationState === 'stale');
   const distinctTestIds = new Set<string>();
-  for (const r of rows) {
+  for (const r of live) {
     for (const t of r.tests) {
       distinctTestIds.add(t.testIdentifier ?? `<anon-${r.canonicalRef}>`);
     }
@@ -187,8 +204,8 @@ export function AcAboutDialog({ rows, onClose }: AcAboutDialogProps) {
                 {distinctTestIds.size} distinct test
                 {distinctTestIds.size === 1 ? '' : 's'} in your codebase
                 {' '}{distinctTestIds.size === 1 ? 'is' : 'are'} currently
-                reporting on this Spec. Of the {rows.length} AC
-                {rows.length === 1 ? '' : 's'},{' '}
+                reporting on this Spec. Of the {live.length} AC
+                {live.length === 1 ? '' : 's'},{' '}
                 <span className="text-green-600 dark:text-green-400 font-medium">
                   {verified.length} {verified.length === 1 ? 'is' : 'are'} currently verified
                 </span>
@@ -234,6 +251,18 @@ export function AcAboutDialog({ rows, onClose }: AcAboutDialogProps) {
                 Once Scope ACs are authored and Implementation ACs are spawned
                 from resolved Decisions, this view will summarise their
                 alignment with the codebase at a glance.
+              </p>
+            )}
+            {/* spec-566 ac-11 — the retired criteria, named beside the numbers
+                above rather than folded into them. Neutral app tokens: std-27's
+                palette is scoped to charts (cl-22/cl-24) and its hues are a
+                reserved vocabulary (cl-3), so a plain count claims none of it. */}
+            {supersededLabel && (
+              <p data-testid="ac-about-superseded-count" className="mt-2 text-muted">
+                A further {supersededLabel} — retired by an accepted
+                supersession, and excluded from every figure above. The original
+                statements are kept; the decision that authorised each change is
+                on the record.
               </p>
             )}
             <p className="mt-2">

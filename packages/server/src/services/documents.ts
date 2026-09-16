@@ -1,10 +1,20 @@
 import { and, eq, ne, desc, count, isNull, inArray, or, exists, gt, sql, type SQL } from "drizzle-orm";
 import { db } from "../db/connection.js";
-import { documents, docSections, docComments, decisions, tasks, acs, users, tags, documentTags, activityLog } from "../db/schema.js";
+import { documents, docSections, docComments, decisions, tasks, acs, users, tags, documentTags, activityLog, memexes, namespaces } from "../db/schema.js";
 import type { Doc, DocSection, Decision } from "../db/schema.js";
 import type { DocSummary, TaskProgress, LastActivity } from "../types/index.js";
 import { NotFoundError, ValidationError } from "../types/errors.js";
 import { mutate, type ChangeKey, type Mutated, type RequestCtx } from "./mutate.js";
+// spec-566 t-7 (dec-10) — the done-gate refuses at this seam.
+import { recordLifecycleEvent } from "./lifecycle-journal.js";
+import { assertDoneGateClear, countGateOverridesForBriefs } from "./done-gate.js";
+// spec-566 t-8 (dec-9) — reopening a closed Spec is recorded, or refused.
+import {
+  ReopenNeedsReasonError,
+  countReopensForBriefs,
+  formatReopenRefusal,
+  isReopen,
+} from "./spec-reopen.js";
 import { resolveActorColumns } from "./actor.js";
 import { ARCHIVE_REASON_MAX_LENGTH } from "./archived-docs.js";
 import { isUuid } from "./shared/identifiers.js";
@@ -760,7 +770,13 @@ export async function listDocs(
         // and renders the card with no border/chip/strip in both cases; keeping
         // the wire shape sparse means the same response works for legacy
         // clients that don't know about acHealth at all.
-        if (h && h.totalActive > 0) s.acHealth = h;
+        // spec-566 dec-2: `|| h.superseded > 0`. Absence still means "no
+        // commitments yet" (b-66 Scope AC-4), but a Spec that RETIRED all of
+        // its criteria is not a Spec that never wrote any — and omitting the
+        // payload made those two read identically on every card. That is the
+        // unfalsifiable badge this Spec exists to kill, in its purest form.
+        if (h && (h.totalActive > 0 || h.superseded > 0 || h.overrides > 0 || h.reopens > 0))
+          s.acHealth = h;
       }
     }
   }
@@ -968,6 +984,16 @@ export async function getDoc(
     //                        common case; the banner renders nothing for it.
     supersededByHandle: string | null;
     replacesHandles: string[];
+    // spec-566 dec-7 (ac-22): how many times this Spec's done-gate was
+    // overridden. On the doc payload rather than fetched separately because the
+    // four coverage surfaces that render from AC ROWS — AcPanel, AcAboutDialog,
+    // DoneSummary, DecisionAcStrip — have no Spec-level shape to read it from,
+    // and an override count they cannot see is the count dec-7 relies on going
+    // missing on four of the nine surfaces.
+    gateOverrides: number;
+    /** spec-566 dec-9 (t-8) — reopens on this Spec, for the same four row-fed
+     *  coverage surfaces `gateOverrides` serves. */
+    reopens: number;
   }
 > {
   const idMatch = isUuid(idOrHandle)
@@ -1061,6 +1087,8 @@ export async function getDoc(
     groundedStale,
     supersededByHandle,
     replacesHandles,
+    gateOverrides: (await countGateOverridesForBriefs(memexId, [doc.id])).get(doc.id) ?? 0,
+    reopens: (await countReopensForBriefs(memexId, [doc.id])).get(doc.id) ?? 0,
   };
 }
 
@@ -1435,7 +1463,16 @@ export async function updateDocStatus(
   id: string,
   status: string,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  opts: { source?: "agent" | "rest"; ctx?: RequestCtx; narrative?: string } = {},
+  opts: {
+    source?: "agent" | "rest";
+    ctx?: RequestCtx;
+    narrative?: string;
+    /**
+     * spec-566 t-8 (dec-9) — WHY this closed Spec is being reopened. Required
+     * when, and only when, the move leaves `done` on a Spec; ignored otherwise.
+     */
+    reason?: string;
+  } = {},
 ): Promise<Mutated<Doc>> {
   if (!(DOC_STATUSES as readonly string[]).includes(status)) {
     throw new ValidationError(
@@ -1473,6 +1510,54 @@ export async function updateDocStatus(
   // always has a web-UI path forward. assess_spec still surfaces the same
   // untested/failing-AC and naked-decision conditions as advisory nudges.
 
+  // spec-566 t-7 (dec-7 option C, dec-10 option A) — THE DONE-GATE.
+  //
+  // This is a deliberate, decided exception to the paragraph above, not drift.
+  // dec-10 read spec-391's revert, spec-12 dec-3 and spec-258 dec-5 and chose
+  // this seam anyway, because it is the only one all four surfaces funnel
+  // through: a gate the kanban can walk around is a gate whose override count —
+  // dec-7's entire anti-decay device — undercounts by construction.
+  //
+  // What makes it survivable where spec-391's was not: the refusal is TYPED
+  // (`DONE_GATE_BLOCKED`, 409). The board switches on that code to open the
+  // override dialog instead of rolling the card back in silence, which was the
+  // "must never error out" experience that got the previous attempt reverted.
+  // spec-258's guarantee holds — an editor still always has a web-UI path
+  // forward — but the path is the override, not the drag (ac-29).
+  //
+  // Scoped as narrowly as the decision allows: Specs only, only on entry to
+  // `done`, and only when an unaccepted supersession proposal exists. Every
+  // other transition, and every Spec that has never had one, is untouched.
+  if (doc.docType === "spec" && status === "done" && doc.status !== "done") {
+    await assertDoneGateClear(memexId, id);
+  }
+
+  // spec-566 t-8 (dec-9) — REOPENING IS AN ATTRIBUTED ACT.
+  //
+  // dec-9 froze a closed Spec's criteria and named reopening as the sanctioned
+  // way back in. Left free and silent, reopening is just the route around that
+  // guard: reopen, edit the criterion the Spec had certified, close again, and
+  // nothing says so. The guard and its escape hatch have to cost the same.
+  //
+  // Enforced HERE rather than in a `reopen_spec` verb for dec-10's reason: this
+  // is the one function the Done screen's Reopen button, `update_doc` and the
+  // kanban drag out of Done all pass through. A verb would leave all three
+  // unrecorded. Validation hoisted above the write it protects [per std-53].
+  const reopening = isReopen(doc.docType, doc.status, status);
+  if (reopening && !opts.reason?.trim()) {
+    // The ref is resolved only on the refusing path, like the done-gate's.
+    const [slug] = await db
+      .select({ namespace: namespaces.slug, memex: memexes.slug })
+      .from(memexes)
+      .innerJoin(namespaces, eq(namespaces.id, memexes.namespaceId))
+      .where(eq(memexes.id, memexId))
+      .limit(1);
+    const specRef = slug
+      ? `${slug.namespace}/${slug.memex}/specs/${doc.handle}`
+      : "<this-spec>";
+    throw new ReopenNeedsReasonError(formatReopenRefusal(specRef));
+  }
+
   // spec-179 (ac-5): a Spec status flip emits a second, payload-carrying event
   // alongside the plain "updated" one (per std-8 dec-2: one event per logical
   // change). The activity-log sink persists it, giving an immutable {from, to}
@@ -1491,16 +1576,47 @@ export async function updateDocStatus(
     });
   }
 
+  const reopenActor = reopening ? await resolveActorColumns(opts.ctx ?? {}) : null;
+
   const updated = await mutate(
     opts.ctx ?? {},
     keys,
     async () => {
-      const [row] = await db
-        .update(documents)
-        .set({ status, statusChangedAt: new Date() })
-        .where(and(eq(documents.id, id), eq(documents.memexId, memexId)))
-        .returning();
-      return row;
+      // The reopen and its record commit TOGETHER, in one transaction — the
+      // same atomicity t-4 established for retirements. A reopen whose record
+      // failed is a reopen nobody can see, which is exactly the state this
+      // guard exists to make impossible. An ordinary phase move takes the
+      // plain path and opens no transaction.
+      if (!reopening) {
+        const [row] = await db
+          .update(documents)
+          .set({ status, statusChangedAt: new Date() })
+          .where(and(eq(documents.id, id), eq(documents.memexId, memexId)))
+          .returning();
+        return row;
+      }
+      return db.transaction(async (tx) => {
+        const [row] = await tx
+          .update(documents)
+          .set({ status, statusChangedAt: new Date() })
+          .where(and(eq(documents.id, id), eq(documents.memexId, memexId)))
+          .returning();
+        await recordLifecycleEvent(
+          {
+            memexId,
+            briefId: id,
+            kind: "spec_reopened",
+            reason: opts.reason!.trim(),
+            fromStatus: doc.status,
+            toStatus: status,
+            actorUserId: reopenActor?.actorUserId ?? null,
+            actorName: reopenActor?.actorName ?? null,
+            channel: opts.ctx?.channel ?? "server",
+          },
+          tx,
+        );
+        return row;
+      });
     },
   );
 

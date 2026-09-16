@@ -1,5 +1,6 @@
 import { useState, type DragEvent, type Dispatch, type SetStateAction } from 'react';
-import { updateDocStatus } from '../api/client';
+import { DONE_GATE_BLOCKED, updateDocStatus } from '../api/client';
+import { ApiError } from '../api/errors';
 import { type DocSummary } from '../api/types';
 import { useTelemetry } from './useTelemetry';
 import { type SpecKanbanStatus } from '../components/spec-board/types';
@@ -16,6 +17,21 @@ interface UseSpecBoardArgs {
   setDoneExpanded: Dispatch<SetStateAction<boolean>>;
 }
 
+/**
+ * spec-566 dec-10 (ac-29) — a drop the done-gate refused.
+ *
+ * Non-null means: the card has been rolled back AND the user is owed the
+ * override affordance. Rolling back alone is the spec-391 behaviour that got a
+ * block at this seam reverted — the card just snapped home and said nothing.
+ */
+export interface GateBlockedDrop {
+  docId: string;
+  /** The server's refusal, which names the criterion and the calls that clear it. */
+  message: string;
+  /** The column the drop was aiming at, so a successful override can complete it. */
+  target: SpecKanbanStatus;
+}
+
 export interface SpecBoardDnd {
   draggingId: string | null;
   dragOverColumn: SpecKanbanStatus | null;
@@ -24,6 +40,13 @@ export interface SpecBoardDnd {
   handleDragEnd: () => void;
   handleDragOver: (e: DragEvent<HTMLElement>, column: SpecKanbanStatus) => void;
   handleDrop: (e: DragEvent<HTMLElement>, column: SpecKanbanStatus) => Promise<void>;
+  /** spec-566 ac-29: set when a drop hit the done-gate. The page renders the
+   *  override affordance from it; null the rest of the time. */
+  gateBlocked: GateBlockedDrop | null;
+  /** Dismiss the override affordance without overriding. */
+  clearGateBlocked: () => void;
+  /** Complete the refused drop after an override has been recorded. */
+  completeAfterOverride: () => Promise<void>;
 }
 
 /**
@@ -42,6 +65,7 @@ export function useSpecBoard({
   const { track } = useTelemetry(true);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<SpecKanbanStatus | null>(null);
+  const [gateBlocked, setGateBlocked] = useState<GateBlockedDrop | null>(null);
 
   const handleDragStart = (e: DragEvent<HTMLElement>, docId: string) => {
     setDraggingId(docId);
@@ -88,7 +112,38 @@ export function useSpecBoard({
     try {
       await updateDocStatus(docId, column);
     } catch (err) {
+      // spec-566 dec-10 (ac-29) — the branch that separates this from
+      // spec-391's reverted block. A gate refusal is not a fault: roll the card
+      // back, AND hand the user the override. Rolling back in silence is what
+      // "moving a card on the kanban must never error out" was really objecting
+      // to, and it is what this branch exists to not do.
+      if (err instanceof ApiError && err.code === DONE_GATE_BLOCKED) {
+        setDocs(previous);
+        setGateBlocked({ docId, message: err.message, target: column });
+        return;
+      }
       console.error('Failed to update status', err);
+      setDocs(previous);
+    }
+  };
+
+  /**
+   * Re-run the refused move once an override has been recorded. Kept here rather
+   * than in the dialog so the optimistic update and its rollback stay in one
+   * place — two owners of the same card state is how a board starts lying.
+   */
+  const completeAfterOverride = async () => {
+    const pending = gateBlocked;
+    if (!pending) return;
+    setGateBlocked(null);
+    const previous = docs;
+    setDocs((prev) =>
+      prev.map((d) => (d.id === pending.docId ? { ...d, status: pending.target } : d)),
+    );
+    try {
+      await updateDocStatus(pending.docId, pending.target);
+    } catch (err) {
+      console.error('Failed to update status after override', err);
       setDocs(previous);
     }
   };
@@ -101,5 +156,8 @@ export function useSpecBoard({
     handleDragEnd,
     handleDragOver,
     handleDrop,
+    gateBlocked,
+    clearGateBlocked: () => setGateBlocked(null),
+    completeAfterOverride,
   };
 }
