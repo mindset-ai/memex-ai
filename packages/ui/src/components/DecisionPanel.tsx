@@ -26,6 +26,9 @@ import { TextArea } from './ui/TextArea';
 interface DecisionPanelProps {
   docId: string;
   decisions: Decision[];
+  /** spec-566 dec-7 (ac-22) — done-gate overrides on this Spec, handed to each
+   *  DecisionAcStrip. Spec-level, so the AC rows it fetches cannot carry it. */
+  gateOverrides?: number;
   commentsByDecision?: Record<string, Comment[]>;
   forceShowComments?: boolean;
   onCommentsChange?: (targetId: string, comments: Comment[]) => void;
@@ -71,7 +74,7 @@ interface DecisionPanelProps {
   orgBlocks?: readonly GuidanceBlock[];
 }
 
-export function DecisionPanel({ docId, decisions, commentsByDecision = {}, forceShowComments: _forceShowComments, onCommentsChange, onUpdate, highlightDecisionHandle, onJumpToAc, canWrite = true, canEdit = true, specPhase, promptContext, orgBlocks }: DecisionPanelProps) {
+export function DecisionPanel({ docId, decisions, gateOverrides = 0, commentsByDecision = {}, forceShowComments: _forceShowComments, onCommentsChange, onUpdate, highlightDecisionHandle, onJumpToAc, canWrite = true, canEdit = true, specPhase, promptContext, orgBlocks }: DecisionPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const decisionRehypePlugins = [rehypeRefLinkifier, rehypeSpecRefLinkifier];
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
@@ -782,6 +785,7 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
                 <DecisionAcStrip
                   acs={acs}
                   decisionId={dec.id}
+                  gateOverrides={gateOverrides}
                   onJumpToAc={onJumpToAc}
                 />
 

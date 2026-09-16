@@ -194,4 +194,13 @@ export { capitalizeDisplayName } from './display-name.js';
 // spec-566 dec-2: the superseded count's wording + the live-set rule, shared by
 // the MCP coverage header and all eight React coverage surfaces so "one
 // rendering decision" is one function rather than nine that agree today.
-export { isLiveAcStatus, supersededCountLabel, supersededSuffix } from './ac-coverage.js';
+export {
+  isLiveAcStatus,
+  supersededCountLabel,
+  supersededSuffix,
+  overrideCountLabel,
+  reopenCountLabel,
+  coverageAnnotationLabels,
+  coverageAnnotationSuffix,
+} from './ac-coverage.js';
+export type { CoverageAnnotations } from './ac-coverage.js';

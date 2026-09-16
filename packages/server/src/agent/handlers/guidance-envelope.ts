@@ -23,6 +23,7 @@ import {
   type AcWithVerification,
 } from "../../services/acs.js";
 import { listActivityView } from "../../services/activity-view.js";
+import { countGateOverridesForBriefs } from "../../services/done-gate.js";
 import { resolveTestEventActors } from "../../services/who-resolver.js";
 import { stripUuids, containsUuid } from "../../services/shared/identifiers.js";
 import { listPresent } from "../../services/presence.js";
@@ -39,7 +40,7 @@ import {
   // spec-566 dec-2 — the superseded count's wording + the live-set rule, one
   // decision shared with all eight React coverage surfaces.
   isLiveAcStatus,
-  supersededCountLabel,
+  coverageAnnotationLabels,
   type Phase,
 } from "@memex/shared";
 import { claimFullHandoffDelivery } from "../../services/handoff-delivery.js";
@@ -926,7 +927,7 @@ export function handoffInterpolationContext(
  */
 export function formatAcCoverageSummary(
   rows: AcWithVerification[],
-  opts: { hiddenByFilter?: number; supersededTotal?: number } = {},
+  opts: { hiddenByFilter?: number; supersededTotal?: number; overrides?: number } = {},
 ): string {
   const live = rows.filter((r) => isLiveAcStatus(r.ac.status));
   // dec-2 — `supersededTotal` exists for ONE case, and it is the case that
@@ -956,10 +957,10 @@ export function formatAcCoverageSummary(
 
   const parts = [gapLead, `${pctCovered}% covered (of ${total})`];
 
-  // dec-2 — beside the maths, never inside it. Silent at zero, so every Spec
-  // that has never superseded a criterion reads exactly as it did before.
-  const supersededLabel = supersededCountLabel(superseded);
-  if (supersededLabel) parts.push(supersededLabel);
+  // dec-2 / dec-7 — beside the maths, never inside it. Silent at zero, so every
+  // Spec that has never superseded a criterion nor overridden its gate reads
+  // exactly as it did before any of this existed.
+  parts.push(...coverageAnnotationLabels({ superseded, overrides: opts.overrides ?? 0 }));
 
   if (opts.hiddenByFilter && opts.hiddenByFilter > 0) {
     const h = opts.hiddenByFilter;
@@ -990,8 +991,12 @@ async function formatCoverageHeader(
     // that retired all of its criteria DOES get a header, saying so.
     const live = rows.filter((r) => isLiveAcStatus(r.ac.status));
     const superseded = rows.filter((r) => r.ac.status === "superseded");
-    if (live.length === 0 && superseded.length === 0) return "";
-    return `**AC coverage:** ${formatAcCoverageSummary(rows)}\n\n`;
+    // spec-566 dec-7 (ac-22): the override count rides on the same line. Read
+    // per header rather than threaded through, because the header is composed
+    // from the Spec id alone and this is one indexed COUNT over a tiny slice.
+    const overrides = (await countGateOverridesForBriefs(memexId, [briefId])).get(briefId) ?? 0;
+    if (live.length === 0 && superseded.length === 0 && overrides === 0) return "";
+    return `**AC coverage:** ${formatAcCoverageSummary(rows, { overrides })}\n\n`;
   } catch {
     return "";
   }

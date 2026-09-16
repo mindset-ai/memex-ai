@@ -236,6 +236,8 @@ describe("spec-520 ac-10: the AC-health payload, pinned bucket by bucket", () =>
       // dropped" produce identical numbers everywhere else on this object;
       // this field is the only place they differ.
       superseded: 1,
+      // spec-566 dec-7: done-gate overrides, 0 for this fixture.
+      overrides: 0,
     });
   });
 
@@ -255,6 +257,8 @@ describe("spec-520 ac-10: the AC-health payload, pinned bucket by bucket", () =>
       accepted: 0,
       // spec-566 dec-2: the retired-criteria tally, 0 for this fixture.
       superseded: 0,
+      // spec-566 dec-7: done-gate overrides, 0 for this fixture.
+      overrides: 0,
     });
   });
 
@@ -285,6 +289,8 @@ describe("spec-520 ac-10: tenancy — the parity risk t-4 actually introduces", 
       accepted: 0,
       // spec-566 dec-2: the retired-criteria tally, 0 for this fixture.
       superseded: 0,
+      // spec-566 dec-7: done-gate overrides, 0 for this fixture.
+      overrides: 0,
     });
     // …and asking as the OTHER tenant must not surface this one's Spec either.
     const reverse = await aggregateAcHealthForBriefs(otherMemexId, [richDocId, otherDocId]);

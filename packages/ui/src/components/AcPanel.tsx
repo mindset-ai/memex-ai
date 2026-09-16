@@ -48,7 +48,7 @@ import { Metric, type BarSegment } from './MetricBar';
 import type { GuidanceBlock } from '@memex/shared';
 // spec-566 dec-2 — one rendering decision for the superseded count, shared with
 // the MCP coverage header and the other seven coverage surfaces.
-import { isLiveAcStatus, supersededCountLabel } from '@memex/shared';
+import { isLiveAcStatus, coverageAnnotationLabels } from '@memex/shared';
 
 interface AcPanelProps {
   docId: string;
@@ -74,6 +74,9 @@ interface AcPanelProps {
   promptContext?: Record<string, unknown>;
   /** Org scaffold appends threaded into toButtonPrompt (spec-159 ac-17). */
   orgBlocks?: readonly GuidanceBlock[];
+  /** spec-566 dec-7 (ac-22) — done-gate overrides on this Spec, from the doc
+   *  payload. A Spec-level number, so the AC rows cannot carry it. */
+  gateOverrides?: number;
 }
 
 const POLL_INTERVAL_MS = 3_000;
@@ -183,11 +186,15 @@ function UnifiedAcHeader({
   history,
   promptContext,
   orgBlocks,
+  gateOverrides = 0,
 }: {
   rows: AcWithVerification[];
   history: AcAlignmentDay[];
   promptContext?: Record<string, unknown>;
   orgBlocks?: readonly GuidanceBlock[];
+  /** spec-566 dec-7 (ac-22) — done-gate overrides on this Spec. A Spec-level
+   *  number the AC rows cannot carry, so the page hands it down. */
+  gateOverrides?: number;
 }) {
   // spec-566 dec-2 — every figure below is over the LIVE set. A superseded
   // criterion was a commitment that got retired, so leaving it in the
@@ -197,7 +204,11 @@ function UnifiedAcHeader({
   // beside it. `isLiveAcStatus` is the same rule the MCP coverage header uses.
   const live = rows.filter((r) => isLiveAcStatus(r.ac.status));
   const supersededCount = rows.filter((r) => r.ac.status === 'superseded').length;
-  const supersededLabel = supersededCountLabel(supersededCount);
+  const annotations = coverageAnnotationLabels({
+    superseded: supersededCount,
+    overrides: gateOverrides,
+  });
+  const supersededLabel = annotations.length ? annotations.join(' · ') : null;
 
   const verified = live.filter((r) => r.verificationState === 'verified');
   const failing = live.filter((r) => r.verificationState === 'failing');
@@ -656,7 +667,7 @@ function AcRowMeta({
   );
 }
 
-export function AcPanel({ docId, focusedAcId, onFocusConsumed, specPhase, promptContext, orgBlocks }: AcPanelProps) {
+export function AcPanel({ docId, focusedAcId, onFocusConsumed, specPhase, promptContext, orgBlocks, gateOverrides = 0 }: AcPanelProps) {
   const [rows, setRows] = useState<AcWithVerification[] | null>(null);
   const [history, setHistory] = useState<AcAlignmentDay[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -789,7 +800,7 @@ export function AcPanel({ docId, focusedAcId, onFocusConsumed, specPhase, prompt
   }
 
   const aboutDialog = aboutOpen ? (
-    <AcAboutDialog rows={rows} onClose={() => setAboutOpen(false)} />
+    <AcAboutDialog rows={rows} gateOverrides={gateOverrides} onClose={() => setAboutOpen(false)} />
   ) : null;
 
   // Whole-tab empty state — the teaching moment for a Spec with zero ACs
@@ -935,6 +946,7 @@ export function AcPanel({ docId, focusedAcId, onFocusConsumed, specPhase, prompt
         history={mergeAlignmentHistory(history)}
         promptContext={promptContext}
         orgBlocks={orgBlocks}
+        gateOverrides={gateOverrides}
       />
       <UnifiedAcList
         rows={rows}

@@ -949,6 +949,8 @@ export function DocDocument() {
       docId={doc.id}
       specPhase={phase}
       decisions={decs}
+      /* spec-566 dec-7 (ac-22): passed through to each DecisionAcStrip. */
+      gateOverrides={doc.gateOverrides ?? 0}
       commentsByDecision={commentsByDecision}
       onCommentsChange={handleDecisionCommentsChange}
       onUpdate={reloadDoc}
@@ -975,6 +977,8 @@ export function DocDocument() {
       <AcPanel
         docId={doc.id}
         specPhase={phase}
+        /* spec-566 dec-7 (ac-22): a Spec-level count the AC rows cannot carry. */
+        gateOverrides={doc.gateOverrides ?? 0}
         focusedAcId={focusedAcId}
         onFocusConsumed={() => setFocusedAcId(null)}
         /* spec-247 dec-4: context for the "Wire the AC tests" handoff. */

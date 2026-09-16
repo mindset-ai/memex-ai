@@ -722,7 +722,15 @@ export interface SpecLifecycleSummary {
    * spec-566 and is left standing rather than changed under a rendering task —
    * see spec-566 issue-2.
    */
-  acs: { total: number; verified: number; failing: number; covered: number; superseded: number };
+  acs: {
+    total: number;
+    verified: number;
+    failing: number;
+    covered: number;
+    superseded: number;
+    /** spec-566 dec-7 (ac-22) — times the done-gate was overridden on this Spec. */
+    overrides: number;
+  };
 }
 
 /** The lifecycle summary strip: created/phase/age/time-in-phase, task progress, AC health (dec-5). */
@@ -751,6 +759,13 @@ export async function specLifecycleSummary(memexId: string, docId: string): Prom
     FROM acs WHERE memex_id = ${memexId} AND brief_id = ${docId} AND status = 'superseded'
   `)) as unknown as Array<{ n: number }>;
 
+  // spec-566 dec-7 (ac-22) — the override tally for this Spec's strip.
+  const [overrideRow] = (await db.execute(sql`
+    SELECT count(*)::int AS n
+    FROM spec_lifecycle_events
+    WHERE memex_id = ${memexId} AND brief_id = ${docId} AND kind = 'gate_overridden'
+  `)) as unknown as Array<{ n: number }>;
+
   const now = Date.now();
   return {
     createdAt: new Date(doc.createdAt).toISOString(),
@@ -764,6 +779,7 @@ export async function specLifecycleSummary(memexId: string, docId: string): Prom
       failing: verification.failing,
       covered: verification.verified + verification.failing,
       superseded: supersededRow?.n ?? 0,
+      overrides: overrideRow?.n ?? 0,
     },
   };
 }

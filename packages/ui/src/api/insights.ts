@@ -291,7 +291,15 @@ export interface SpecLifecycleSummary {
   tasks: { total: number; complete: number };
   /** `total` is the live set (the server filters to `status = 'active'`);
    *  `superseded` is the retired count rendered beside it (spec-566 dec-2). */
-  acs: { total: number; verified: number; failing: number; covered: number; superseded: number };
+  acs: {
+    total: number;
+    verified: number;
+    failing: number;
+    covered: number;
+    superseded: number;
+    /** spec-566 dec-7 — done-gate overrides on this Spec (ac-22). */
+    overrides: number;
+  };
 }
 
 export async function fetchSpecSummary(specRef: string): Promise<SpecLifecycleSummary> {

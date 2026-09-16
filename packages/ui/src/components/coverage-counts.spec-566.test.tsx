@@ -140,6 +140,7 @@ const HEALTH_10_OF_11: AcHealth = {
   untested: 0,
   accepted: 0,
   superseded: 1,
+  overrides: 0,
 };
 
 /** The same example with nothing superseded — the silence control. */

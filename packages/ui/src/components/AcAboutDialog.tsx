@@ -22,14 +22,16 @@ import { createPortal } from 'react-dom';
 import { Button } from './ui';
 import type { AcWithVerification } from '../api/client';
 // spec-566 dec-2 — one rendering decision for the superseded count.
-import { isLiveAcStatus, supersededCountLabel } from '@memex/shared';
+import { isLiveAcStatus, coverageAnnotationLabels } from '@memex/shared';
 
 interface AcAboutDialogProps {
   rows: AcWithVerification[];
+  /** spec-566 dec-7 (ac-22) — done-gate overrides on this Spec. */
+  gateOverrides?: number;
   onClose: () => void;
 }
 
-export function AcAboutDialog({ rows, onClose }: AcAboutDialogProps) {
+export function AcAboutDialog({ rows, gateOverrides = 0, onClose }: AcAboutDialogProps) {
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -48,9 +50,11 @@ export function AcAboutDialog({ rows, onClose }: AcAboutDialogProps) {
   // "Of the N ACs, M are currently verified" over the unfiltered rows would
   // quietly hold a superseded criterion against the Spec forever.
   const live = rows.filter((r) => isLiveAcStatus(r.ac.status));
-  const supersededLabel = supersededCountLabel(
-    rows.filter((r) => r.ac.status === 'superseded').length,
-  );
+  const annotations = coverageAnnotationLabels({
+    superseded: rows.filter((r) => r.ac.status === 'superseded').length,
+    overrides: gateOverrides,
+  });
+  const supersededLabel = annotations.length ? annotations.join(' · ') : null;
 
   const scope = live.filter((r) => r.ac.kind === 'scope');
   const impl = live.filter((r) => r.ac.kind === 'implementation');

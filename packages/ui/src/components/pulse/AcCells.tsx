@@ -8,13 +8,17 @@
 
 import type { AcHealth } from '../../api/types';
 // spec-566 dec-2 — one rendering decision for the superseded count.
-import { supersededCountLabel } from '@memex/shared';
+import { coverageAnnotationLabels } from '@memex/shared';
 
 export function AcCells({ health }: { health: AcHealth | undefined }) {
   // spec-566 ac-11 — this is the component that renders HotSpecs' number
   // (`{passing}/{totalActive}`), so the count lands here rather than in
   // HotSpecs itself, which only passes `health` down.
-  const supersededLabel = supersededCountLabel(health?.superseded ?? 0);
+  const annotations = coverageAnnotationLabels({
+    superseded: health?.superseded ?? 0,
+    overrides: health?.overrides ?? 0,
+  });
+  const supersededLabel = annotations.length ? annotations.join(' · ') : null;
   if (!health || health.totalActive === 0) {
     // No live criteria, but some were retired: say so instead of rendering
     // nothing, which would read as a Spec that never committed to anything.

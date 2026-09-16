@@ -117,6 +117,8 @@ function tallyTabPayload(
     // own superseded count is asserted where superseded rows exist — here it is
     // the parity baseline, not an untested field.
     superseded: 0,
+    // spec-566 dec-7: done-gate overrides, 0 for this fixture.
+    overrides: 0,
   };
   for (let i = 0; i < states.length; i++) {
     if (hadTests[i]) tally.covered += 1;
@@ -201,6 +203,8 @@ describe("aggregateAcHealthForBriefs parity with listAcsForBriefWithVerification
       accepted: 0,
       // spec-566 dec-2: the retired-criteria tally, 0 for this fixture.
       superseded: 0,
+      // spec-566 dec-7: done-gate overrides, 0 for this fixture.
+      overrides: 0,
     });
   });
 

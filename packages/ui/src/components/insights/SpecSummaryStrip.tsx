@@ -6,7 +6,7 @@
 import type { SpecLifecycleSummary } from '../../api/insights';
 import { phaseLabel, shortDate, useChartPalette } from './theme';
 // spec-566 dec-2 — one rendering decision for the superseded count.
-import { supersededSuffix } from '@memex/shared';
+import { coverageAnnotationSuffix } from '@memex/shared';
 
 interface Props {
   summary: SpecLifecycleSummary;
@@ -56,12 +56,12 @@ export function SpecSummaryStrip({ summary }: Props) {
       <Stat
         label="ACs verified"
         value={`${acPct}%`}
-        sub={`${summary.acs.verified}/${summary.acs.total} verified${supersededSuffix(summary.acs.superseded)}`}
+        sub={`${summary.acs.verified}/${summary.acs.total} verified${coverageAnnotationSuffix({ superseded: summary.acs.superseded, overrides: summary.acs.overrides })}`}
       />
       <Stat
         label="AC coverage"
         value={summary.acs.total > 0 ? `${Math.round((summary.acs.covered / summary.acs.total) * 100)}%` : '—'}
-        sub={`${summary.acs.covered}/${summary.acs.total} tested${supersededSuffix(summary.acs.superseded)}`}
+        sub={`${summary.acs.covered}/${summary.acs.total} tested${coverageAnnotationSuffix({ superseded: summary.acs.superseded, overrides: summary.acs.overrides })}`}
       />
     </div>
   );

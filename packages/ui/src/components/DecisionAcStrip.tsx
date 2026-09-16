@@ -16,13 +16,16 @@
 import type { AcWithVerification } from '../api/client';
 import { AcPill } from './AcPill';
 // spec-566 dec-2 — one rendering decision for the superseded count.
-import { isLiveAcStatus, supersededCountLabel } from '@memex/shared';
+import { isLiveAcStatus, coverageAnnotationLabels } from '@memex/shared';
 
 interface DecisionAcStripProps {
   /** All ACs for the Spec — caller passes the unfiltered set, this
    *  component filters to the ACs whose parents include this decisionId. */
   acs: AcWithVerification[];
   decisionId: string;
+  /** spec-566 dec-7 (ac-22) — done-gate overrides on the owning Spec. A
+   *  Spec-level number the AC rows cannot carry, so the panel hands it down. */
+  gateOverrides?: number;
   /** Click on a pill → call this with the AC's id; caller switches to the
    *  AC tab and focuses the row. */
   onJumpToAc?: (acId: string) => void;
@@ -31,6 +34,7 @@ interface DecisionAcStripProps {
 export function DecisionAcStrip({
   acs,
   decisionId,
+  gateOverrides = 0,
   onJumpToAc,
 }: DecisionAcStripProps) {
   const own = acs.filter((r) =>
@@ -52,9 +56,11 @@ export function DecisionAcStrip({
   // as one honoured claim plus one retired one, not as two claims one of which
   // is silently untested forever.
   const live = own.filter((r) => isLiveAcStatus(r.ac.status));
-  const supersededLabel = supersededCountLabel(
-    own.filter((r) => r.ac.status === 'superseded').length,
-  );
+  const annotations = coverageAnnotationLabels({
+    superseded: own.filter((r) => r.ac.status === 'superseded').length,
+    overrides: gateOverrides,
+  });
+  const supersededLabel = annotations.length ? annotations.join(' · ') : null;
 
   const verified = live.filter((r) => r.verificationState === 'verified');
   const failing = live.filter((r) => r.verificationState === 'failing');
@@ -69,7 +75,7 @@ export function DecisionAcStrip({
   if (failing.length > 0) parts.push(`${failing.length} failing`);
   if (untested.length > 0) parts.push(`${untested.length} untested`);
   if (stale.length > 0) parts.push(`${stale.length} stale`);
-  if (supersededLabel) parts.push(supersededLabel);
+  if (supersededLabel) parts.push(...annotations);
 
   return (
     <div

@@ -104,6 +104,8 @@ describe("aggregateAcHealthForBriefs", () => {
       untested: 0,
       // spec-566 dec-2: the retired-criteria tally, 0 for this fixture.
       superseded: 0,
+      // spec-566 dec-7: done-gate overrides, 0 for this fixture.
+      overrides: 0,
     });
   });
 
@@ -132,6 +134,8 @@ describe("aggregateAcHealthForBriefs", () => {
       untested: 0,
       // spec-566 dec-2: the retired-criteria tally, 0 for this fixture.
       superseded: 0,
+      // spec-566 dec-7: done-gate overrides, 0 for this fixture.
+      overrides: 0,
     });
   });
 
@@ -164,6 +168,8 @@ describe("aggregateAcHealthForBriefs", () => {
       untested: 0,
       // spec-566 dec-2: the retired-criteria tally, 0 for this fixture.
       superseded: 0,
+      // spec-566 dec-7: done-gate overrides, 0 for this fixture.
+      overrides: 0,
     });
   });
 
@@ -192,6 +198,8 @@ describe("aggregateAcHealthForBriefs", () => {
       untested: 0,
       // spec-566 dec-2: the retired-criteria tally, 0 for this fixture.
       superseded: 0,
+      // spec-566 dec-7: done-gate overrides, 0 for this fixture.
+      overrides: 0,
     });
   });
 
@@ -216,6 +224,8 @@ describe("aggregateAcHealthForBriefs", () => {
       untested: 1,
       // spec-566 dec-2: the retired-criteria tally, 0 for this fixture.
       superseded: 0,
+      // spec-566 dec-7: done-gate overrides, 0 for this fixture.
+      overrides: 0,
     });
   });
 

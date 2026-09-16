@@ -147,4 +147,7 @@ export interface AcHealth {
    *  `totalActive` and outside every percentage; rendered beside the coverage
    *  figure so a Spec cannot reach 100% by retiring what it could not satisfy. */
   superseded: number;
+  /** spec-566 dec-7 — times this Spec's done-gate was overridden, rendered
+   *  beside coverage so the escape hatch cannot quietly become the norm. */
+  overrides: number;
 }

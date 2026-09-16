@@ -67,6 +67,13 @@ const DENOMINATOR = [
 /**
  * The one decision every denominator-rendering surface must route through.
  *
+ * spec-566 t-7 widened this to the combined annotator. t-5 shipped only the
+ * superseded count, so the single-count helpers were the whole vocabulary; dec-7
+ * added the override count and dec-9 will add reopens, and
+ * `coverageAnnotationLabels` is what keeps that from being nine more edits every
+ * time. Both spellings satisfy the guard — what it enforces is that the decision
+ * comes from one place, not which of its functions a surface calls.
+ *
  * It matches the IMPORT, not the bare identifier. A mutation probe is why: with
  * the identifier alone, replacing
  *
@@ -78,7 +85,7 @@ const DENOMINATOR = [
  * The `[^}]*` spans a multi-line brace list, so a grouped import still matches.
  */
 const SHARED_HELPER =
-  /import\s*\{[^}]*\b(supersededCountLabel|supersededSuffix)\b[^}]*\}\s*from\s*['"]@memex\/shared['"]/;
+  /import\s*\{[^}]*\b(supersededCountLabel|supersededSuffix|coverageAnnotationLabels|coverageAnnotationSuffix)\b[^}]*\}\s*from\s*['"]@memex\/shared['"]/;
 
 /**
  * Files that handle AC data but render no coverage figure of their own.

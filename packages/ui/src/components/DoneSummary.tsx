@@ -32,7 +32,7 @@ import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import { MarkdownText } from './chat/MarkdownText';
 // spec-566 dec-2 — one rendering decision for the superseded count.
-import { isQaReportSectionType, isLiveAcStatus, supersededCountLabel } from '@memex/shared';
+import { isQaReportSectionType, isLiveAcStatus, coverageAnnotationLabels } from '@memex/shared';
 import type { Decision, Task, Issue, DocWithGraph } from '../api/types';
 import type { AcWithVerification, DocAssigneeView } from '../api/client';
 import { Button, Card } from './ui';
@@ -178,9 +178,13 @@ export function DoneSummary({
   const liveAcs = acs.filter((a) => isLiveAcStatus(a.ac.status));
   const acsTotal = liveAcs.length;
   const acsVerified = liveAcs.filter((a) => a.verificationState === 'verified').length;
-  const acsSupersededLabel = supersededCountLabel(
-    acs.filter((a) => a.ac.status === 'superseded').length,
-  );
+  // dec-7 (ac-22): the override count comes off the doc payload — it is a
+  // Spec-level act, so the AC rows cannot carry it.
+  const acsAnnotations = coverageAnnotationLabels({
+    superseded: acs.filter((a) => a.ac.status === 'superseded').length,
+    overrides: doc.gateOverrides ?? 0,
+  });
+  const acsSupersededLabel = acsAnnotations.length ? acsAnnotations.join(' · ') : null;
 
   // ── Issues: raised (all) vs resolved-or-converted (wound down).
   const issuesRaised = issues.length;

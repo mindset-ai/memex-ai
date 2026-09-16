@@ -170,8 +170,12 @@ describe("ac-4 — single shared helper consumed by both call sites", () => {
   // Pinning the unfiltered hand-off is the stronger form of the same claim.
   it("formatCoverageHeader routes its headline through the helper, unfiltered", () => {
     tagAc(acRef(4));
+    // spec-566 t-7 added a second argument (the override count), so the pin
+    // allows one rather than requiring the bare call. What ac-4 claims is that
+    // this call site routes through the helper and hands it the UNFILTERED rows;
+    // both are still asserted, here and by the sibling case below.
     expect(TOOL_SPECS_SRC).toMatch(
-      /\*\*AC coverage:\*\* \$\{formatAcCoverageSummary\(rows\)\}/,
+      /\*\*AC coverage:\*\* \$\{formatAcCoverageSummary\(rows[^)]*\)\}/,
     );
   });
 

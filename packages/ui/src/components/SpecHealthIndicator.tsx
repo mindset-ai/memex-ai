@@ -25,7 +25,7 @@
 
 import type { AcHealth } from '../api/types';
 // spec-566 dec-2 — one rendering decision for the superseded count.
-import { supersededCountLabel } from '@memex/shared';
+import { coverageAnnotationLabels } from '@memex/shared';
 
 export type CardHealthState =
   | 'verified'
@@ -100,7 +100,11 @@ export function SpecHealthChip({ health }: SpecHealthIndicatorProps) {
   // `totalActive` is already the live set (the aggregate query filters to
   // `status = 'active'`), so the ratio needed no change; what it needed was for
   // the retirement to stop being invisible.
-  const supersededLabel = supersededCountLabel(health?.superseded ?? 0);
+  const annotations = coverageAnnotationLabels({
+    superseded: health?.superseded ?? 0,
+    overrides: health?.overrides ?? 0,
+  });
+  const supersededLabel = annotations.length ? annotations.join(' · ') : null;
   // A Spec with NO live criteria still renders when some were retired. Without
   // this, "every criterion was superseded" and "no criteria were ever written"
   // are the same card — the badge this Spec exists to make falsifiable.

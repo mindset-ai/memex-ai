@@ -6,7 +6,7 @@ import type { DocSummary, TaskProgress, LastActivity } from "../types/index.js";
 import { NotFoundError, ValidationError } from "../types/errors.js";
 import { mutate, type ChangeKey, type Mutated, type RequestCtx } from "./mutate.js";
 // spec-566 t-7 (dec-10) — the done-gate refuses at this seam.
-import { assertDoneGateClear } from "./done-gate.js";
+import { assertDoneGateClear, countGateOverridesForBriefs } from "./done-gate.js";
 import { resolveActorColumns } from "./actor.js";
 import { ARCHIVE_REASON_MAX_LENGTH } from "./archived-docs.js";
 import { isUuid } from "./shared/identifiers.js";
@@ -767,7 +767,7 @@ export async function listDocs(
         // its criteria is not a Spec that never wrote any — and omitting the
         // payload made those two read identically on every card. That is the
         // unfalsifiable badge this Spec exists to kill, in its purest form.
-        if (h && (h.totalActive > 0 || h.superseded > 0)) s.acHealth = h;
+        if (h && (h.totalActive > 0 || h.superseded > 0 || h.overrides > 0)) s.acHealth = h;
       }
     }
   }
@@ -975,6 +975,13 @@ export async function getDoc(
     //                        common case; the banner renders nothing for it.
     supersededByHandle: string | null;
     replacesHandles: string[];
+    // spec-566 dec-7 (ac-22): how many times this Spec's done-gate was
+    // overridden. On the doc payload rather than fetched separately because the
+    // four coverage surfaces that render from AC ROWS — AcPanel, AcAboutDialog,
+    // DoneSummary, DecisionAcStrip — have no Spec-level shape to read it from,
+    // and an override count they cannot see is the count dec-7 relies on going
+    // missing on four of the nine surfaces.
+    gateOverrides: number;
   }
 > {
   const idMatch = isUuid(idOrHandle)
@@ -1068,6 +1075,7 @@ export async function getDoc(
     groundedStale,
     supersededByHandle,
     replacesHandles,
+    gateOverrides: (await countGateOverridesForBriefs(memexId, [doc.id])).get(doc.id) ?? 0,
   };
 }
 

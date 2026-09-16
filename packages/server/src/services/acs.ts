@@ -44,6 +44,7 @@ import { mutate, type Mutated, type RequestCtx } from "./mutate.js";
 import { resolveActorColumns } from "./actor.js";
 import { recordLifecycleEvent } from "./lifecycle-journal.js";
 import { removeSummaryForPair } from "./test-event-latest.js";
+import { countGateOverridesForBriefs } from "./done-gate.js";
 import { nextSeq, withSeqRetry } from "./shared/sequence.js";
 
 export type Ac = InferSelectModel<typeof acs>;
@@ -1385,6 +1386,10 @@ export interface AcHealth {
    *  set, and this rides beside it so a Spec cannot reach 100% by retiring what
    *  it could not satisfy. Zero for every Spec that has never superseded one. */
   superseded: number;
+  /** spec-566 dec-7 — times this Spec's done-gate was overridden. dec-7 keeps the
+   *  override from becoming the normal path with exactly one device: it is
+   *  counted and shown. Outside every percentage, like `superseded`. */
+  overrides: number;
 }
 
 const EMPTY_HEALTH: AcHealth = {
@@ -1396,6 +1401,7 @@ const EMPTY_HEALTH: AcHealth = {
   untested: 0,
   accepted: 0,
   superseded: 0,
+  overrides: 0,
 };
 
 export async function aggregateAcHealthForBriefs(
@@ -1436,6 +1442,16 @@ export async function aggregateAcHealthForBriefs(
   for (const row of supersededRows) {
     const entry = result.get(row.briefId);
     if (entry) entry.superseded = row.n;
+  }
+
+  // spec-566 dec-7 (ac-22) — the override tally, beside the maths for the same
+  // reason the superseded one is. Same shape, same early-return placement: a
+  // Spec whose criteria are all retired still reports how many times its gate
+  // was waved through.
+  const overrideCounts = await countGateOverridesForBriefs(memexId, briefIds);
+  for (const [briefId, n] of overrideCounts) {
+    const entry = result.get(briefId);
+    if (entry) entry.overrides = n;
   }
 
   // Q1 — active ACs + their canonical-ref slug components in one join.

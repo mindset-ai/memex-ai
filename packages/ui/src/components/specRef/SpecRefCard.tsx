@@ -1,7 +1,7 @@
 import type { DocSummary } from '../../api/types';
 import { Badge } from '../ui';
 // spec-566 dec-2 — one rendering decision for the superseded count.
-import { supersededCountLabel } from '@memex/shared';
+import { coverageAnnotationLabels } from '@memex/shared';
 
 /**
  * spec-529 t-5 — the card behind a reference pill.
@@ -35,7 +35,11 @@ export function SpecRefCard({ id, doc }: { id: string; doc: DocSummary }) {
   const progress = doc.taskProgress;
   const health = doc.acHealth;
   // spec-566 dec-2 — the retired count, beside the percentage and outside it.
-  const supersededLabel = supersededCountLabel(health?.superseded ?? 0);
+  const annotations = coverageAnnotationLabels({
+    superseded: health?.superseded ?? 0,
+    overrides: health?.overrides ?? 0,
+  });
+  const supersededLabel = annotations.length ? annotations.join(', ') : null;
   const inPhase = daysSince(doc.statusChangedAt);
 
   return (

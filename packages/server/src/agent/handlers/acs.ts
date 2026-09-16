@@ -34,7 +34,7 @@ import {
   proposeAcSupersession,
   rejectAcSupersession,
 } from "../../services/ac-supersession.js";
-import { overrideDoneGate } from "../../services/done-gate.js";
+import { countGateOverridesForBriefs, overrideDoneGate } from "../../services/done-gate.js";
 import {
   fetchTopic,
 } from "../../services/guidance.js";
@@ -367,7 +367,10 @@ export const acsTools: ToolSpec[] = [
       // agent runs to ask "is this Spec done?", and it is precisely the one that
       // would otherwise show a clean 100% with the retirement nowhere in sight.
       const supersededTotal = allRows.filter((r) => r.ac.status === "superseded").length;
-      const summary = formatAcCoverageSummary(rows, { hiddenByFilter, supersededTotal });
+      // dec-7 (ac-22): and the override count, on the same line, from the same
+      // source every other coverage surface reads.
+      const overrides = (await countGateOverridesForBriefs(memexId, [doc.id])).get(doc.id) ?? 0;
+      const summary = formatAcCoverageSummary(rows, { hiddenByFilter, supersededTotal, overrides });
       // Full state distribution stays below the headline as a breakdown.
       const breakdown: string[] = [];
       if (verified > 0) breakdown.push(`${verified} verified`);

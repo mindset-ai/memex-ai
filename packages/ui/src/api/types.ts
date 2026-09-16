@@ -207,6 +207,8 @@ export interface AcHealth {
    *  `totalActive` and outside every percentage; every surface that renders a
    *  coverage figure renders this beside it (ac-11). */
   superseded: number;
+  /** spec-566 dec-7 — times the done-gate was overridden on this Spec (ac-22). */
+  overrides: number;
 }
 
 export interface Doc {
@@ -238,6 +240,13 @@ export interface Doc {
   groundedAt?: string | null;
   groundedByName?: string | null;
   groundedStale?: boolean;
+  /**
+   * spec-566 dec-7 (ac-22) — how many times this Spec's done-gate was
+   * overridden. Carried on the doc payload so the four coverage surfaces that
+   * render from AC ROWS can show it beside their figures; the AcHealth-shaped
+   * surfaces read `acHealth.overrides` instead. Optional for payload tolerance.
+   */
+  gateOverrides?: number;
   /**
    * spec-535 — the sensitivity flag + who to contact. `sensitive` is the
    * persisted boolean; `sensitiveByName` is the display snapshot denormalised at

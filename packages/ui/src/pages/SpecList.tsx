@@ -21,6 +21,8 @@ import { PageHeader } from '../components/PageHeader';
 import { SearchTrigger } from '../components/SearchTrigger';
 import { phaseDisplayName } from '../utils/phaseDisplay';
 import { KanbanColumn } from '../components/spec-board/KanbanColumn';
+// spec-566 t-7 (ac-29) — the path forward when the done-gate refuses a drop.
+import { DoneGateOverrideDialog } from '../components/spec-board/DoneGateOverrideDialog';
 import { type SpecKanbanStatus, type ActiveStatus } from '../components/spec-board/types';
 import { useSpecBoard } from '../hooks/useSpecBoard';
 
@@ -247,6 +249,12 @@ export function SpecList() {
     handleDragEnd,
     handleDragOver,
     handleDrop,
+    // spec-566 ac-29: a drop the done-gate refused. Non-null means the card has
+    // been rolled back AND the user is owed the override — rolling back alone
+    // is the spec-391 behaviour dec-10 chose this seam on condition of avoiding.
+    gateBlocked,
+    clearGateBlocked,
+    completeAfterOverride,
   } = useSpecBoard({ docs, setDocs, canWrite, setDoneExpanded });
 
   const loadDocs = useCallback(() => {
@@ -421,6 +429,14 @@ export function SpecList() {
 
   return (
     <div className="h-full flex flex-col px-6 py-6">
+      {gateBlocked && (
+        <DoneGateOverrideDialog
+          docId={gateBlocked.docId}
+          message={gateBlocked.message}
+          onOverridden={completeAfterOverride}
+          onCancel={clearGateBlocked}
+        />
+      )}
       {showPersonalBanner && <CreateOrgBanner />}
       <PageHeader
         title="Specs"
