@@ -94,12 +94,31 @@ describe("spec-562 ac-8 — the deadline carries its measurement", () => {
     ).toMatch(/re-?measure|reopen/i);
   });
 
-  it("the documented value is the value in force", () => {
+  it("the provenance DECLARES the value in force, and it matches the constant", () => {
     tagAc(AC(8));
-    // Provenance describing a different number is worse than none: it is confidently
-    // wrong, which is exactly how 0089_activity_view.sql misled spec-563.
-    const declLine = SOURCE.slice(SOURCE.indexOf(DECL)).split("\n")[0];
-    const literal = Number(declLine.replace(/[^\d_]/g, "").replaceAll("_", ""));
-    expect(literal).toBe(MCP_DISPATCH_DEADLINE_MS);
+    // Third attempt at this assertion, and the first that can fail. Recorded
+    // because the two dead ends are instructive:
+    //
+    //   1. Comparing the literal on the declaration line to the imported constant
+    //      asserted nothing — both are read from the same source, so they cannot
+    //      disagree.
+    //   2. Searching the whole comment for the live value also passed on a wrong
+    //      constant, because the provenance deliberately cites EARLIER values as
+    //      history ("why this was 30 000 ms until 2026-09-17").
+    //
+    // Both were caught by mutating the constant and watching the test stay green.
+    // The fix is a single declarative line: history may say anything, but exactly
+    // one line states what is in force, and it is checked.
+    const block = provenanceBlock();
+    const declared = block.match(/IN FORCE:\s*([\d_ ]+)\s*ms/);
+    expect(
+      declared,
+      "the provenance has no `IN FORCE: <n> ms` line — nothing states which value is current",
+    ).not.toBeNull();
+    const stated = Number(declared![1].replace(/[_ ]/g, ""));
+    expect(
+      stated,
+      "the provenance declares a value the code does not use — confidently wrong, the way 0089_activity_view.sql misled spec-563",
+    ).toBe(MCP_DISPATCH_DEADLINE_MS);
   });
 });

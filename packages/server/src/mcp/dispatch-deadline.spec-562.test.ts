@@ -116,7 +116,14 @@ describe("spec-562 — the MCP dispatch deadline", () => {
 
   it("ac-7: one global value — no per-tool table", async () => {
     tagAc(AC(7));
-    expect(MCP_DISPATCH_DEADLINE_MS).toBe(30_000);
+    // NOT pinned to a literal. This criterion is about there being ONE value
+    // applied uniformly, never about which value — and dec-2 -> dec-4 already
+    // moved it once (30_000 -> 60_000) on a legitimate re-measurement. A test
+    // that reds on that move punishes the honest act and gets deleted rather
+    // than kept true. The number itself is guarded by ac-8, which asserts the
+    // documented value IS the value in force.
+    expect(Number.isFinite(MCP_DISPATCH_DEADLINE_MS)).toBe(true);
+    expect(MCP_DISPATCH_DEADLINE_MS).toBeGreaterThan(0);
 
     // A per-tool override would have to arrive through the options bag. The
     // signature carries `toolName` for LOGGING only: a new tool inherits the
