@@ -96,6 +96,7 @@ describe("spec-562 ac-8 — the deadline carries its measurement", () => {
 
   it("the provenance DECLARES the value in force, and it matches the constant", () => {
     tagAc(AC(8));
+    tagAc(AC(14));
     // Third attempt at this assertion, and the first that can fail. Recorded
     // because the two dead ends are instructive:
     //
