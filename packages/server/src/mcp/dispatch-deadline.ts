@@ -18,45 +18,64 @@
 /**
  * How long an MCP tool call may run before its caller is answered.
  *
- * ── The measurement behind this number (spec-562 dec-2, ac-8) ──────────────────
- * Read from `mcp_tool_calls.duration_ms` in production on 2026-09-13, over a
- * window starting 2026-09-12 19:00 UTC — the first clean hour after spec-563
- * deployed. Anything earlier straddles that fix and averages two different
- * systems.
+ * IN FORCE: 60000 ms — set by dec-4 on 2026-09-17. This line is machine-checked
+ * against the constant below (ac-8): the prose elsewhere cites earlier values as
+ * history, so only this line states what is actually in force.
  *
- *   sample   878 calls
- *   < 1s     638   72.7%
- *   1-5s     240   27.3%
- *   > 5s       0      —
- *   worst    4 799 ms (update_task); worst p99 of any tool 4 799 ms
+ * ── The measurement behind this number (spec-562 dec-4, ac-8) ──────────────────
+ * Read from `mcp_tool_calls.duration_ms` in production on 2026-09-17, over the
+ * window since the deadline itself went live (2026-09-13 16:05 UTC). Earlier data
+ * straddles that deploy and averages two different systems.
  *
- * 30 000 ms sits in a PROVABLY EMPTY region — six times the observed maximum, in
- * an interval containing no calls at all. So it cuts nothing legitimate, and the
- * 305-second silence becomes a 30-second one.
+ *   sample                     8 344 calls over 90.5 hours
+ *   slowest LEGITIMATE call    22 469 ms  (create_decision)
+ *                              11 792 ms  (create_decision)
+ *                              10 083 ms  (update_task)
+ *   breaches                   1 — and it was a FALSE POSITIVE (see below)
  *
- * One global value, no per-tool table: with spec-563's activity-footer defect
- * removed the population is homogeneous (every tool under 5 s), so a per-tool
- * table would carry zero exceptions. Before that fix `get_doc` showed a p99 of
- * 23 892 ms against a next-worst of 6 826 ms — but that spread was the defect,
- * not the workload.
+ * 60 000 ms is 2.7x the slowest legitimate call. It cuts nothing observed in 90
+ * hours.
+ *
+ * ── Why this was 30 000 ms until 2026-09-17, and why it moved ─────────────────
+ * dec-2 set 30 000 on 878 calls over 18 hours where nothing exceeded 5 s, and
+ * wrote its own reopen trigger: a legitimate call above 10 s reopens it. Three
+ * appeared. The original window was not wrong, it was small — calls occurring a
+ * few times a week cannot show up in 18 hours.
+ *
+ * The cost was real before it was theoretical. On 2026-09-15 a legitimate
+ * `create_task` was cut at 30 s and settled at 35 s, so its caller was told
+ * UNKNOWN about a write that had committed 34.5 s earlier.
+ *
+ * ── What raising this COSTS, which is not nothing ─────────────────────────────
+ * This deadline exists to bound silence: the 2026-09-10 incident was 305 seconds
+ * of nothing. At 30 s that bound was tight; at 60 s a caller waits a full minute
+ * before learning anything. 60 s still beats 305 s decisively, but the trade is
+ * deliberate — FEWER FALSE POSITIVES, BOUGHT WITH A LONGER WORST-CASE SILENCE.
+ * Anyone changing this number should see both halves.
+ *
+ * One global value, no per-tool table: the population is homogeneous. Before
+ * spec-563 `get_doc` showed a p99 of 23 892 ms against a next-worst of 6 826 ms,
+ * but that spread was a defect (its activity footer ran on every response, writes
+ * included), not the workload.
  *
  * ── When to reopen this ───────────────────────────────────────────────────────
- * The window is ~18 hours against 30 days for the pre-fix baseline: a legitimate
- * slow call occurring weekly did not occur in it. A measurement of the present
- * can falsify a bound but never confirm one [per std-50 cl-8]. So:
+ * A measurement of the present can falsify a bound but never confirm one
+ * [per std-50 cl-8]. 90 hours has almost certainly not seen the whole tail.
  *
- *   - re-measure after a full week on the healthy baseline (from 2026-09-19);
- *   - re-measure whenever a long-running tool path is added;
- *   - if a LEGITIMATE call above 10 s appears, reopen spec-562 dec-2 rather than
- *     quietly tolerating it.
+ *   - a LEGITIMATE call above 20 000 ms reopens dec-4 rather than being tolerated;
+ *   - spec-567 landing should trigger a DOWNWARD re-measurement — it found that
+ *     standards routing costs ~2 s of post-commit work on every mutation, which
+ *     is why these calls are slow. Removing that tax makes 60 000 loose; do not
+ *     assume it makes 60 000 correct.
+ *   - re-measure whenever a long-running tool path is added.
  *
  * This distribution describes calls that COMPLETED. `logToolCall` runs in a
  * `finally`, so a call that never settles writes no row: the 2026-09-10 hang is
- * absent from the numbers above, not present as an outlier. These figures can
- * show that the deadline breaks nothing; they can never show that it would have
- * caught the incident. Counting breaches is the log line's job (ac-12).
+ * absent from the numbers above. These figures show the deadline breaks nothing;
+ * they can never show it would have caught the incident. Counting breaches is the
+ * log line's job (ac-12) — one in 8 344 calls so far.
  */
-export const MCP_DISPATCH_DEADLINE_MS = 30_000;
+export const MCP_DISPATCH_DEADLINE_MS = 60_000;
 
 export interface DispatchDeadlineOptions {
   /** Tool name, for the breach log line. NOT a key for a per-tool deadline. */
