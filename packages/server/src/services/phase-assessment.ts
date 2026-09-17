@@ -22,6 +22,7 @@ import {
   BASE_SCAFFOLD,
   SPEC_SHAPE_MISSING_LENS_WARNING,
   computeSpecReadiness,
+  type AcStatusForReadiness,
   toRubric,
   timeAgo,
   type SpecPhase,
@@ -406,6 +407,23 @@ async function countOpenCommentsOnSpec(
 }
 
 // spec-120 ac-1: AC verification roll-up for a single Spec, computed through
+/**
+ * spec-569 dec-1. The narrative-freshness view of this Spec's criteria: the
+ * three columns the shared predicate needs, nothing more. Two consumers, both
+ * in this file, so it stays local [per std-51].
+ */
+async function loadAcsForReadiness(memexId: string, briefId: string) {
+  const rows = await db
+    .select({ id: acs.id, status: acs.status, updatedAt: acs.updatedAt })
+    .from(acs)
+    .where(and(eq(acs.briefId, briefId), eq(acs.memexId, memexId)));
+  return rows.map((r) => ({
+    id: r.id,
+    status: r.status as AcStatusForReadiness,
+    updatedAt: r.updatedAt,
+  }));
+}
+
 // `listAcsForBriefWithVerification` — the EXACT path `list_acs` uses — so the
 // gate's counts and `list_acs` derive from one `deriveVerificationState` call
 // and can never silently disagree. Scoped to `active` ACs to match the
@@ -515,6 +533,7 @@ export async function computeReadinessForSpec(
   });
 
   const openIssueCount = await countOpenIssuesOnSpec(memexId, briefId);
+  const acsForReadiness = await loadAcsForReadiness(memexId, briefId);
 
   return computeSpecReadiness({
     currentPhase,
@@ -526,6 +545,7 @@ export async function computeReadinessForSpec(
     })),
     openCommentCount,
     narrativeLastConsolidatedAt: spec?.narrativeLastConsolidatedAt ?? null,
+    acs: acsForReadiness,
     openIssueCount,
   });
 }
@@ -941,6 +961,7 @@ export async function assessPhaseTransition(
   // PhaseDropdown, computed via @memex/shared so behaviour stays in lockstep.
   // spec-120 ac-3: the total open-comment figure reuses the by-type breakdown
   // computed above — one query path, no double count.
+  const acsForReadiness = await loadAcsForReadiness(memexId, briefId);
   const readiness = computeSpecReadiness({
     currentPhase: spec.status as SpecPhase,
     decisions: allDecisions.map((d) => ({
@@ -951,6 +972,7 @@ export async function assessPhaseTransition(
     })),
     openCommentCount: openComments.total,
     narrativeLastConsolidatedAt: spec.narrativeLastConsolidatedAt ?? null,
+    acs: acsForReadiness,
     // spec-112 t-8: same in-flight Issue count feeds the shared readiness view
     // so the React UI's PhaseDropdown and the MCP fact sheet speak with one
     // voice (ac-5). The shared computation only surfaces it in `verify`.

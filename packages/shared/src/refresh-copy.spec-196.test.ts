@@ -54,6 +54,7 @@ describe('spec-196 t-3 — consolidation copy (dec-3)', () => {
       ],
       openCommentCount: 0,
       narrativeLastConsolidatedAt: '2026-06-02T00:00:00Z',
+      acs: [],
     });
     const stale = r.outstandingItems.find((i) => i.kind === 'stale_narrative');
     expect(stale?.cta).toBe('Use the "Update spec narrative" helper to consolidate.');
@@ -82,7 +83,8 @@ describe('spec-196 t-3 — consolidation copy (dec-3)', () => {
           resolvedAt: '2026-06-05T00:00:00Z',
           status: 'resolved',
         },
-      ]),
+      ],
+      []),
     ).toBe(false);
   });
 });

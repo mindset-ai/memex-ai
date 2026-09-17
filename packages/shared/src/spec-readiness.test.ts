@@ -3,12 +3,14 @@ import { tagAc } from "@memex-ai-ac/vitest";
 import {
   blockerLines,
   computeSpecReadiness,
+  countStaleAcs,
   countStaleDecisions,
   countUnresolvedDecisions,
   isBackwardTransition,
   isForwardTransition,
   isSpecNarrativeStale,
   shouldBlockForwardTransition,
+  type AcForReadiness,
   type DecisionForReadiness,
   type SpecPhase,
 } from './spec-readiness.js';
@@ -52,17 +54,71 @@ describe('isForwardTransition / isBackwardTransition', () => {
   }
 });
 
+// spec-569 — criteria are the third narrative-freshness input, keyed on STATUS.
+// This is the shared/badge arm of ac-5, which t-1 could not express: before the
+// signature change, passing criteria here was a compile error, not a red test.
+const AC_569 = (n: number) =>
+  `mindset-prod/memex-building-itself/specs/spec-569/acs/ac-${n}`;
+
+const acRow = (o: Partial<AcForReadiness> = {}): AcForReadiness => ({
+  id: o.id ?? 'ac-1',
+  status: o.status ?? 'active',
+  updatedAt: o.updatedAt ?? '2026-06-01T00:00:00Z',
+});
+
+describe('countStaleAcs / isSpecNarrativeStale — criteria (spec-569 dec-1)', () => {
+  it('a criterion superseded after consolidation makes the narrative stale', () => {
+    tagAc(AC_569(5));
+    const acs = [acRow({ status: 'superseded', updatedAt: '2026-06-01T00:00:00Z' })];
+    // Vacuity guard: no decisions at all, so a `true` below can only have come
+    // from the criterion.
+    expect(countStaleDecisions('2026-03-01T00:00:00Z', [])).toBe(0);
+    expect(countStaleAcs('2026-03-01T00:00:00Z', acs)).toBe(1);
+    expect(isSpecNarrativeStale('2026-03-01T00:00:00Z', [], acs)).toBe(true);
+  });
+
+  it('a rejected criterion counts the same way — the prose describes a dead commitment', () => {
+    tagAc(AC_569(5));
+    const acs = [acRow({ status: 'rejected', updatedAt: '2026-06-01T00:00:00Z' })];
+    expect(isSpecNarrativeStale('2026-03-01T00:00:00Z', [], acs)).toBe(true);
+  });
+
+  it('a criterion superseded BEFORE consolidation is already reflected', () => {
+    const acs = [acRow({ status: 'superseded', updatedAt: '2026-01-01T00:00:00Z' })];
+    expect(countStaleAcs('2026-03-01T00:00:00Z', acs)).toBe(0);
+    expect(isSpecNarrativeStale('2026-03-01T00:00:00Z', [], acs)).toBe(false);
+  });
+
+  it('never consolidated: every meaning-changed criterion counts, active ones do not', () => {
+    const acs = [
+      acRow({ id: 'a', status: 'superseded' }),
+      acRow({ id: 'b', status: 'rejected' }),
+      acRow({ id: 'c', status: 'active' }),
+      acRow({ id: 'd', status: 'proposed' }),
+    ];
+    expect(countStaleAcs(null, acs)).toBe(2);
+  });
+
+  it('status is the key, not updatedAt: an active criterion touched after consolidation is quiet', () => {
+    // The spec-188 acceptance overlay and `update_ac` both stamp updatedAt and
+    // both leave status 'active'. Neither may move the verdict (dec-1).
+    const acs = [acRow({ status: 'active', updatedAt: '2026-06-01T00:00:00Z' })];
+    expect(countStaleAcs('2026-03-01T00:00:00Z', acs)).toBe(0);
+    expect(isSpecNarrativeStale('2026-03-01T00:00:00Z', [], acs)).toBe(false);
+  });
+});
+
 describe('countStaleDecisions / isSpecNarrativeStale', () => {
   it('returns 0 when there are no decisions (even if never consolidated)', () => {
     expect(countStaleDecisions(null, [])).toBe(0);
-    expect(isSpecNarrativeStale(null, [])).toBe(false);
+    expect(isSpecNarrativeStale(null, [], [])).toBe(false);
   });
 
   it('treats every existing decision as stale when never consolidated', () => {
     const decisions = [dec({ id: 'a' }), dec({ id: 'b' })];
     expect(countStaleDecisions(null, decisions)).toBe(2);
     expect(countStaleDecisions(undefined, decisions)).toBe(2);
-    expect(isSpecNarrativeStale(null, decisions)).toBe(true);
+    expect(isSpecNarrativeStale(null, decisions, [])).toBe(true);
   });
 
   it('treats decisions touched after consolidation as stale', () => {
@@ -71,7 +127,7 @@ describe('countStaleDecisions / isSpecNarrativeStale', () => {
       dec({ id: 'b', createdAt: '2026-06-01T00:00:00Z' }),
     ];
     expect(countStaleDecisions('2026-03-01T00:00:00Z', decisions)).toBe(1);
-    expect(isSpecNarrativeStale('2026-03-01T00:00:00Z', decisions)).toBe(true);
+    expect(isSpecNarrativeStale('2026-03-01T00:00:00Z', decisions, [])).toBe(true);
   });
 
   it('uses max(createdAt, resolvedAt) — a recently resolved decision counts even if created earlier', () => {
@@ -86,7 +142,7 @@ describe('countStaleDecisions / isSpecNarrativeStale', () => {
       dec({ createdAt: '2025-01-01T00:00:00Z', resolvedAt: '2025-06-01T00:00:00Z' }),
     ];
     expect(countStaleDecisions('2026-03-01T00:00:00Z', decisions)).toBe(0);
-    expect(isSpecNarrativeStale('2026-03-01T00:00:00Z', decisions)).toBe(false);
+    expect(isSpecNarrativeStale('2026-03-01T00:00:00Z', decisions, [])).toBe(false);
   });
 
   it('accepts Date inputs as well as ISO strings', () => {
@@ -176,6 +232,7 @@ describe('computeSpecReadiness — phase transition gate respects decision statu
       ],
       openCommentCount: 0,
       narrativeLastConsolidatedAt: '2099-01-01T00:00:00Z',
+      acs: [],
     });
     expect(
       r.outstandingItems.find((i) => i.kind === 'unresolved_decisions'),
@@ -191,6 +248,7 @@ describe('computeSpecReadiness — phase transition gate respects decision statu
       ],
       openCommentCount: 0,
       narrativeLastConsolidatedAt: '2099-01-01T00:00:00Z',
+      acs: [],
     });
     expect(
       r.outstandingItems.find((i) => i.kind === 'unresolved_decisions'),
@@ -207,6 +265,7 @@ describe('computeSpecReadiness — phase transition gate respects decision statu
       ],
       openCommentCount: 0,
       narrativeLastConsolidatedAt: '2099-01-01T00:00:00Z',
+      acs: [],
     });
     const item = r.outstandingItems.find((i) => i.kind === 'unresolved_decisions');
     expect(item).toMatchObject({ kind: 'unresolved_decisions', count: 1 });
@@ -227,6 +286,7 @@ describe('computeSpecReadiness — phase transition gate respects decision statu
       // Consolidate after the decision was resolved, so stale_narrative is also
       // clean — this isolates the unresolved_decisions check.
       narrativeLastConsolidatedAt: '2026-05-03T00:00:00Z',
+      acs: [],
     });
     expect(r.isClean).toBe(true);
     expect(shouldBlockForwardTransition(r, 'specify', 'build')).toBe(false);
@@ -242,6 +302,7 @@ describe('computeSpecReadiness', () => {
       decisions: [],
       openCommentCount: 0,
       narrativeLastConsolidatedAt: consolidated,
+      acs: [],
     });
     expect(r.isClean).toBe(true);
     expect(r.outstandingItems).toEqual([]);
@@ -253,6 +314,7 @@ describe('computeSpecReadiness', () => {
       decisions: [],
       openCommentCount: 4,
       narrativeLastConsolidatedAt: consolidated,
+      acs: [],
     });
     expect(r.isClean).toBe(false);
     expect(r.outstandingItems).toHaveLength(1);
@@ -270,6 +332,7 @@ describe('computeSpecReadiness', () => {
       decisions: [],
       openCommentCount: 1,
       narrativeLastConsolidatedAt: consolidated,
+      acs: [],
     });
     expect(r.outstandingItems[0].label).toBe('1 open comment');
   });
@@ -283,6 +346,7 @@ describe('computeSpecReadiness', () => {
       ],
       openCommentCount: 0,
       narrativeLastConsolidatedAt: consolidated,
+      acs: [],
     });
     expect(r.isClean).toBe(false);
     expect(r.outstandingItems).toHaveLength(1);
@@ -300,6 +364,7 @@ describe('computeSpecReadiness', () => {
       decisions: [dec({ createdAt: '2026-06-01T00:00:00Z', resolvedAt: '2026-06-02T00:00:00Z' })],
       openCommentCount: 0,
       narrativeLastConsolidatedAt: consolidated,
+      acs: [],
     });
     expect(r.outstandingItems[0].label).toBe(
       '1 decision not yet reflected in the narrative',
@@ -315,6 +380,7 @@ describe('computeSpecReadiness', () => {
       ],
       openCommentCount: 1,
       narrativeLastConsolidatedAt: consolidated,
+      acs: [],
     });
     expect(r.isClean).toBe(false);
     expect(r.outstandingItems.map((i) => i.kind)).toEqual([
@@ -341,6 +407,7 @@ describe('computeSpecReadiness', () => {
       ],
       openCommentCount: 0,
       narrativeLastConsolidatedAt: '2099-01-01T00:00:00Z',
+      acs: [],
     });
     expect(r.outstandingItems.find((i) => i.kind === 'unresolved_decisions')).toMatchObject({
       label: '3 unresolved decisions',
@@ -353,6 +420,7 @@ describe('computeSpecReadiness', () => {
       decisions: [dec({ createdAt: '2026-07-01T00:00:00Z', resolvedAt: '2026-07-02T00:00:00Z' })],
       openCommentCount: 3,
       narrativeLastConsolidatedAt: consolidated,
+      acs: [],
     });
     expect(r.isClean).toBe(false);
     expect(r.outstandingItems.map((i) => i.kind)).toEqual([
@@ -367,6 +435,7 @@ describe('computeSpecReadiness', () => {
       decisions: [dec()],
       openCommentCount: 0,
       narrativeLastConsolidatedAt: null,
+      acs: [],
     });
     expect(r.isClean).toBe(false);
     // Default `dec()` is unresolved — both kinds should fire.
@@ -382,6 +451,7 @@ describe('computeSpecReadiness', () => {
       decisions: [],
       openCommentCount: 0,
       narrativeLastConsolidatedAt: null,
+      acs: [],
     });
     expect(r.isClean).toBe(true);
   });
@@ -397,6 +467,7 @@ describe('computeSpecReadiness — open/converted Issues at the verify→done ga
       decisions: [],
       openCommentCount: 0,
       narrativeLastConsolidatedAt: consolidated,
+      acs: [],
       openIssueCount,
     });
 
@@ -434,6 +505,7 @@ describe('computeSpecReadiness — open/converted Issues at the verify→done ga
         decisions: [],
         openCommentCount: 0,
         narrativeLastConsolidatedAt: consolidated,
+        acs: [],
         openIssueCount: 5,
       });
       expect(r.outstandingItems.find((i) => i.kind === 'open_issues')).toBeUndefined();
@@ -461,6 +533,7 @@ describe('shouldBlockForwardTransition', () => {
       decisions: [],
       openCommentCount: 2,
       narrativeLastConsolidatedAt: consolidated,
+      acs: [],
     });
     expect(shouldBlockForwardTransition(r, 'specify', 'build')).toBe(true);
   });
@@ -471,6 +544,7 @@ describe('shouldBlockForwardTransition', () => {
       decisions: [],
       openCommentCount: 0,
       narrativeLastConsolidatedAt: consolidated,
+      acs: [],
     });
     expect(shouldBlockForwardTransition(r, 'specify', 'build')).toBe(false);
   });
@@ -481,6 +555,7 @@ describe('shouldBlockForwardTransition', () => {
       decisions: [],
       openCommentCount: 5,
       narrativeLastConsolidatedAt: consolidated,
+      acs: [],
     });
     expect(shouldBlockForwardTransition(r, 'build', 'specify')).toBe(false);
   });
@@ -491,6 +566,7 @@ describe('shouldBlockForwardTransition', () => {
       decisions: [],
       openCommentCount: 5,
       narrativeLastConsolidatedAt: consolidated,
+      acs: [],
     });
     expect(shouldBlockForwardTransition(r, 'build', 'build')).toBe(false);
   });
@@ -505,6 +581,7 @@ describe('blockerLines', () => {
           decisions: [],
           openCommentCount: 0,
           narrativeLastConsolidatedAt: null,
+          acs: [],
         }),
       ),
     ).toEqual([]);
@@ -520,6 +597,7 @@ describe('blockerLines', () => {
       ],
       openCommentCount: 1,
       narrativeLastConsolidatedAt: '2026-04-01T00:00:00Z',
+      acs: [],
     });
     const lines = blockerLines(r);
     expect(lines).toEqual([
@@ -534,6 +612,7 @@ describe('blockerLines', () => {
       decisions: [dec({ id: 'a', resolvedAt: null }), dec({ id: 'b', resolvedAt: null })],
       openCommentCount: 0,
       narrativeLastConsolidatedAt: '2099-01-01T00:00:00Z',
+      acs: [],
     });
     const lines = blockerLines(r);
     expect(lines).toEqual([

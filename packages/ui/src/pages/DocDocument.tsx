@@ -750,6 +750,15 @@ export function DocDocument() {
       resolvedAt: d.resolvedAt,
       status: d.status,
     })),
+    // spec-569 dec-1: criteria are a third input, keyed on STATUS. These are
+    // already in hand — `acs` is fetched for the AC panel on mount, so the
+    // badge costs no extra request. Empty before that fetch resolves is a
+    // loading state, the same one `decs` has, not a silent default.
+    acs.map((a) => ({
+      id: a.ac.id,
+      status: a.ac.status,
+      updatedAt: a.ac.updatedAt,
+    })),
   );
 
   // spec-159 dec-4 (amended): the readiness rubric is ADVISORY. The transition

@@ -15,6 +15,8 @@ export type {
   SpecPhase,
   DecisionForReadiness,
   DecisionStatusForReadiness,
+  AcForReadiness,
+  AcStatusForReadiness,
   CommentTypeBreakdown,
   ReadinessInput,
   OutstandingItem,
