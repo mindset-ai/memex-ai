@@ -683,7 +683,7 @@ export const toolManifest: ToolManifestEntry[] = [
   {
     name: 'update_ac',
     summary:
-      'Update an AC statement by ref. Only statement is mutable here; kind is fixed at creation; status transitions via accept_ac / reject_ac.',
+      'Update an AC statement by ref. Only statement is mutable here; kind is fixed at creation; status transitions via accept_ac / reject_ac. REFUSES a criterion that already reads as satisfied (verified or accepted) — use propose_ac_supersession, which names the authorising decision and preserves the original.',
     args: 'update_ac(ref, statement)',
     group: 'build',
     readOnlyHint: false,
