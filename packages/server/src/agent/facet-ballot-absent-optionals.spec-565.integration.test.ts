@@ -28,7 +28,7 @@ import {
   facets,
 } from "../db/schema.js";
 import { z } from "zod";
-import { requireBallotForMemex } from "../services/facet-ballot.js";
+import { requireBallotForMemex, nearMissBallotArg } from "../services/facet-ballot.js";
 import { VERBOSE_FIELD, contentOptionalsOf } from "./handlers/tool-contract.js";
 import { toolSpecs } from "./tool-specs.js";
 import { ValidationError } from "../types/errors.js";
@@ -341,19 +341,11 @@ describe("spec-565 ac-3 — the near-miss branch is untouched by t-1 and t-2", (
     expect(msg).not.toMatch(/absent from this call/);
   });
 
-  it("`facets` still falls through to the ABSENT branch — pinned, see issue-1", async () => {
-    tagAc(AC(3));
-    // `facets` normalises to "facets", not "facetballot", so the detector does not catch
-    // it and the call is diagnosed as a genuine absence. That is CURRENT behaviour, not
-    // a regression from t-1/t-2, and deliberately not fixed here (spec-565 issue-1: one
-    // occurrence in 30 days of prod telemetry). Pinned so the issue has a baseline and
-    // so nobody later reads the fall-through as damage this Spec did.
-    const msg = await absentBallotMessage(["ref", "title", "context", "facets"], CREATE_TASK_OPTIONALS, "decision");
-    expect(msg).toMatch(/No `facetBallot` argument reached the server/);
-    expect(msg).not.toMatch(/DISCARDED because the name does not match/);
-    // It is still echoed as an argument that arrived — the evidence a reader needs.
-    expect(msg).toMatch(/The arguments it did receive were: .*facets/);
-  });
+  // The `facets` fall-through pin that stood here was DELETED by t-6, not reworded.
+  // It existed to give issue-1 a baseline, and its own title asserted the fall-through —
+  // renaming it would strand its identifier (std-48) and rewording it would leave a test
+  // whose name contradicts its body. issue-1 is now delivered and ac-15 owns the
+  // behaviour: `facets` is a near-miss, and a future `facet*` parameter is not.
 });
 
 // ─── spec-565 t-5 (ac-4) ────────────────────────────────────────────────────
@@ -416,5 +408,60 @@ describe("spec-565 ac-4 — the optionals are derived from the schema, not hand-
       for (const optName of derived) expect(msg, `${name}/${optName}`).toContain(optName);
       expect(msg, name).not.toContain("verbose");
     }
+  });
+});
+
+// ─── spec-565 t-6 (ac-15, from issue-1) ─────────────────────────────────────
+// `facets` is caught as a near-miss.
+//
+// It is not an arbitrary typo. `facets` is the name of the tool whose entire job is to
+// hand back the vocabulary, and whose own description ends "cast these as the
+// facetBallot argument on create_task / create_decision". An agent that follows the
+// documented procedure holds a list it just got from something called `facets`, and
+// reaches for that word. One occurrence in 30 days of prod telemetry when this was
+// filed — but the most PREDICTABLE wrong name there is, so the rate need not stay at 1.
+//
+// Matching is an explicit alias set, never a prefix rule. `startsWith("facet")` was
+// tried as a t-3 mutation and would also swallow a future legitimate parameter — and a
+// false positive there does not merely mislead, it REJECTS A VALID CALL.
+
+describe("spec-565 ac-15 — `facets` is caught as a near-miss, not read as an absence", () => {
+  it("names what arrived and what was expected, and says why it was discarded", async () => {
+    tagAc(AC(15));
+    const msg = await absentBallotMessage(
+      ["ref", "title", "context", "facets"],
+      CREATE_TASK_OPTIONALS,
+      "decision",
+    );
+    expect(msg).toContain("facets");
+    expect(msg).toContain("facetBallot");
+    expect(msg).toMatch(/DISCARDED because the name does not match/);
+    // It must NOT be diagnosed as a genuine absence any more.
+    expect(msg).not.toMatch(/NONE of .*optional arguments/i);
+  });
+
+  it("is REJECTED, never read out of the misnamed argument (spec-499 dec-3)", async () => {
+    tagAc(AC(15));
+    // Reaching a message at all IS the rejection: absentBallotMessage throws if the
+    // call did not reject. Asserting only that the message exists would be vacuous, so
+    // assert the discriminating half — the caller is told to re-send under the right
+    // name, not told its ballot was accepted.
+    const msg = await absentBallotMessage(["ref", "title", "facets"], CREATE_TASK_OPTIONALS, "decision");
+    expect(msg).toMatch(/Re-send the same ballot under the exact name/);
+  });
+
+  it("detects by an explicit alias set, not by prefix — a future `facet*` parameter survives", () => {
+    tagAc(AC(15));
+    expect(nearMissBallotArg(["facets"])).toBe("facets");
+    // The trap this AC exists to prevent. A prefix rule catches `facets` AND these,
+    // and swallowing a real parameter rejects a valid call rather than misleading.
+    expect(nearMissBallotArg(["facetScope"])).toBeUndefined();
+    expect(nearMissBallotArg(["facetVersion"])).toBeUndefined();
+    expect(nearMissBallotArg(["facet"])).toBeUndefined();
+    // And the spec-499 spellings still work, unchanged.
+    expect(nearMissBallotArg(["facet_ballot"])).toBe("facet_ballot");
+    expect(nearMissBallotArg(["FacetBallot"])).toBe("FacetBallot");
+    expect(nearMissBallotArg(["facetBallot"])).toBeUndefined();
+    expect(nearMissBallotArg(["ref", "title", "context"])).toBeUndefined();
   });
 });

@@ -125,7 +125,14 @@ describe("spec-499 dec-2 — near-miss argument name is named, not guessed at", 
     // The correctly-spelled argument is not a near miss, and unrelated args are ignored.
     expect(nearMissBallotArg(["facetBallot"])).toBeUndefined();
     expect(nearMissBallotArg(["ref", "title", "context"])).toBeUndefined();
-    expect(nearMissBallotArg(["facets"])).toBeUndefined();
+    // `facets` WAS listed here as a non-match. spec-565 ac-15 (issue-1) added it to an
+    // explicit alias set: it is the name of the tool that hands back the vocabulary, so
+    // it is the most predictable wrong guess rather than an arbitrary typo. ac-7 is
+    // unaffected — it states what happens when a name folds to `facetballot`, and that
+    // still holds; the detector merely recognises more than folding. "Only those" now
+    // means "spelling variants plus observed aliases", never a prefix rule: see
+    // facet-ballot-absent-optionals.spec-565 for the `facet*` non-match guard.
+    expect(nearMissBallotArg(["facets"])).toBe("facets");
     expect(nearMissBallotArg([])).toBeUndefined();
   });
 });
