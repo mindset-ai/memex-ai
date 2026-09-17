@@ -469,6 +469,99 @@ describe('computeSpecReadiness', () => {
   });
 });
 
+describe('stale_narrative copy names what it counted (spec-569 ac-4 / ac-8)', () => {
+  const consolidatedAt = '2026-05-01T00:00:00Z';
+  const after = '2026-06-01T00:00:00Z';
+  const resolvedAfter = (id: string) =>
+    dec({ id, createdAt: '2026-01-01T00:00:00Z', resolvedAt: after });
+
+  it('decisions only — the existing sentence is unchanged', () => {
+    tagAc(AC_569(8));
+    const r = computeSpecReadiness({
+      currentPhase: 'build',
+      decisions: [resolvedAfter('a'), resolvedAfter('b')],
+      openCommentCount: 0,
+      narrativeLastConsolidatedAt: consolidatedAt,
+      acs: [],
+    });
+    expect(r.outstandingItems[0]).toMatchObject({
+      kind: 'stale_narrative',
+      staleDecisionCount: 2,
+      staleAcCount: 0,
+      label: '2 decisions not yet reflected in the narrative',
+    });
+  });
+
+  it('criteria only — the item fires, and never says "0 decisions"', () => {
+    tagAc(AC_569(8));
+    const r = computeSpecReadiness({
+      currentPhase: 'build',
+      decisions: [],
+      openCommentCount: 0,
+      narrativeLastConsolidatedAt: consolidatedAt,
+      acs: [acRow({ status: 'superseded', updatedAt: after })],
+    });
+    // Before spec-569 this state produced NO item at all: the narrative was
+    // silently wrong and the page said nothing.
+    expect(r.outstandingItems).toHaveLength(1);
+    expect(r.outstandingItems[0]).toMatchObject({
+      kind: 'stale_narrative',
+      staleDecisionCount: 0,
+      staleAcCount: 1,
+      label: '1 criterion not yet reflected in the narrative',
+    });
+    expect(r.outstandingItems[0].label).not.toMatch(/0 decisions/);
+    expect(r.outstandingItems[0].label).not.toMatch(/\bdecision/);
+  });
+
+  it('both — each count is named for what it is', () => {
+    tagAc(AC_569(8));
+    const r = computeSpecReadiness({
+      currentPhase: 'build',
+      decisions: [resolvedAfter('a'), resolvedAfter('b')],
+      openCommentCount: 0,
+      narrativeLastConsolidatedAt: consolidatedAt,
+      acs: [acRow({ status: 'superseded', updatedAt: after })],
+    });
+    expect(r.outstandingItems[0]).toMatchObject({
+      kind: 'stale_narrative',
+      staleDecisionCount: 2,
+      staleAcCount: 1,
+      label: '2 decisions and 1 criterion not yet reflected in the narrative',
+    });
+  });
+
+  it('singular and plural are decided per count, independently', () => {
+    tagAc(AC_569(8));
+    const r = computeSpecReadiness({
+      currentPhase: 'build',
+      decisions: [resolvedAfter('a')],
+      openCommentCount: 0,
+      narrativeLastConsolidatedAt: consolidatedAt,
+      acs: [
+        acRow({ id: 'x', status: 'superseded', updatedAt: after }),
+        acRow({ id: 'y', status: 'rejected', updatedAt: after }),
+      ],
+    });
+    // One decision, two criteria — the two nouns disagree, and must.
+    expect(r.outstandingItems[0].label).toBe(
+      '1 decision and 2 criteria not yet reflected in the narrative',
+    );
+  });
+
+  it('neither count moved — no item, and nothing to name', () => {
+    tagAc(AC_569(8));
+    const r = computeSpecReadiness({
+      currentPhase: 'build',
+      decisions: [dec({ createdAt: '2026-01-01T00:00:00Z', resolvedAt: '2026-02-01T00:00:00Z' })],
+      openCommentCount: 0,
+      narrativeLastConsolidatedAt: consolidatedAt,
+      acs: [acRow({ status: 'active', updatedAt: after })],
+    });
+    expect(r.outstandingItems.find((i) => i.kind === 'stale_narrative')).toBeUndefined();
+  });
+});
+
 describe('computeSpecReadiness — open/converted Issues at the verify→done gate (spec-112 t-8)', () => {
   const consolidated = '2026-04-01T00:00:00Z';
 
