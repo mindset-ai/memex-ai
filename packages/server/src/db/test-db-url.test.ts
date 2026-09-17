@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { tagAc } from "@memex-ai-ac/vitest";
+import postgres from "postgres";
 import {
   deriveTestDatabaseUrl,
   deriveWorkerDatabaseUrl,
@@ -7,6 +9,9 @@ import {
 } from "./test-db-url.js";
 
 const BASE = "postgresql://postgres:postgres@localhost:5432/memex";
+
+const AC = (n: number) =>
+  `mindset-prod/memex-building-itself/specs/spec-524/acs/ac-${n}`;
 
 describe("deriveTestDatabaseUrl", () => {
   it("appends _test_<8-hex-hash> to the database name", () => {
@@ -116,10 +121,63 @@ describe("resolveTestDatabaseUrl", () => {
     expect(resolved).toBe(deriveTestDatabaseUrl(BASE, "/wt"));
   });
 
-  it("falls back to the std-9 local default when DATABASE_URL is unset", () => {
-    const resolved = new URL(resolveTestDatabaseUrl({}, "/wt"));
+  // spec-524 dec-7 replaced this test's original assertion. It used to pin
+  // `port === "5432"`, which was the literal this Spec exists to remove: the
+  // server tier guessed the same value the allocator guessed, and a worktree
+  // with no packages/server/.env died inside migration 0023 on a Postgres 14
+  // that happened to hold 5432. The url now carries no port, and the driver
+  // that owns the default resolves it.
+  it("emits NO port when DATABASE_URL is unset, so the driver resolves it (ac-9, ac-22)", () => {
+    tagAc(AC(9));
+    tagAc(AC(22));
+    const url = resolveTestDatabaseUrl({}, "/wt");
+    const resolved = new URL(url);
+    expect(resolved.port).toBe("");
     expect(resolved.hostname).toBe("localhost");
-    expect(resolved.port).toBe("5432");
     expect(resolved.pathname).toMatch(/^\/memex_test_[0-9a-f]{8}$/);
+
+    // ac-9 claims the resolver still REACHES localhost:5432, not merely that
+    // the string lost its port. Ask the driver where it would land rather than
+    // restating the default ourselves — it is the component that owns it, and a
+    // second opinion here would be the defect this Spec removes. Reading
+    // `.options` parses the url without opening a socket.
+    expect(postgres(url, { max: 1 }).options.port).toEqual([5432]);
+    expect(
+      postgres(resolveTestDatabaseUrl({ PGPORT: "5433" }, "/wt"), { max: 1 })
+        .options.port,
+    ).toEqual([5433]);
+  });
+
+  it("PGPORT and PGHOST steer the resolved url (ac-7)", () => {
+    tagAc(AC(7));
+    const byPort = new URL(resolveTestDatabaseUrl({ PGPORT: "5433" }, "/wt"));
+    expect(byPort.port).toBe("5433");
+    const byHost = new URL(
+      resolveTestDatabaseUrl({ PGHOST: "db.internal" }, "/wt"),
+    );
+    expect(byHost.hostname).toBe("db.internal");
+  });
+
+  it("naming the server does not rename the database (ac-8)", () => {
+    tagAc(AC(8));
+    const withServer = new URL(
+      resolveTestDatabaseUrl({ PGPORT: "5433", PGHOST: "db.internal" }, "/wt"),
+    );
+    const plain = new URL(resolveTestDatabaseUrl({}, "/wt"));
+    expect(withServer.pathname).toBe(plain.pathname);
+  });
+
+  it("an explicit DATABASE_URL still wins outright over PGHOST/PGPORT (ac-10)", () => {
+    tagAc(AC(10));
+    // DATABASE_URL names the whole server, so it is the stronger statement.
+    // dec-2 adds a way to name the server and takes nothing away.
+    const resolved = new URL(
+      resolveTestDatabaseUrl(
+        { DATABASE_URL: BASE, PGPORT: "5433", PGHOST: "db.internal" },
+        "/wt",
+      ),
+    );
+    expect(resolved.port).toBe("5432");
+    expect(resolved.hostname).toBe("localhost");
   });
 });
