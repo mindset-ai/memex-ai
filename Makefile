@@ -58,7 +58,7 @@ SHELL := /bin/bash
 ## The sub-minute guard battery: no database, no network. This is what replaces
 ## "push and wait for CI" as the tight feedback loop. Everything here is a pure
 ## static check — anything needing Postgres belongs in `make test`.
-check: check-url-shape check-portable-surface check-no-detector lint standards-check
+check: check-url-shape check-portable-surface check-no-detector check-pg-declaration lint standards-check
 	@node scripts/ci/workspace-alloc.mjs --all > /dev/null || \
 		{ echo "✗ workspace allocator failed — see scripts/ci/workspace-alloc.mjs"; exit 1; }
 	@echo "✓ offline guard battery passed"
@@ -82,6 +82,10 @@ test: check-url-shape test-server
 ## URL-shape lint (Layer B regression guard per std-2)
 check-url-shape:
 	node scripts/check-url-shape.mjs
+
+# spec-524 ac-11 — the Postgres server is read, never guessed [per std-50].
+check-pg-declaration:
+	node scripts/ci/check-pg-server-declaration.mjs
 
 ## spec-551 t-7 — std-22's portable surface carries no bare entity handle. Offline by
 ## measurement, not by hope: the collector reaches the live tool registry (which imports
