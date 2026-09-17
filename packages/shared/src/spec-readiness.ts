@@ -154,6 +154,16 @@ export function countStaleDecisions(
 const MEANING_CHANGED_STATUSES: readonly AcStatusForReadiness[] = ['superseded', 'rejected'];
 
 /**
+ * The single definition of "this criterion's meaning changed". Exported so the
+ * server's fact-sheet projection classifies rows the same way the verdict does
+ * — a second hardcoded list of statuses would be the very class of divergence
+ * this Spec exists to close.
+ */
+export function isMeaningChangedAcStatus(status: AcStatusForReadiness): boolean {
+  return MEANING_CHANGED_STATUSES.includes(status);
+}
+
+/**
  * Count criteria whose meaning changed after the consolidation anchor. Mirrors
  * `countStaleDecisions`: a null anchor means the narrative has never captured
  * anything, so every meaning-changed criterion counts.
@@ -162,7 +172,7 @@ export function countStaleAcs(
   narrativeLastConsolidatedAt: string | Date | null | undefined,
   acs: AcForReadiness[],
 ): number {
-  const moved = acs.filter((a) => MEANING_CHANGED_STATUSES.includes(a.status));
+  const moved = acs.filter((a) => isMeaningChangedAcStatus(a.status));
   if (moved.length === 0) return 0;
   const consolidatedAt = toMillis(narrativeLastConsolidatedAt);
   if (consolidatedAt === null) return moved.length;

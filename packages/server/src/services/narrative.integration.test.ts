@@ -4,7 +4,7 @@ import { db } from "../db/connection.js";
 import { acs, documents, decisions, docSections } from "../db/schema.js";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { createDocDraft } from "./documents.js";
-import { createAc } from "./acs.js";
+import { createAc, setAcAcceptance } from "./acs.js";
 import {
   proposeAcSupersession,
   acceptAcSupersession,
@@ -14,6 +14,7 @@ import { updateSection } from "./sections.js";
 import {
   assessNarrativeFreshness,
   markNarrativeConsolidated,
+  isSpecNarrativeStale,
 } from "./narrative.js";
 import { NotFoundError, ValidationError } from "../types/errors.js";
 import { makeTestMemex } from "./test-helpers.js";
@@ -153,6 +154,89 @@ describe("assessNarrativeFreshness", () => {
     // The claim. Today this fails and `factSheet` reads, verbatim:
     // "Narrative is fresh - nothing has changed since the last consolidation."
     expect(result.factSheet).not.toMatch(/fresh/i);
+  });
+
+  // spec-569 t-4 / ac-9 — the fact sheet REPORTS every criterion that moved,
+  // while the stale verdict stays driven by `superseded` / `rejected` alone.
+  // Reporting a movement and declaring the narrative stale are two different
+  // claims; conflating them is how the noise dec-1 excluded gets re-imported.
+  it("reports a routine acceptance write without flipping the verdict", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-569/acs/ac-9");
+
+    const spec = await createDocDraft(memexId, "Acceptance only", "Purpose", "spec");
+    createdDocIds.push(spec.id);
+    const ac = await createAc({
+      memexId,
+      briefId: spec.id,
+      kind: "implementation",
+      statement: "The exporter reconciles to the ledger.",
+    });
+
+    await markNarrativeConsolidated(memexId, spec.id);
+    await new Promise((r) => setTimeout(r, 5));
+
+    // The most ordinary act on the AC panel: a human marking it verified.
+    await setAcAcceptance(memexId, ac.id, "a reviewer", { channel: "rest_ui" });
+
+    const result = await assessNarrativeFreshness(memexId, spec.id);
+
+    // Precondition — the write really did move the row, so the assertions
+    // below are about classification and not about an inert fixture.
+    expect(result.changedAcs).toHaveLength(1);
+    expect(result.changedAcs[0].handle).toBe(`ac-${ac.seq}`);
+    expect(result.changedAcs[0].status).toBe("active");
+
+    // REPORTED: it moved, so the sheet may not claim freshness...
+    expect(result.factSheet).not.toMatch(/Narrative is fresh/);
+    expect(result.factSheet).toMatch(/none changed meaning/);
+
+    // ...but NOT stale: the meaning did not change, so the verdict is untouched.
+    expect(result.changedAcs[0].meaningChanged).toBe(false);
+    expect(
+      isSpecNarrativeStale(result.lastConsolidatedAt, [], [
+        {
+          id: ac.id,
+          status: "active",
+          updatedAt: result.changedAcs[0].updatedAt,
+        },
+      ]),
+    ).toBe(false);
+  });
+
+  it("lists a superseded criterion as meaning-changed and says so", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-569/acs/ac-9");
+
+    const spec = await createDocDraft(memexId, "Meaning changed", "Purpose", "spec");
+    createdDocIds.push(spec.id);
+    const ac = await createAc({
+      memexId,
+      briefId: spec.id,
+      kind: "implementation",
+      statement: "One row per invoice.",
+    });
+    const dec = await createDecision(memexId, spec.id, "Supersede under this");
+
+    await markNarrativeConsolidated(memexId, spec.id);
+    await new Promise((r) => setTimeout(r, 5));
+
+    const proposed = await proposeAcSupersession(
+      {
+        memexId,
+        acId: ac.id,
+        decisionId: dec.id,
+        proposedStatement: "One row per invoice LINE ITEM.",
+      },
+      { channel: "mcp" },
+    );
+    await acceptAcSupersession(memexId, proposed.comment.id, { channel: "mcp" });
+
+    const result = await assessNarrativeFreshness(memexId, spec.id);
+
+    const superseded = result.changedAcs.find((a) => a.status === "superseded");
+    expect(superseded).toBeDefined();
+    expect(superseded!.meaningChanged).toBe(true);
+    expect(result.factSheet).toMatch(/changed meaning/);
+    expect(result.factSheet).not.toMatch(/Narrative is fresh/);
   });
 });
 

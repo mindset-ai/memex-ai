@@ -3,6 +3,7 @@ export {
   blockerLines,
   countStaleDecisions,
   countUnresolvedDecisions,
+  isMeaningChangedAcStatus,
   isSpecNarrativeStale,
   isForwardTransition,
   isBackwardTransition,
