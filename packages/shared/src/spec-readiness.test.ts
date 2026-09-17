@@ -99,10 +99,22 @@ describe('countStaleAcs / isSpecNarrativeStale — criteria (spec-569 dec-1)', (
     expect(countStaleAcs(null, acs)).toBe(2);
   });
 
-  it('status is the key, not updatedAt: an active criterion touched after consolidation is quiet', () => {
-    // The spec-188 acceptance overlay and `update_ac` both stamp updatedAt and
-    // both leave status 'active'. Neither may move the verdict (dec-1).
+  it('an acceptance-overlay write leaves the verdict alone (ac-6, shared arm)', () => {
+    tagAc(AC_569(6));
+    // spec-188's accept / un-accept stamp updatedAt and leave status 'active'.
+    // Status is the key precisely so this — the most ordinary act on the AC
+    // panel — cannot light a badge.
     const acs = [acRow({ status: 'active', updatedAt: '2026-06-01T00:00:00Z' })];
+    expect(countStaleAcs('2026-03-01T00:00:00Z', acs)).toBe(0);
+    expect(isSpecNarrativeStale('2026-03-01T00:00:00Z', [], acs)).toBe(false);
+  });
+
+  it('a rewritten statement leaves the verdict alone (ac-7, shared arm)', () => {
+    tagAc(AC_569(7));
+    // `update_ac` also ends at 'active' with updatedAt bumped — indistinguishable
+    // from the above at the column level. dec-1 excludes it deliberately; this
+    // pins the exclusion so a reader finds it chosen, not forgotten.
+    const acs = [acRow({ status: 'active', updatedAt: '2026-07-01T00:00:00Z' })];
     expect(countStaleAcs('2026-03-01T00:00:00Z', acs)).toBe(0);
     expect(isSpecNarrativeStale('2026-03-01T00:00:00Z', [], acs)).toBe(false);
   });
