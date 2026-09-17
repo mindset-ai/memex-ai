@@ -706,8 +706,13 @@ export const acsTools: ToolSpec[] = [
     description:
       "Update the statement text of an existing AC. Only the statement is " +
       "mutable here; kind is fixed at creation, and status transitions go " +
-      "through accept_ac / reject_ac (when exposed). Use this to polish " +
-      "wording, sharpen falsifiability, or fix typos.",
+      "through accept_ac / reject_ac. Use this to polish wording, sharpen " +
+      "falsifiability, or fix typos while a criterion is still unsatisfied. " +
+      "REFUSES a criterion that already reads as satisfied — one verified by a " +
+      "passing test, or manually accepted — because editing it would " +
+      "retroactively change what those passing tests proved. Route that change " +
+      "through propose_ac_supersession, which records the decision authorising " +
+      "it and leaves the original statement intact.",
     schema: {
       ref: z.string().describe(
         "Canonical ref to the AC, e.g. `mindset/main/specs/spec-N/acs/ac-N`.",
