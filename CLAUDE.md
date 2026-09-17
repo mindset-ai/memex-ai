@@ -95,6 +95,23 @@ Prove isolation with `make prove-concurrent`.
 
 Local Postgres connection string: `postgresql://postgres:postgres@localhost:5432/memex` (full local-dev posture lives in std-9 §9).
 
+## Staging in a shared working tree
+
+Several Claude sessions routinely run **in this same directory**, and a worktree is one working
+tree plus **one index** — so `git add -A` and `git commit -a` stage whatever any other session
+has written and not yet committed. Measured: commit `32e56cd6` ("feat(spec-530): let the agent
+read the proposal…") carried three **spec-528** files another session was still working on —
+right code, wrong Spec, wrong branch. Untangling it afterwards is the expensive part: `git reset
+--soft` is safe, but switching branches rewrites files under every other live session.
+
+- Stage **explicit paths** — `git add packages/server/src/mcp/dispatch-deadline.ts`, never `-A`.
+- `git status --short` before every commit; every line listed must be yours.
+- Work already trapped in another session's commit: `git branch <rescue> <sha>` first — a pure
+  ref write, invisible to the others — then split once they are idle.
+
+No check enforces this one; it costs a `git status` per commit. A Spec of your own gets a
+worktree instead (`git worktree add`) — ports and e2e DB names already derive from the path.
+
 ## Repository shape
 
 `packages/`: **server** (Hono API, Drizzle, auth, agent, MCP) · **ui** (React 19 + Vite) · **shared** (pure, imported everywhere) · **cli** (`memex-ai` installer) · **db-schema** (published standalone) · **extractor** · **ac-emit-vitest** (the AC emitter). Service architecture: std-12. For anything deeper, `ls` — a tree copied here goes stale.
