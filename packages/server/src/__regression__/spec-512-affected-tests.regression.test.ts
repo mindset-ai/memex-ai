@@ -11,7 +11,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tagAc } from "@memex-ai-ac/vitest";
-import { planFor, RULES } from "../../../../scripts/ci/affected-tests.mjs";
+import { planFor, RULES, resolveBase } from "../../../../scripts/ci/affected-tests.mjs";
 
 const REPO_ROOT = join(__dirname, "..", "..", "..", "..");
 const SOURCE = readFileSync(
@@ -119,5 +119,56 @@ describe("spec-512: the affected-tests mapper fails safe, never silent", () => {
       expect(r.why, "every rule states WHY, so its output can be audited").toBeTruthy();
       expect(r.full === true || Array.isArray(r.cmds)).toBe(true);
     }
+  });
+
+  // issue-7 — the mapper failed safe for the wrong reason in a worktree.
+  //
+  // The base defaulted to the LOCAL `develop`, which a worktree never tracks
+  // and `EnterWorktree` never fetches. A branch that had merged
+  // `origin/develop` then read every commit develop gained since as its own
+  // change; one of those paths matched no rule, so the plan widened to the full
+  // matrix — correctly, on a false input. The tool degraded to "run everything"
+  // for precisely the workflow this Spec built it to speed up, and its message
+  // blamed the rule table, sending the reader off to add a rule for a file they
+  // never touched.
+  it("the default base resolves to the REMOTE ref, not the local branch (issue-7)", () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-512/acs/ac-4");
+
+    // The ref-existence probe is INJECTED, not ambient. The first version of
+    // this test called resolveBase() bare and asserted the upgrade — it passed
+    // on a developer machine and failed on the runner, because a CI checkout
+    // has no refs/remotes/origin/develop. Skipping it there would have been
+    // worse than the bug: the branch that matters would never be exercised by
+    // CI at all, which is the same hole spec-570 exists to close.
+    expect(
+      resolveBase("develop", () => true),
+      "a bare branch name must resolve to its remote-tracking ref when that ref " +
+        "exists — the local one is stale in every worktree.\n\n" +
+        "Check: scripts/ci/affected-tests.mjs",
+    ).toBe("origin/develop");
+  });
+
+  it("an already-qualified base is left alone (issue-7)", () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-512/acs/ac-4");
+
+    // Guards the obvious regression in the fix itself: double-prefixing would
+    // produce `origin/origin/develop`, which resolves to nothing, and the
+    // mapper would fail open on every run while looking like it had a base.
+    expect(resolveBase("origin/develop")).toBe("origin/develop");
+    expect(resolveBase("origin/main")).toBe("origin/main");
+  });
+
+  it("a name with no remote-tracking ref falls back to itself (issue-7)", () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-512/acs/ac-4");
+
+    // The upgrade is a preference, not a requirement: a local-only branch, a
+    // detached HEAD, or a CI checkout with no remote-tracking refs must still
+    // produce a usable base rather than throwing or yielding `origin/` + a name
+    // that resolves to nothing.
+    expect(resolveBase("develop", () => false)).toBe("develop");
+    // And against the real repo, whichever way this checkout is shaped — the
+    // point is that it never returns something git cannot resolve.
+    const real = resolveBase("develop");
+    expect(["develop", "origin/develop"]).toContain(real);
   });
 });

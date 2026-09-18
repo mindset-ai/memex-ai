@@ -131,6 +131,39 @@ export function planFor(files) {
   };
 }
 
+/** True when git can resolve `ref` in this checkout. */
+export function remoteRefExists(ref) {
+  try {
+    execFileSync("git", ["rev-parse", "--verify", "--quiet", ref], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The ref to diff against. Prefers `origin/<name>` over the local branch.
+ *
+ * spec-512 issue-7: the local `develop` is stale in every worktree — one is
+ * created from a ref, never tracks it, and `EnterWorktree` does not fetch it.
+ * A branch that has merged `origin/develop` then reads every commit develop
+ * gained since as "something you changed". One phantom path is enough: the map
+ * has no rule for it, the plan fails open, and the tool silently degrades to
+ * "run everything" for exactly the workflow it exists to speed up.
+ *
+ * The two environments genuinely differ — a developer has `origin/develop`, a
+ * CI checkout usually does not — so the fallback is load-bearing, not defensive
+ * padding, and `refExists` is a parameter so both branches are testable without
+ * depending on the ambient checkout.
+ */
+export function resolveBase(name, refExists = remoteRefExists) {
+  if (name.includes("/")) return name; // already qualified (origin/x, a SHA, a tag)
+  return refExists(`origin/${name}`) ? `origin/${name}` : name;
+}
+
 function changedFiles(base) {
   const mergeBase = execFileSync("git", ["merge-base", "HEAD", base], { encoding: "utf8" }).trim();
   const committed = execFileSync("git", ["diff", "--name-only", `${mergeBase}...HEAD`], { encoding: "utf8" });
@@ -144,7 +177,7 @@ function changedFiles(base) {
 function main(argv) {
   const json = argv.includes("--json");
   const baseIdx = argv.indexOf("--base");
-  const base = baseIdx !== -1 ? argv[baseIdx + 1] : "develop";
+  const base = resolveBase(baseIdx !== -1 ? argv[baseIdx + 1] : "develop");
   const filesIdx = argv.indexOf("--files");
 
   let files;
