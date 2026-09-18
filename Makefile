@@ -58,7 +58,7 @@ SHELL := /bin/bash
 ## The sub-minute guard battery: no database, no network. This is what replaces
 ## "push and wait for CI" as the tight feedback loop. Everything here is a pure
 ## static check — anything needing Postgres belongs in `make test`.
-check: check-url-shape check-portable-surface check-no-detector check-pg-declaration lint standards-check
+check: check-url-shape check-portable-surface check-no-detector check-pg-declaration check-package-coverage lint standards-check
 	@node scripts/ci/workspace-alloc.mjs --all > /dev/null || \
 		{ echo "✗ workspace allocator failed — see scripts/ci/workspace-alloc.mjs"; exit 1; }
 	@echo "✓ offline guard battery passed"
@@ -106,6 +106,20 @@ check-portable-surface:
 ## what survives someone bypassing the hook.
 check-no-detector:
 	cd packages/server && npx tsx scripts/check-no-detector.ts
+
+## spec-570 (dec-3, ac-11/ac-13/ac-14) — every workspace package with a `test`
+## script is accounted for, and "runs somewhere" stays distinct from "gates".
+## @memex/shared (876 tests) and @memex/extractor (62) ran in no CI job and no
+## git hook for three and a half months; the b-67 gate inside shared's suite had
+## never passed in the repository's history. Wiring those two fixed today —
+## nothing asserted the NEXT package would be reachable from CI, which was the
+## actual root cause. Offline by construction: reads package.json files, no DB,
+## no network. Twinned with src/__regression__/package-test-coverage.regression
+## .test.ts [per std-2's pattern]: this lane is what a developer meets before a
+## push (pre-push skips `make check`), the suite lane is what survives someone
+## bypassing the hook.
+check-package-coverage:
+	node scripts/ci/package-test-coverage.mjs
 
 ## Server: unit tests only (mocked, no DB required)
 test-unit:
