@@ -20,10 +20,28 @@ const GROUPS: ReadonlyArray<ToolManifestEntry['group']> = [
   'comments',
 ];
 
-// A summary line is a single sentence sized for a terse reference block. The
-// longest real entry is ~140 chars; 240 leaves headroom without letting a
-// paragraph slip in.
+// A summary line is a single sentence sized for a terse reference block — it is
+// rendered into the Init Prompt's tool reference via scaffold-data.ts, NOT into
+// the model-facing description the server composes in agent/handlers/*.
+//
+// 240 is the bound. Its old justification — "the longest real entry is ~140
+// chars" — was false when spec-570 measured it: across all 75 entries the median
+// was 163, p75 220, p90 234, and 42 entries already exceeded 140. A number whose
+// stated reason has quietly become untrue is a number nobody is really checking,
+// which is how four entries at 306-454 shipped past it.
+//
+// So the reason is asserted now instead of written down. MIN_HEADROOM is the
+// gap the bound must keep over the longest shipped summary; at 20 it means no
+// entry may exceed 220, which sits just above the compliant population's p90
+// (214 after spec-570's shortening) and well clear of the median.
+//
+// WHEN THIS GOES RED, SHORTEN THE ENTRY. Do not raise MIN_HEADROOM and do not
+// raise MAX_SUMMARY_LEN: lifting the number to fit the text is precisely the
+// move that turned "~140" into a comment sitting beside a population of 234.
+// The population is dense in the 211-220 band, so the margin is deliberately
+// tight — a new summary that needs 221 characters needs one fewer clause.
 const MAX_SUMMARY_LEN = 240;
+const MIN_HEADROOM = 20;
 
 describe('toolManifest data integrity (b-67)', () => {
   it('exports a non-empty array', () => {
@@ -119,6 +137,37 @@ describe('spec-176: no create_spec alias in tool manifest (ac-8, ac-9)', () => {
 // assertions are what the Spec's ACs are verified by; the per-entry
 // `summary is a single line within the length bound` test above stays the
 // enforcing check for every future entry.
+describe('spec-570: the bound keeps a measured margin (ac-6)', () => {
+  const AC6 =
+    'mindset-prod/memex-building-itself/specs/spec-570/acs/ac-6';
+
+  it('ac-6: MAX_SUMMARY_LEN stays at least MIN_HEADROOM above the longest entry', () => {
+    tagAc(AC6);
+    const lengths = toolManifest.map((e) => e.summary.length);
+    const longest = Math.max(...lengths);
+    const entry = toolManifest.find((e) => e.summary.length === longest)!;
+    expect(
+      MAX_SUMMARY_LEN - longest,
+      `the longest summary is "${entry.name}" at ${longest}, leaving ` +
+        `${MAX_SUMMARY_LEN - longest} of headroom under ${MAX_SUMMARY_LEN}. ` +
+        `Entries are crowding the bound — shorten "${entry.name}". Raising ` +
+        `MIN_HEADROOM or MAX_SUMMARY_LEN to fit the text is how the previous ` +
+        `justification ("the longest real entry is ~140 chars") came to sit ` +
+        `beside a population whose p90 was 234.`,
+    ).toBeGreaterThanOrEqual(MIN_HEADROOM);
+  });
+
+  it('ac-6: the margin is a real constraint, not a restatement of the bound', () => {
+    tagAc(AC6);
+    // A headroom of 0 would make this assertion equivalent to the per-entry
+    // length check above — green by construction and incapable of reporting
+    // crowding. Pinning the comment's cited maximum to Math.max(...) would be
+    // worse still: `max === max` at rest, firing only on a legitimate edit.
+    expect(MIN_HEADROOM).toBeGreaterThan(0);
+    expect(MIN_HEADROOM).toBeLessThan(MAX_SUMMARY_LEN);
+  });
+});
+
 describe('spec-570: the manifest length bound holds (ac-5, ac-7)', () => {
   const AC570 = (n: number) =>
     `mindset-prod/memex-building-itself/specs/spec-570/acs/ac-${n}`;

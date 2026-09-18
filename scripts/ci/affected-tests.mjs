@@ -20,6 +20,7 @@
 // that is what actually gates the merge.
 
 import { execFileSync } from "node:child_process";
+import { COVERAGE } from "./package-test-coverage.mjs";
 
 const SELF = "scripts/ci/affected-tests.mjs";
 
@@ -61,11 +62,24 @@ export const RULES = [
   { test: /\.md$/, cmds: [], why: "documentation only" },
 ];
 
-const FULL_MATRIX = [
+// DERIVED from the coverage declaration, never restated (spec-570 dec-3, ac-12).
+//
+// This list used to be five hardcoded commands — and it contained neither
+// `@memex/shared` nor `@memex/extractor`. So a developer who edited
+// packages/shared/, ran the local loop, and was told by the rule below that the
+// change was "broad enough that narrowing is a lie" STILL did not run the 874
+// tests they had just changed. That was the fourth layer of spec-570's defect,
+// under the missing CI job, the missing git hook, and the missing root `test`
+// script: even doing the right thing missed them.
+//
+// Deriving it means a new package is ONE edit — its entry in COVERAGE — rather
+// than three scattered ones that drift apart silently.
+export const FULL_MATRIX = [
   "make check",
   "make typecheck",
-  "make test-server",
-  "make test-ui",
+  // De-duplicated: @memex/server and @memex/ui share `make test-server` /
+  // `make test-ui` with the targets a narrower rule would pick.
+  ...new Set(COVERAGE.map((e) => e.localSuite)),
   "make e2e-cold",
 ];
 

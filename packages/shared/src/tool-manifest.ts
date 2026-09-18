@@ -206,7 +206,7 @@ export const toolManifest: ToolManifestEntry[] = [
   {
     name: 'rename_tag',
     summary:
-      'Rename an existing tag; the new name is reflected on every Spec that carried it, in one operation. Refuses with a plain reason (no change) if the new name duplicates another tag or would put two values of one scope on a Spec.',
+      "Rename a tag; the new name lands on every Spec that carried it, in one operation. Refuses with a plain reason, changing nothing, if it duplicates another tag or would put two values of one scope on a Spec.",
     args: 'rename_tag(memex?, tag, newTag)',
     group: 'planning',
     readOnlyHint: false,
@@ -224,7 +224,7 @@ export const toolManifest: ToolManifestEntry[] = [
   {
     name: 'add_section',
     summary:
-      'Add a section to a document; (doc, sectionType) is unique. STANDARDS pass clauses[] (one aspect each) plus a parallel clauseFacets[] verdict (where a vocabulary exists); other doc types pass content. Wrong field is rejected.',
+      "Add a section; (doc, sectionType) is unique. STANDARDS pass clauses[] (one aspect each) plus a parallel clauseFacets[] verdict where a vocabulary exists; other doc types pass content. The wrong field is rejected.",
     args: 'add_section(ref, sectionType, content?, clauses?, clauseFacets?, title?, description?)',
     group: 'planning',
     readOnlyHint: false,
@@ -233,7 +233,7 @@ export const toolManifest: ToolManifestEntry[] = [
   {
     name: 'update_section',
     summary:
-      'Replace the ENTIRE markdown body of a NON-standard section (+ optional sectionType / description); for a targeted edit prefer edit_section. Blocked on standards: edit at clause grain. A sectionType collision fails with a readable error.',
+      "Replace the ENTIRE markdown body of a NON-standard section (+ optional sectionType/description); for a targeted change prefer edit_section. Blocked on standards, which edit at clause grain. A collision fails readably.",
     args: 'update_section(ref, content, sectionType?, description?)',
     group: 'planning',
     readOnlyHint: false,
@@ -244,7 +244,7 @@ export const toolManifest: ToolManifestEntry[] = [
   {
     name: 'edit_section',
     summary:
-      'Surgical find/replace inside a NON-standard section: ONE literal oldText/newText pair, the cheap way to make a targeted change (no body re-emission). Zero or ambiguous matches fail naming the remedy; replaceAll replaces every hit.',
+      "Surgical find/replace inside a NON-standard section: ONE literal oldText/newText pair, so a targeted change costs no body re-emission. Zero or ambiguous matches fail naming the remedy; replaceAll replaces every hit.",
     args: 'edit_section(ref, oldText, newText, replaceAll?)',
     group: 'planning',
     readOnlyHint: false,
@@ -316,7 +316,7 @@ export const toolManifest: ToolManifestEntry[] = [
   {
     name: 'delete_decision',
     summary:
-      "Soft-delete a decision (→ status=deleted); hidden from get_doc / default list_decisions / UI tabs but queryable via ?include=deleted. No hard delete — update_decision restores it. Use when a decision was created in error (b-97).",
+      "Soft-delete a decision (status=deleted): hidden from get_doc, default lists and UI tabs, still queryable with ?include=deleted. No hard delete - update_decision restores it. For a decision created in error (b-97).",
     args: 'delete_decision(ref)',
     group: 'planning',
     readOnlyHint: false,
@@ -433,7 +433,7 @@ export const toolManifest: ToolManifestEntry[] = [
   {
     name: 'write_qa_report',
     summary:
-      'Persist a QA Report on a Spec at the build→verify hand-off — a reviewer-facing record of what this build session changed (front-end, back-end, testing, gaps, deviations, deploy notes). Appends a new dated version; never overwrites.',
+      "Persist a QA Report on a Spec at the build-to-verify hand-off - a reviewer-facing record of what this session changed: front-end, back-end, testing, gaps, deviations. Appends a dated version; never overwrites.",
     args: 'write_qa_report(ref, content, title?)',
     group: 'build',
     readOnlyHint: false,
@@ -450,7 +450,7 @@ export const toolManifest: ToolManifestEntry[] = [
   {
     name: 'flag_drift',
     summary:
-      "Flag drift on a standard section — post a typed `drift` comment (sourced 'agent') describing the gap between the rule and observed reality. Use when the rule is right but the code drifted; if the rule is wrong, use propose_standard_change.",
+      "Flag drift on a standard section: a typed `drift` comment naming the gap between the rule and observed reality. Use it when the rule is right and the code drifted; if the rule is wrong, use propose_standard_change.",
     args: 'flag_drift(ref, observation, decisionRef?)',
     group: 'build',
     readOnlyHint: false,
@@ -477,7 +477,7 @@ export const toolManifest: ToolManifestEntry[] = [
   {
     name: 'facets',
     summary:
-      "Check which parts of your Standards apply to a piece of work: lists the topics they are tagged by (the Memex's facets). Cast these as the facetBallot on create_task / create_decision and Memex surfaces the governing standard sections.",
+      "Check which parts of your Standards apply to a piece of work: lists the topics they are tagged by. Cast these as the facetBallot on create_task / create_decision and Memex surfaces the governing standard sections.",
     args: 'facets(verb, memex?)',
     group: 'read',
     readOnlyHint: true,
@@ -599,7 +599,7 @@ export const toolManifest: ToolManifestEntry[] = [
   {
     name: 'claim_spec',
     summary:
-      "Check out a Spec for the thread you're working in — the explicit nomination that binds this coding session to it. Writes a soft presence marker (a courtesy lock, never a hard block) and returns who else holds it. Idempotent.",
+      "Check out a Spec for the thread you are working in, binding this coding session to it. Writes a soft presence marker - a courtesy lock, never a hard block - and returns who else holds it. Idempotent.",
     args: 'claim_spec(ref)',
     group: 'build',
     readOnlyHint: false,
@@ -648,7 +648,7 @@ export const toolManifest: ToolManifestEntry[] = [
     // up emission, it does not itself drive a Spec phase transition.
     name: 'provision_ac_emission',
     summary:
-      "Provision AC emission for this Spec in one call: mints an ephemeral, spec-scoped emission key (session-only, never persist) and returns the wiring guidance for the repo's test runners. No Settings detour; CI keys stay human-minted.",
+      "Provision AC emission for this Spec in one call: mints an ephemeral, spec-scoped key (session-only, never persist) and returns wiring guidance for the repo's test runners. No Settings detour; CI keys stay human-minted.",
     args: 'provision_ac_emission(ref)',
     group: 'build',
     readOnlyHint: false,
@@ -674,7 +674,7 @@ export const toolManifest: ToolManifestEntry[] = [
   {
     name: 'discontinue_test_events',
     summary:
-      'Hard-delete an orphaned test_identifier on an AC (a renamed/deleted test whose stale fail pins the AC red): removes its emissions + summary, and keeps a durable receipt of who, when, why and the commit. Reason required. Irreversible.',
+      "Hard-delete an orphaned test_identifier on an AC - a renamed test whose stale fail pins the AC red. Removes its emissions and summary, keeping a receipt of who, when, why and the commit. Reason required. Irreversible.",
     args: 'discontinue_test_events(ref, test_identifier, reason)',
     group: 'build',
     readOnlyHint: false,
@@ -701,7 +701,7 @@ export const toolManifest: ToolManifestEntry[] = [
   {
     name: 'propose_ac_supersession',
     summary:
-      "Propose that an acceptance criterion be superseded — for when later work REVERSES it rather than rewriting it. Changes nothing until a human accepts in the Drift Inbox. Names the superseding decision; the server reads the current text.",
+      "Propose that an acceptance criterion be superseded - for when later work REVERSES it rather than rewriting it. Nothing changes until a human accepts in the Drift Inbox. Names the superseding decision.",
     args: 'propose_ac_supersession(ref, decision_ref, proposed_statement?, rationale?)',
     group: 'build',
     readOnlyHint: false,
@@ -710,7 +710,7 @@ export const toolManifest: ToolManifestEntry[] = [
   {
     name: 'accept_ac_supersession',
     summary:
-      "Accept an open supersession proposal: the criterion is retired with its statement PRESERVED verbatim, and any replacement is created under the superseding decision with no evidence of its own, so tests must earn its verdict anew.",
+      "Accept an open supersession proposal: the criterion retires with its statement PRESERVED verbatim, and any replacement starts under the superseding decision with no evidence, so tests must earn its verdict anew.",
     args: 'accept_ac_supersession(ref)',
     group: 'build',
     readOnlyHint: false,
@@ -748,7 +748,7 @@ export const toolManifest: ToolManifestEntry[] = [
   {
     name: 'list_skills',
     summary:
-      "List active Skills alphabetically: name, description, capability flags, ref (never the SKILL.md body). Pass all_memexes:true to find a named skill across your Memexes; if it appears in more than one Memex, ALWAYS ask which to use.",
+      "List active Skills alphabetically: name, description, capability flags, ref - never the SKILL.md body. Pass all_memexes:true to find one across your Memexes; if it is in more than one Memex, ALWAYS ask which to use.",
     args: 'list_skills(memex?, all_memexes?)',
     group: 'read',
     readOnlyHint: true,
