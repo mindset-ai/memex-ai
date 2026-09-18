@@ -7,7 +7,10 @@ import { Hono } from "hono";
 import { z } from "zod/v4";
 // spec-566 t-11 — the real supersession verb, so a seeded proposal carries the
 // shape the accept parses and the done-gate reads.
-import { proposeAcSupersession } from "../services/ac-supersession.js";
+import {
+  proposeAcSupersession,
+  acceptAcSupersession,
+} from "../services/ac-supersession.js";
 import { eq, and } from "drizzle-orm";
 import {
   clearFakeQueue,
@@ -1601,4 +1604,31 @@ testOnlyRouter.post("/seed-ac-proposal", async (c) => {
     { channel: "server", actorName: "e2e-seed" },
   );
   return c.json({ commentId: result.comment.id, commentSeq: result.comment.seq });
+});
+
+// spec-569 t-6 — ACCEPT a seeded supersession, through the real verb.
+//
+// Needed because the browser cannot do this: supersession is recorded
+// exclusively through the MCP tool (`packages/ui/src/api/types.ts`), so a
+// journey that wants a criterion in `superseded` has no user flow to drive.
+// Seeding the status straight onto the row would skip `supersedeAcTx` — and
+// `acs.updatedAt`, stamped there, is the whole input this Spec turns on. So the
+// journey goes through the service, exactly as /consolidate-narrative does.
+const acceptAcSupersessionSchema = z.object({
+  memexId: z.string().uuid(),
+  commentId: z.string().uuid(),
+});
+testOnlyRouter.post("/accept-ac-supersession", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = acceptAcSupersessionSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { memexId, commentId } = parsed.data;
+  await acceptAcSupersession(memexId, commentId, {
+    // std-32: a seeded write is still an attributed write.
+    channel: "server",
+    actorName: "e2e-seed",
+  });
+  return c.json({ ok: true });
 });
