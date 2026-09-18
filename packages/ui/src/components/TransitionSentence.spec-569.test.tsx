@@ -105,28 +105,45 @@ describe('spec-569 dec-2(b) — criteria get their own staleness path (ac-10)', 
     expect(text()).toContain('criterion that changed meaning');
   });
 
-  it('stays out of `draft` and `done` — private authoring and a closed Spec', () => {
+  it('stays out of `draft` — private authoring, nobody else is reading the prose', () => {
     tagAc(AC(10));
     // `viewedTab` must be a FORWARD tab, not the current phase. With
     // viewedTab === currentPhase the component returns null before the guard is
-    // ever consulted (draft falls through to `if (!canTransition) return null`;
-    // done exits at `if (!target) return null` because nextPhase('done') is
-    // null), so both iterations would assert that '' lacks a substring — true
-    // for any implementation. Caught in review by deleting the guard and
-    // watching this file stay 8/8 green.
-    for (const phase of ['draft', 'done'] as const) {
-      const { unmount } = render(
-        <TransitionSentence
-          {...props({
-            currentPhase: phase,
-            viewedTab: 'build',
-            staleCriterionCount: 1,
-          })}
-        />,
-      );
-      expect(text()).not.toContain('changed meaning');
-      unmount();
-    }
+    // ever consulted, so the assertion would only say that '' lacks a
+    // substring — true for any implementation. Caught in review by deleting the
+    // guard and watching this file stay 8/8 green.
+    render(
+      <TransitionSentence
+        {...props({
+          currentPhase: 'draft',
+          viewedTab: 'build',
+          staleCriterionCount: 1,
+        })}
+      />,
+    );
+    expect(text()).not.toContain('changed meaning');
+  });
+
+  it('renders nothing at all from `done` — the blocker line is unreachable there', () => {
+    tagAc(AC(10));
+    // NOT `not.toContain('changed meaning')`. The guard's `done` half is
+    // defence-in-depth and cannot be pinned: from `done` the blocker branch is
+    // never taken (own tab → nextPhase('done') is null → early return; every
+    // other tab is backward), so deleting that clause leaves any "does not
+    // contain" assertion green. Measured in review across all four tabs ×
+    // canTransition. So assert the thing that IS true and falsifiable — the
+    // component renders nothing — which reds the day `done` gains a forward
+    // move and the clause starts earning its keep.
+    render(
+      <TransitionSentence
+        {...props({
+          currentPhase: 'done',
+          viewedTab: 'build',
+          staleCriterionCount: 1,
+        })}
+      />,
+    );
+    expect(text()).toBe('');
   });
 
   it('does not double up when both a decision and a criterion are unreflected', () => {

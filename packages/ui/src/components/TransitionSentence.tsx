@@ -183,6 +183,14 @@ function blockerFragments(p: {
   // posture RefreshSpecButton documents for the decision path, arrived at
   // independently: "any phase" in dec-2 (b) meant "not gated on `specify`",
   // never "including the two phases where the affordance is meaningless".
+  //
+  // The `done` half is DEFENCE-IN-DEPTH, not a live gate, and no test pins it
+  // because none honestly can: from `done` the blocker line is unreachable —
+  // its own tab exits at `if (!target) return null` (nextPhase('done') is
+  // null) and every other tab is a backward move, so the blocker branch is
+  // never taken. Measured in review across all four tabs × canTransition.
+  // Kept because it costs nothing and survives a phase being added after
+  // `done`; the test below asserts what IS falsifiable there instead.
   if (
     p.staleCriterionCount > 0 &&
     p.currentPhase !== 'draft' &&
