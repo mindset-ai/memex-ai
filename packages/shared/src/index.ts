@@ -1,6 +1,7 @@
 export {
   computeSpecReadiness,
   blockerLines,
+  countStaleAcs,
   countStaleDecisions,
   countUnresolvedDecisions,
   isMeaningChangedAcStatus,

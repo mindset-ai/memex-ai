@@ -40,6 +40,7 @@ import { useSwitchPosture } from '../hooks/useSwitchPosture';
 import { PostureDropdown, HEADER_PILL_CLASS } from '../components/PostureDropdown';
 import {
   countUnresolvedDecisions,
+  countStaleAcs,
   isSpecNarrativeStale,
   HANDOFF_BUTTON_BY_PHASE,
   isQaReportSectionType,
@@ -765,6 +766,20 @@ export function DocDocument() {
     [],
   );
 
+  // spec-569 dec-2 (b) — the criterion path. Separate from the value above by
+  // design: this one crosses every phase, because a superseded criterion will
+  // not move again and spec-196 dec-2's "consolidating would be premature"
+  // reasoning does not reach it. Already in hand — `acs` is fetched on mount
+  // for the AC panel — so this costs no extra request.
+  const staleCriterionCount = countStaleAcs(
+    doc.narrativeLastConsolidatedAt ?? null,
+    acs.map((a) => ({
+      id: a.ac.id,
+      status: a.ac.status,
+      updatedAt: a.ac.updatedAt,
+    })),
+  );
+
   // spec-159 dec-4 (amended): the readiness rubric is ADVISORY. The transition
   // sentence always offers the move; this in-situ directive spans the full
   // width ABOVE the two-column grid (one line per phase layout, fragments
@@ -1358,6 +1373,7 @@ export function DocDocument() {
               openTaskCount={openTaskCount}
               unverifiedAcCount={unverifiedAcCount}
               narrativeStale={narrativeStaleFromDecisions}
+              staleCriterionCount={staleCriterionCount}
               onTransitioned={() => {
                 // The view follows the move: clear the browsed-tab pin so
                 // `viewedTab` falls back to the (re-fetched) current phase's

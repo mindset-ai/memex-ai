@@ -94,6 +94,17 @@ export interface TransitionSentenceProps {
    * offer: the prose must reflect the resolutions before build.
    */
   narrativeStale?: boolean;
+  /**
+   * spec-569 dec-2 (b): how many acceptance criteria have changed MEANING
+   * (superseded / rejected) since the last consolidation. Its own path,
+   * deliberately separate from `narrativeStale`: spec-196 dec-2 gated the
+   * decision blocker to `specify` with every decision resolved because an open
+   * decision is going to move again, so demanding the prose catch up now buys
+   * work that will be undone. A superseded criterion will not move again, so
+   * that reasoning does not reach it and this fires in ANY phase — including
+   * `build` and `verify`, which is where spec-524 actually happened.
+   */
+  staleCriterionCount?: number;
   /** Fired after a successful transition so the parent can refetch / re-render. */
   onTransitioned?: (newPhase: SpecStatus) => void;
   /** The browse-confirm's [No]: return the view to the current phase's tab. */
@@ -114,6 +125,7 @@ function blockerFragments(p: {
   openTaskCount: number;
   unverifiedAcCount: number;
   narrativeStale: boolean;
+  staleCriterionCount: number;
 }): BlockerPart[] {
   const parts: BlockerPart[] = [];
   if (p.currentPhase === 'specify') {
@@ -155,6 +167,25 @@ function blockerFragments(p: {
     }
   }
   // draft → specify and done have no rubric gate.
+  // spec-569 dec-2 (b) — the criterion path, outside the phase chain above on
+  // purpose. Guarded against the decision fragment rather than added blindly:
+  // `renderBlockers` keys its groups by `rest`, so two fragments sharing the
+  // `em` "The spec narrative" would both read oddly AND collide on React keys.
+  // When the decision path has already spoken, it already says the prose is
+  // behind; one blocker is the honest count.
+  if (
+    p.staleCriterionCount > 0 &&
+    !parts.some((part) => part.em === 'The spec narrative')
+  ) {
+    parts.push({
+      em: 'The spec narrative',
+      rest:
+        p.staleCriterionCount === 1
+          ? 'must be updated to reflect the criterion that changed meaning'
+          : 'must be updated to reflect the criteria that changed meaning',
+    });
+  }
+
   return parts;
 }
 
@@ -194,6 +225,7 @@ export function TransitionSentence({
   openTaskCount = 0,
   unverifiedAcCount = 0,
   narrativeStale = false,
+  staleCriterionCount = 0,
   onTransitioned,
   onCancelBrowse,
 }: TransitionSentenceProps) {
@@ -221,6 +253,7 @@ export function TransitionSentence({
     openTaskCount,
     unverifiedAcCount,
     narrativeStale,
+    staleCriterionCount,
   });
 
   // spec-196 dec-3: when the staleness blocker is present, the sentence carries
