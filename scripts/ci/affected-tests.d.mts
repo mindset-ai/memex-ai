@@ -25,3 +25,9 @@ export interface Plan {
 /** Map changed paths to a test plan. An unrecognised path widens to the full
  *  matrix — it must never narrow to nothing. */
 export function planFor(files: string[] | null | undefined): Plan;
+
+/** The ref to diff against. Upgrades a bare branch name to its remote-tracking
+ *  ref (`develop` → `origin/develop`), because the local one is stale in every
+ *  worktree; passes an already-qualified ref through; falls back to the bare
+ *  name when no remote-tracking ref exists (spec-512 issue-7). */
+export function resolveBase(name: string): string;

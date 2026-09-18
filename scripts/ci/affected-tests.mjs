@@ -131,6 +131,31 @@ export function planFor(files) {
   };
 }
 
+/**
+ * The ref to diff against. Prefers `origin/<name>` over the local branch.
+ *
+ * spec-512 issue-7: the local `develop` is stale in every worktree — one is
+ * created from a ref, never tracks it, and `EnterWorktree` does not fetch it.
+ * A branch that has merged `origin/develop` then reads every commit develop
+ * gained since as "something you changed". One phantom path is enough: the map
+ * has no rule for it, the plan fails open, and the tool silently degrades to
+ * "run everything" for exactly the workflow it exists to speed up.
+ *
+ * Better in CI too — a checkout often has no local `develop` at all.
+ */
+export function resolveBase(name) {
+  if (name.includes("/")) return name; // already qualified (origin/x, a SHA, a tag)
+  try {
+    execFileSync("git", ["rev-parse", "--verify", "--quiet", `origin/${name}`], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    return `origin/${name}`;
+  } catch {
+    return name; // no remote-tracking ref — the local one is all there is
+  }
+}
+
 function changedFiles(base) {
   const mergeBase = execFileSync("git", ["merge-base", "HEAD", base], { encoding: "utf8" }).trim();
   const committed = execFileSync("git", ["diff", "--name-only", `${mergeBase}...HEAD`], { encoding: "utf8" });
@@ -144,7 +169,7 @@ function changedFiles(base) {
 function main(argv) {
   const json = argv.includes("--json");
   const baseIdx = argv.indexOf("--base");
-  const base = baseIdx !== -1 ? argv[baseIdx + 1] : "develop";
+  const base = resolveBase(baseIdx !== -1 ? argv[baseIdx + 1] : "develop");
   const filesIdx = argv.indexOf("--files");
 
   let files;

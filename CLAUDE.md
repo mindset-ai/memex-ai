@@ -88,6 +88,13 @@ make affected     # which suites your diff actually needs (advisory)
 make test         # full server suite
 ```
 
+`make affected` is the **local loop while you build** — it maps your diff to the suites worth
+running, which is seconds instead of the ~12 minutes `make test-server` + `make test-ui` cost.
+Run the full matrix **once, before opening the PR**, not per iteration: CI is the backstop, not
+where you should learn a suite is red. Two caveats the tool cannot fix for you — `@memex/shared`
+and `@memex/extractor` run in **no CI job** (spec-570), so what you skip locally there is skipped
+everywhere; and std-28's `make e2e-cold` before every PR is mandatory whatever `affected` says.
+
 Ports and e2e database names are **derived per workspace** from a hash of its path
 (`scripts/ci/workspace-alloc.mjs`), so parallel worktrees never collide. Never hardcode a
 port — run `make dev` and read the ones it prints, or `node scripts/ci/workspace-alloc.mjs --all`.
