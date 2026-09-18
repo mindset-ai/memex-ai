@@ -5,6 +5,14 @@
 // a live DB.
 
 import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
+import { tagAc } from "@memex-ai-ac/vitest";
+
+// ac-29: the magic-link originating-session surrogate — loginRequestId + the
+// login_requests TTL'd row, the unauthenticated status endpoint
+// (not-verified / expired / unknown-404), the post-consume verified payload
+// with single-shot pickup, and /consume still requiring the raw token. Every
+// `it` below asserts one clause of that AC.
+const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-304/acs/ac-${n}`;
 
 const ORIGINAL_JWT_SECRET = vi.hoisted(() => {
   const v = process.env.AUTH_JWT_SECRET;
@@ -123,6 +131,7 @@ const JSON_HEADERS = { "Content-Type": "application/json" };
 
 describe("POST /api/auth/magic-link (issue)", () => {
   it("returns a loginRequestId and never leaks the raw token", async () => {
+    tagAc(AC(29));
     getUserByEmail.mockResolvedValue({ id: "user-1", email: EMAIL });
     issueAuthToken.mockResolvedValue({
       raw: "RAW-SECRET-TOKEN",
@@ -151,6 +160,7 @@ describe("POST /api/auth/magic-link (issue)", () => {
 
 describe("POST /api/auth/magic-link/consume", () => {
   it("flips the surrogate verified after consuming the token", async () => {
+    tagAc(AC(29));
     consumeAuthToken.mockResolvedValue({ id: TOKEN_ID, email: EMAIL, userId: "user-1" });
     upsertUserByEmail.mockResolvedValue({ id: "user-1", email: EMAIL });
     resolveSession.mockResolvedValue(sampleSession);
@@ -170,6 +180,7 @@ describe("POST /api/auth/magic-link/consume", () => {
   });
 
   it("still requires the raw token (invalid token → 400, no verify)", async () => {
+    tagAc(AC(29));
     consumeAuthToken.mockRejectedValue(new AuthTokenErrorMock("unknown", "Invalid"));
 
     const res = await app.request("/api/auth/magic-link/consume", {
@@ -185,12 +196,14 @@ describe("POST /api/auth/magic-link/consume", () => {
 
 describe("GET /api/auth/magic-link/login-requests/:id/status", () => {
   it("404s for an unknown id", async () => {
+    tagAc(AC(29));
     getLoginRequestStatus.mockResolvedValue(null);
     const res = await app.request(`/api/auth/magic-link/login-requests/${LR_ID}/status`);
     expect(res.status).toBe(404);
   });
 
   it("returns not-verified before the link is consumed", async () => {
+    tagAc(AC(29));
     getLoginRequestStatus.mockResolvedValue({
       id: LR_ID,
       email: EMAIL,
@@ -203,6 +216,7 @@ describe("GET /api/auth/magic-link/login-requests/:id/status", () => {
   });
 
   it("returns expired for an unverified, lapsed request", async () => {
+    tagAc(AC(29));
     getLoginRequestStatus.mockResolvedValue({
       id: LR_ID,
       email: EMAIL,
@@ -215,6 +229,7 @@ describe("GET /api/auth/magic-link/login-requests/:id/status", () => {
   });
 
   it("returns a verified session payload after consume, and single-shots the row", async () => {
+    tagAc(AC(29));
     getLoginRequestStatus.mockResolvedValue({
       id: LR_ID,
       email: EMAIL,
@@ -237,6 +252,7 @@ describe("GET /api/auth/magic-link/login-requests/:id/status", () => {
   });
 
   it("hands out exactly one session under a concurrent-poll race (delete is the gate)", async () => {
+    tagAc(AC(29));
     // Both polls read the same verified, unexpired row...
     getLoginRequestStatus.mockResolvedValue({
       id: LR_ID,
@@ -257,6 +273,7 @@ describe("GET /api/auth/magic-link/login-requests/:id/status", () => {
   });
 
   it("refuses to mint a session for a verified-but-expired request", async () => {
+    tagAc(AC(29));
     getLoginRequestStatus.mockResolvedValue({
       id: LR_ID,
       email: EMAIL,
