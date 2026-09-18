@@ -26,6 +26,7 @@ import {
   findCoverageGaps,
   testedPackages,
 } from "../../../../scripts/ci/package-test-coverage.mjs";
+import { FULL_MATRIX, planFor } from "../../../../scripts/ci/affected-tests.mjs";
 
 const AC = (n: number) =>
   `mindset-prod/memex-building-itself/specs/spec-570/acs/ac-${n}`;
@@ -198,5 +199,50 @@ describe("spec-570: the guard reaches a lane CI runs (ac-14)", () => {
         "offline half of the twin runs only when someone remembers it",
     ).toContain("check-package-coverage");
     expect(makefile).toContain("node scripts/ci/package-test-coverage.mjs");
+  });
+});
+
+describe("spec-570: the local full run no longer skips the package you edited (ac-12)", () => {
+  it("FULL_MATRIX is DERIVED from the declaration — every package's suite is in it", () => {
+    tagAc(AC(12));
+    for (const e of COVERAGE) {
+      expect(
+        FULL_MATRIX,
+        `${e.pkg}'s suite is missing from the full matrix. Before spec-570 this ` +
+          `list was five hardcoded commands containing neither @memex/shared nor ` +
+          `@memex/extractor, so "run everything" ran neither.`,
+      ).toContain(e.localSuite);
+    }
+  });
+
+  it("a packages/shared/ diff plans a run that actually includes @memex/shared", () => {
+    tagAc(AC(12));
+    const plan = planFor(["packages/shared/src/tool-manifest.ts"]);
+    // The rule for this path says `full: true` — "the change is broad enough
+    // that narrowing is a lie". The bug was that the matrix it widened TO left
+    // the package out, so the reassuring answer was the wrong one.
+    expect(plan.full).toBe(true);
+    expect(
+      plan.commands,
+      "editing packages/shared/ and being told to run everything must include " +
+        "@memex/shared's own 876 tests — it did not, and that was the fourth " +
+        "layer of this Spec's defect",
+    ).toContain("pnpm --filter @memex/shared test");
+    expect(plan.commands).toContain("pnpm --filter @memex/extractor test");
+  });
+
+  it("the matrix stays derived — adding an entry changes it without editing it", () => {
+    tagAc(AC(12));
+    // A restated list passes the two assertions above on the day it is written
+    // and rots the moment a package is added. This pins the DERIVATION: every
+    // localSuite in the declaration appears, and the count tracks the
+    // de-duplicated declaration plus the four fixed commands.
+    const suites = [...new Set(COVERAGE.map((e) => e.localSuite))];
+    expect(FULL_MATRIX).toEqual([
+      "make check",
+      "make typecheck",
+      ...suites,
+      "make e2e-cold",
+    ]);
   });
 });

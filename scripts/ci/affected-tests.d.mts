@@ -12,6 +12,12 @@ export interface Rule {
 
 export const RULES: Rule[];
 
+/** The commands a FULL local run executes. DERIVED from the coverage
+ *  declaration (spec-570 ac-12), not restated: it once omitted @memex/shared
+ *  and @memex/extractor, so "run everything" skipped the very package the
+ *  developer had just edited. */
+export const FULL_MATRIX: readonly string[];
+
 export interface Plan {
   /** true ⇒ run the full matrix. ALWAYS true when any path is unrecognised. */
   full: boolean;
