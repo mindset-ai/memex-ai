@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { eq, and } from "drizzle-orm";
 import { db } from "../db/connection.js";
-import { acs, documents, decisions, docSections } from "../db/schema.js";
+import { acs, documents, decisions } from "../db/schema.js";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { createDocDraft } from "./documents.js";
 import { createAc, setAcAcceptance } from "./acs.js";
