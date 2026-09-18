@@ -97,7 +97,7 @@ export const toolManifest: ToolManifestEntry[] = [
     // were being dropped, which is how a silently narrowed answer passed for a
     // complete one.
     summary:
-      'List Specs in a Memex with decision/task counts and lineage. Default is EVERY phase (draft, specify, build, verify, done) with archived the only exclusion; superseded Specs are included and marked with their successor. The response header states the total, the number shown, and what was withheld. Pass statusIn to narrow, docType (defaults to spec) and/or tags to filter.',
+      "List Specs with decision/task counts and lineage. Defaults to EVERY phase - draft, specify, build, verify, done - with archived the only exclusion, and superseded Specs included. Narrow with statusIn/docType/tags.",
     args: 'list_docs(memex?, docType?, statusIn?, tags?)',
     group: 'read',
     readOnlyHint: true,
@@ -393,7 +393,7 @@ export const toolManifest: ToolManifestEntry[] = [
     // be superseded at any point in its life, including after it is done.
     name: 'supersede_spec',
     summary:
-      'Record that one Spec supersedes another (it shipped, a later Spec changed it). Non-destructive: content still served, but every read of the superseded Spec and its children leads with a pointer to the successor, which carries the mirror. Pass supersededBy: null to clear. Doc-level only; cycles refused. NOT archiving — archiving withholds content and is human-only.',
+      "Record that one Spec supersedes another. Non-destructive: content is still served, but reads of the superseded Spec lead with a pointer to its successor. supersededBy: null clears it; cycles refused.",
     args: 'supersede_spec(ref, supersededBy, note?)',
     group: 'planning',
     readOnlyHint: false,
@@ -459,7 +459,7 @@ export const toolManifest: ToolManifestEntry[] = [
   {
     name: 'propose_standard_change',
     summary:
-      'Propose a correction to a standard\'s rule text, at the clause grain: name the clauses that should change and what they should say. Lands as a typed `plan_revision` comment (sourced \'agent\') for the standard owner to accept or reject in the Drift Inbox. Every clause in one proposal must belong to the same section, and you never supply a clause\'s current text — the server reads it, so an accept can tell whether the clause moved underneath the proposal.',
+      "Propose a correction to a Standard's rule text at the clause grain: which clauses change, and to what. Lands as a `plan_revision` comment for the owner to accept or reject. One section per proposal.",
     args: 'propose_standard_change(operations, rationale?)',
     group: 'build',
     readOnlyHint: false,
@@ -468,7 +468,7 @@ export const toolManifest: ToolManifestEntry[] = [
   {
     name: 'accept_standard_change',
     summary:
-      "Accept an open proposal (a `plan_revision` comment) and apply it to the Standard: every clause operation the proposal carries lands, or none does, and the proposal is resolved 'accepted' in the same transaction. Takes the comment ref and nothing else, so what is applied is exactly what was reviewed. Refuses \u2014 naming the clause and its current text \u2014 if the rule changed after the proposal was written, rather than overwriting that change.",
+      "Apply an open `plan_revision` proposal to its Standard: all clause operations or none, resolved 'accepted' in one transaction. Takes the comment ref only, and refuses if the rule moved since.",
     args: 'accept_standard_change(ref)',
     group: 'build',
     readOnlyHint: false,
@@ -683,7 +683,7 @@ export const toolManifest: ToolManifestEntry[] = [
   {
     name: 'update_ac',
     summary:
-      'Update an AC statement by ref. Only statement is mutable here; kind is fixed at creation; status transitions via accept_ac / reject_ac. REFUSES a criterion that already reads as satisfied (verified or accepted) — use propose_ac_supersession, which names the authorising decision and preserves the original.',
+      "Update an AC statement by ref. Statement only - kind is fixed at creation, status moves via accept_ac / reject_ac. Refuses a criterion that already reads as satisfied; use propose_ac_supersession instead.",
     args: 'update_ac(ref, statement)',
     group: 'build',
     readOnlyHint: false,
