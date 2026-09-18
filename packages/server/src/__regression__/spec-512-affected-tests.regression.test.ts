@@ -134,12 +134,17 @@ describe("spec-512: the affected-tests mapper fails safe, never silent", () => {
   it("the default base resolves to the REMOTE ref, not the local branch (issue-7)", () => {
     tagAc("mindset-prod/memex-building-itself/specs/spec-512/acs/ac-4");
 
-    // This repo has an origin, so the bare name must be upgraded. If it is not,
-    // every worktree silently loses the narrowing.
+    // The ref-existence probe is INJECTED, not ambient. The first version of
+    // this test called resolveBase() bare and asserted the upgrade — it passed
+    // on a developer machine and failed on the runner, because a CI checkout
+    // has no refs/remotes/origin/develop. Skipping it there would have been
+    // worse than the bug: the branch that matters would never be exercised by
+    // CI at all, which is the same hole spec-570 exists to close.
     expect(
-      resolveBase("develop"),
-      "a bare branch name must resolve to its remote-tracking ref — the local " +
-        "one is stale in every worktree.\n\nCheck: scripts/ci/affected-tests.mjs",
+      resolveBase("develop", () => true),
+      "a bare branch name must resolve to its remote-tracking ref when that ref " +
+        "exists — the local one is stale in every worktree.\n\n" +
+        "Check: scripts/ci/affected-tests.mjs",
     ).toBe("origin/develop");
   });
 
@@ -156,10 +161,14 @@ describe("spec-512: the affected-tests mapper fails safe, never silent", () => {
   it("a name with no remote-tracking ref falls back to itself (issue-7)", () => {
     tagAc("mindset-prod/memex-building-itself/specs/spec-512/acs/ac-4");
 
-    // A local-only branch, or a SHA, must still work — the upgrade is a
-    // preference, not a requirement. Without this the tool would throw on a
-    // detached HEAD or a branch that has never been pushed.
-    const localOnly = "a-branch-that-was-never-pushed-anywhere-569";
-    expect(resolveBase(localOnly)).toBe(localOnly);
+    // The upgrade is a preference, not a requirement: a local-only branch, a
+    // detached HEAD, or a CI checkout with no remote-tracking refs must still
+    // produce a usable base rather than throwing or yielding `origin/` + a name
+    // that resolves to nothing.
+    expect(resolveBase("develop", () => false)).toBe("develop");
+    // And against the real repo, whichever way this checkout is shaped — the
+    // point is that it never returns something git cannot resolve.
+    const real = resolveBase("develop");
+    expect(["develop", "origin/develop"]).toContain(real);
   });
 });

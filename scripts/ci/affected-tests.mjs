@@ -131,6 +131,19 @@ export function planFor(files) {
   };
 }
 
+/** True when git can resolve `ref` in this checkout. */
+export function remoteRefExists(ref) {
+  try {
+    execFileSync("git", ["rev-parse", "--verify", "--quiet", ref], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * The ref to diff against. Prefers `origin/<name>` over the local branch.
  *
@@ -141,19 +154,14 @@ export function planFor(files) {
  * has no rule for it, the plan fails open, and the tool silently degrades to
  * "run everything" for exactly the workflow it exists to speed up.
  *
- * Better in CI too — a checkout often has no local `develop` at all.
+ * The two environments genuinely differ — a developer has `origin/develop`, a
+ * CI checkout usually does not — so the fallback is load-bearing, not defensive
+ * padding, and `refExists` is a parameter so both branches are testable without
+ * depending on the ambient checkout.
  */
-export function resolveBase(name) {
+export function resolveBase(name, refExists = remoteRefExists) {
   if (name.includes("/")) return name; // already qualified (origin/x, a SHA, a tag)
-  try {
-    execFileSync("git", ["rev-parse", "--verify", "--quiet", `origin/${name}`], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    });
-    return `origin/${name}`;
-  } catch {
-    return name; // no remote-tracking ref — the local one is all there is
-  }
+  return refExists(`origin/${name}`) ? `origin/${name}` : name;
 }
 
 function changedFiles(base) {
