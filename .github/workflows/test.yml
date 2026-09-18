@@ -432,6 +432,80 @@ jobs:
       - name: AC-emit helper tests
         run: pnpm --filter @memex-ai-ac/vitest test
 
+  # @memex/shared — spec-570. Ran in NO CI job and in no git hook until now: it
+  # appeared in none of this repo's workflows, .husky/pre-push runs only the
+  # server unit tier, and the root package.json has no `test` script. 874 tests
+  # therefore executed only when a developer typed the filter by hand. The b-67
+  # manifest-integrity gate inside them had never passed in the repository's
+  # history — MAX_SUMMARY_LEN and two of its violations shipped together in the
+  # initial commit (6311d4f4), and a fifth violator landed while spec-570 was
+  # still in specify, which is what an ungated bound does.
+  #
+  # Two jobs, not one combined with `extractor` [per spec-570 dec-2]: extractor
+  # was green before this Spec and shared was not, so a combined job would have
+  # held extractor's gating hostage to the manifest fix. Separate keys also give
+  # per-package signal at a glance. Both suites together are ~11s and run in
+  # parallel, so wall-clock is unchanged.
+  #
+  # NO `paths` filter here, deliberately: a path-filtered job never reports on
+  # the PRs it skips, and once registered as a required context that wedges
+  # every such PR under `enforce_admins` with no bypass. That is why
+  # db-schema-drift is in neither branch-protection list.
+  # Actions are pinned to full commit SHAs in these two jobs and nowhere else in
+  # this file. That is deliberate, not an oversight to tidy away: the `semgrep`
+  # required check runs as a DIFF scan, so its github-actions-mutable-action-tag
+  # rule blocks new `@v7`-style references while the twelve older jobs above keep
+  # theirs — nobody has touched those lines since the scan's baseline. Unpinning
+  # these to match the neighbours turns a required check red. Pinning the rest is
+  # a separate change (spec-570 issue-2).
+  shared:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Least-privilege: this job only checks out and runs the package's own
+    # unit suite locally [matches the `lint` job above].
+    permissions:
+      contents: read
+    env:
+      # 31 files in this package tag ACs. Without the key their emissions 401
+      # and the criteria they verify go stale while the suite stays green —
+      # the same defect spec-302 issue-1 recorded for the ac-emit job.
+      MEMEX_EMIT_KEY: ${{ secrets.MEMEX_EMIT_KEY }}
+      # Dependabot PRs receive no repo secrets — turn emission OFF for them so
+      # no bogus unauthenticated emission is attempted (mirrors ac-emit).
+      MEMEX_EMIT: ${{ github.actor == 'dependabot[bot]' && 'false' || '' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Shared package tests
+        run: pnpm --filter @memex/shared test
+
+  # @memex/extractor — spec-570, the same gap. Green on the day it was found,
+  # but green by luck rather than by observation: nothing ran it either. No
+  # emission env here — the package carries no tagAc call today; add the same
+  # block as `shared` above if that changes.
+  extractor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Least-privilege: this job only checks out and runs the package's own
+    # unit suite locally [matches the `lint` job above].
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Extractor package tests
+        run: pnpm --filter @memex/extractor test
+
   # Real migration applier (spec-385, sus-1 from the spec-345 audit; decided in
   # spec-357 dec-3). The three psql-loop seeding sites elsewhere in this file
   # (server/e2e/perf "Apply migrations" steps) play EVERY drizzle/*.sql file

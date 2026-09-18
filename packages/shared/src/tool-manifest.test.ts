@@ -112,3 +112,80 @@ describe('spec-176: no create_spec alias in tool manifest (ac-8, ac-9)', () => {
     expect(entry).toBeUndefined();
   });
 });
+
+// spec-570 ac-5 + ac-7 (dec-1): the b-67 length bound had never passed in the
+// repository's history — the constant and two of its violations shipped in the
+// initial commit, and nothing automatic ran this suite to say so. These two
+// assertions are what the Spec's ACs are verified by; the per-entry
+// `summary is a single line within the length bound` test above stays the
+// enforcing check for every future entry.
+describe('spec-570: the manifest length bound holds (ac-5, ac-7)', () => {
+  const AC570 = (n: number) =>
+    `mindset-prod/memex-building-itself/specs/spec-570/acs/ac-${n}`;
+
+  it('ac-5: every summary is within MAX_SUMMARY_LEN, with no entry exempted', () => {
+    tagAc(AC570(5));
+    const over = toolManifest
+      .filter((e) => e.summary.length > MAX_SUMMARY_LEN)
+      .map((e) => `${e.name} (${e.summary.length})`);
+    expect(
+      over,
+      over.length ? `entries over ${MAX_SUMMARY_LEN}: ${over.join(', ')}` : '',
+    ).toEqual([]);
+  });
+
+  // dec-1 shortened five summaries. `summary` feeds scaffold-data.ts ->
+  // BASE_SCAFFOLD.tools -> the Init Prompt reference block [per std-16 cl-20];
+  // it is NOT the model-facing description, which the server composes in
+  // agent/handlers/*. So the edit must move the summary and nothing else —
+  // an args or group drift would break the std-16 lockstep in a way this
+  // package's own suite would not otherwise catch.
+  it('ac-7: the five shortened entries kept every non-summary field', () => {
+    tagAc(AC570(7));
+    const PINNED: ReadonlyArray<
+      Pick<ToolManifestEntry, 'name' | 'args' | 'group' | 'readOnlyHint'>
+    > = [
+      {
+        name: 'list_docs',
+        args: 'list_docs(memex?, docType?, statusIn?, tags?)',
+        group: 'read',
+        readOnlyHint: true,
+      },
+      {
+        name: 'supersede_spec',
+        args: 'supersede_spec(ref, supersededBy, note?)',
+        group: 'planning',
+        readOnlyHint: false,
+      },
+      {
+        name: 'propose_standard_change',
+        args: 'propose_standard_change(operations, rationale?)',
+        group: 'build',
+        readOnlyHint: false,
+      },
+      {
+        name: 'accept_standard_change',
+        args: 'accept_standard_change(ref)',
+        group: 'build',
+        readOnlyHint: false,
+      },
+      {
+        name: 'update_ac',
+        args: 'update_ac(ref, statement)',
+        group: 'build',
+        readOnlyHint: false,
+      },
+    ];
+
+    for (const pin of PINNED) {
+      const entry = toolManifest.find((e) => e.name === pin.name);
+      expect(entry, `manifest entry "${pin.name}" is missing`).toBeDefined();
+      expect({
+        name: entry!.name,
+        args: entry!.args,
+        group: entry!.group,
+        readOnlyHint: entry!.readOnlyHint,
+      }).toEqual(pin);
+    }
+  });
+});
