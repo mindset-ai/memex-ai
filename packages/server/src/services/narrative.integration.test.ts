@@ -203,6 +203,46 @@ describe("assessNarrativeFreshness", () => {
     ).toBe(false);
   });
 
+  // spec-569 M3 (review round 1): the MIXED case. The fact sheet's per-criterion
+  // sentence only fires when nothing else moved, so when a decision moves too
+  // the agent reads "1 criterion touched (0 changed meaning)" and is told
+  // nothing about WHICH. `changedAcs` has to carry the handle regardless —
+  // the assess_spec handler renders it from there.
+  it("carries the moved criterion's handle even when a decision moved too", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-569/acs/ac-9");
+
+    const spec = await createDocDraft(memexId, "Mixed", "Purpose", "spec");
+    createdDocIds.push(spec.id);
+    const ac = await createAc({
+      memexId,
+      briefId: spec.id,
+      kind: "implementation",
+      statement: "One row per invoice.",
+    });
+    const dec = await createDecision(memexId, spec.id, "Something to resolve");
+
+    await markNarrativeConsolidated(memexId, spec.id);
+    await new Promise((r) => setTimeout(r, 5));
+
+    // BOTH move: a decision resolves and the criterion takes a routine write.
+    await resolveDecision(memexId, dec.id, "Resolved after consolidation");
+    await setAcAcceptance(memexId, ac.id, "a reviewer", { channel: "rest_ui" });
+
+    const result = await assessNarrativeFreshness(memexId, spec.id);
+
+    // Vacuity guard: the mixed case is really mixed, or this tests nothing.
+    expect(result.changedDecisions).toHaveLength(1);
+
+    expect(result.changedAcs).toHaveLength(1);
+    expect(result.changedAcs[0].handle).toBe(`ac-${ac.seq}`);
+    expect(result.changedAcs[0].meaningChanged).toBe(false);
+
+    // The narrative-verdict sentence is silent here (a decision moved), so the
+    // handle is reachable ONLY through changedAcs.
+    expect(result.factSheet).not.toMatch(/Criteria whose meaning changed/);
+    expect(result.factSheet).not.toMatch(/none changed meaning/);
+  });
+
   it("lists a superseded criterion as meaning-changed and says so", async () => {
     tagAc("mindset-prod/memex-building-itself/specs/spec-569/acs/ac-9");
 
@@ -235,7 +275,13 @@ describe("assessNarrativeFreshness", () => {
     const superseded = result.changedAcs.find((a) => a.status === "superseded");
     expect(superseded).toBeDefined();
     expect(superseded!.meaningChanged).toBe(true);
-    expect(result.factSheet).toMatch(/changed meaning/);
+
+    // NOT /changed meaning/ — the count line emits "(N changed meaning)"
+    // unconditionally, so that regex matches the FRESH sheet too and the
+    // assertion could not fail. Caught by deleting the sentence arm and
+    // watching this file stay 11/11 green. Anchor on the sentence itself.
+    expect(result.factSheet).toMatch(/Criteria whose meaning changed/);
+    expect(result.factSheet).toMatch(/false by construction/);
     expect(result.factSheet).not.toMatch(/Narrative is fresh/);
   });
 });

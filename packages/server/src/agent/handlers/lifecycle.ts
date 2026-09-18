@@ -159,6 +159,19 @@ export const lifecycleTools: ToolSpec[] = [
             );
           }
         }
+        // spec-569: without this block `changedAcs` is true of the object and
+        // invisible on the surface. The fact-sheet line names every moved
+        // criterion only when nothing else moved; in the mixed case — a
+        // decision resolved AND a routine AC write — the agent was told
+        // "1 criterion touched (0 changed meaning)" and never which one.
+        if (result.changedAcs.length > 0) {
+          lines.push("", "Changed criteria:");
+          for (const a of result.changedAcs) {
+            lines.push(
+              `- ${a.handle} (status=${a.status}${a.meaningChanged ? ", MEANING CHANGED — prose describing it is false by construction" : ""}) — updated ${a.updatedAt.toISOString()}`,
+            );
+          }
+        }
         return lines.join("\n");
       }
       if (mode === "comments") {

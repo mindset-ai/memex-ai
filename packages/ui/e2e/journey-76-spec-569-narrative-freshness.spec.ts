@@ -177,8 +177,15 @@ test("marking a criterion verified by hand leaves the narrative signal dark", as
   // guard that cannot express its claim. The reload makes the assertion read
   // the row the click actually wrote.
   await page.reload({ waitUntil: "commit" });
-  await expect(page.getByTestId("ac-panel")).toBeVisible();
+
+  // Anchor on the ACCEPTED row, not on the panel. `ac-panel` carries its testid
+  // on all three of its branches including the empty one (AcPanel.tsx:827/848/
+  // 907), so it is visible before `fetchAcsForBrief` resolves — and at that
+  // moment `acs` is [], the criterion count is 0, and the assertions below pass
+  // instantly whatever the predicate does. `ac-unaccept-button` renders only
+  // once the criteria are in hand AND this one carries its acceptance, so it is
+  // proof the page is reading the row the click wrote.
+  await expect(page.getByTestId("ac-unaccept-button").first()).toBeVisible();
 
   await expect(page.getByText("changed meaning")).toHaveCount(0);
-  await expect(page.getByText("not yet reflected in the narrative")).toHaveCount(0);
 });

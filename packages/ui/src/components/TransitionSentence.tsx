@@ -169,12 +169,23 @@ function blockerFragments(p: {
   // draft → specify and done have no rubric gate.
   // spec-569 dec-2 (b) — the criterion path, outside the phase chain above on
   // purpose. Guarded against the decision fragment rather than added blindly:
-  // `renderBlockers` keys its groups by `rest`, so two fragments sharing the
-  // `em` "The spec narrative" would both read oddly AND collide on React keys.
-  // When the decision path has already spoken, it already says the prose is
-  // behind; one blocker is the honest count.
+  // the sentence would name "The spec narrative" twice with two different
+  // requirements, and one blocker is the honest count once the decision path
+  // has already said the prose is behind.
+  //
+  // (An earlier version of this comment claimed the two would also collide on
+  // React keys. They would not — `renderBlockers` keys groups by `rest`, and
+  // the two fragments carry different `rest`. Corrected in review; the reading
+  // problem above is the whole reason.)
   if (
     p.staleCriterionCount > 0 &&
+    // Not in `draft` (private authoring — nobody else is reading the prose yet)
+    // and not in `done` (read-only; a closed Spec has nothing to update). Same
+    // posture RefreshSpecButton documents for the decision path, arrived at
+    // independently: "any phase" in dec-2 (b) meant "not gated on `specify`",
+    // never "including the two phases where the affordance is meaningless".
+    p.currentPhase !== 'draft' &&
+    p.currentPhase !== 'done' &&
     !parts.some((part) => part.em === 'The spec narrative')
   ) {
     parts.push({

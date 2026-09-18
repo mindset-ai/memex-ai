@@ -105,6 +105,23 @@ describe('spec-569 dec-2(b) — criteria get their own staleness path (ac-10)', 
     expect(text()).toContain('criterion that changed meaning');
   });
 
+  it('stays out of `draft` and `done` — private authoring and a closed Spec', () => {
+    tagAc(AC(10));
+    for (const phase of ['draft', 'done'] as const) {
+      const { unmount } = render(
+        <TransitionSentence
+          {...props({
+            currentPhase: phase,
+            viewedTab: phase,
+            staleCriterionCount: 1,
+          })}
+        />,
+      );
+      expect(text()).not.toContain('changed meaning');
+      unmount();
+    }
+  });
+
   it('does not double up when both a decision and a criterion are unreflected', () => {
     tagAc(AC(10));
     render(
@@ -112,8 +129,8 @@ describe('spec-569 dec-2(b) — criteria get their own staleness path (ac-10)', 
         {...props({ narrativeStale: true, staleCriterionCount: 1 })}
       />,
     );
-    // One narrative blocker, not two — `renderBlockers` keys groups by `rest`,
-    // so two fragments sharing an `em` would also collide on React keys.
+    // One narrative blocker, not two: the sentence would otherwise name "The
+    // spec narrative" twice with two different requirements.
     const occurrences = text().split('The spec narrative').length - 1;
     expect(occurrences).toBe(1);
   });
