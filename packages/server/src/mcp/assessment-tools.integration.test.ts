@@ -25,6 +25,13 @@ import {
 } from "../db/schema.js";
 import { createMcpServer } from "./tools.js";
 import { createDocDraft } from "../services/documents.js";
+import { createAc, setAcAcceptance } from "../services/acs.js";
+import { createDecision, resolveDecision } from "../services/decisions.js";
+import { markNarrativeConsolidated } from "../services/narrative.js";
+import {
+  proposeAcSupersession,
+  acceptAcSupersession,
+} from "../services/ac-supersession.js";
 import { _clearRecentAssessments } from "../services/phase-assessment.js";
 import {
   createOrgScaffoldAddition,
@@ -362,6 +369,75 @@ describe("Assessment MCP tools (post-doc-14)", () => {
       // Fact sheet shape from services/narrative.ts — should mention
       // "consolidated" or similar; we just assert non-empty.
       expect(result.content[0].text.length).toBeGreaterThan(0);
+    });
+
+    // spec-569 R2-2 (review round 2): the fact sheet's per-criterion sentence
+    // only fires when nothing ELSE moved, so `changedAcs` reaching a person
+    // depends entirely on this handler's "Changed criteria:" block — and
+    // nothing pinned it. Deleting the block left 38/38 green, which is the same
+    // "true of the object, unpinned on the surface" defect this Spec exists to
+    // close, committed by this Spec's own fix.
+    it("renders Changed criteria: with the handle and the meaning-changed flag", async () => {
+      tagAc("mindset-prod/memex-building-itself/specs/spec-569/acs/ac-9");
+
+      const m = await createDocDraft(actor.account.id, "NarrCriteria", "P", "spec");
+      created.docs.push(m.id);
+      const ac = await createAc({
+        memexId: actor.account.id,
+        briefId: m.id,
+        kind: "implementation",
+        statement: "One row per invoice.",
+      });
+      const dec = await createDecision(actor.account.id, m.id, "Supersede under this");
+
+      await markNarrativeConsolidated(actor.account.id, m.id);
+      await new Promise((r) => setTimeout(r, 5));
+
+      const proposed = await proposeAcSupersession(
+        {
+          memexId: actor.account.id,
+          acId: ac.id,
+          decisionId: dec.id,
+          proposedStatement: "One row per invoice LINE ITEM.",
+        },
+        { channel: "mcp" },
+      );
+      await acceptAcSupersession(actor.account.id, proposed.comment.id, { channel: "mcp" });
+      await resolveDecision(actor.account.id, dec.id, "Resolved after consolidation");
+
+      // A SECOND criterion taking a routine write. This is the row the fact
+      // sheet can never name: its sentence only lists MEANING-CHANGED criteria,
+      // so `quiet` appears in the count ("N criteria touched") and nowhere else.
+      // The handler block is its only path to a reader.
+      const quiet = await createAc({
+        memexId: actor.account.id,
+        briefId: m.id,
+        kind: "implementation",
+        statement: "Totals reconcile to the ledger.",
+      });
+      await setAcAcceptance(actor.account.id, quiet.id, "a reviewer", { channel: "rest_ui" });
+
+      const result = await callTool(actor.user.id, "assess_spec", {
+        ref: refFor(actor, m),
+        mode: "narrative",
+      });
+      expect(result.isError).toBeFalsy();
+      const text = result.content[0].text as string;
+
+      expect(text).toContain("Changed criteria:");
+      expect(text).toContain("Changed decisions:");
+
+      // The meaning-changed row, which the fact-sheet sentence also names.
+      expect(text).toContain(`ac-${ac.seq}`);
+      expect(text).toContain("MEANING CHANGED");
+
+      // The row that ONLY this block can reach. Correcting round 2's framing
+      // (and my own round-1 comment): the fact-sheet sentence DOES fire in the
+      // mixed case — it lists meaning-changed criteria whenever any exist. What
+      // it can never name is a criterion that moved WITHOUT changing meaning,
+      // because it only enumerates the meaning-changed ones.
+      expect(text).toContain(`ac-${quiet.seq}`);
+      expect(text).toMatch(new RegExp(`ac-${quiet.seq} \\(status=active\\)`));
     });
 
     it("refuses non-Spec docs", async () => {

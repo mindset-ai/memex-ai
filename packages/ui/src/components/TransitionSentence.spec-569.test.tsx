@@ -107,12 +107,19 @@ describe('spec-569 dec-2(b) — criteria get their own staleness path (ac-10)', 
 
   it('stays out of `draft` and `done` — private authoring and a closed Spec', () => {
     tagAc(AC(10));
+    // `viewedTab` must be a FORWARD tab, not the current phase. With
+    // viewedTab === currentPhase the component returns null before the guard is
+    // ever consulted (draft falls through to `if (!canTransition) return null`;
+    // done exits at `if (!target) return null` because nextPhase('done') is
+    // null), so both iterations would assert that '' lacks a substring — true
+    // for any implementation. Caught in review by deleting the guard and
+    // watching this file stay 8/8 green.
     for (const phase of ['draft', 'done'] as const) {
       const { unmount } = render(
         <TransitionSentence
           {...props({
             currentPhase: phase,
-            viewedTab: phase,
+            viewedTab: 'build',
             staleCriterionCount: 1,
           })}
         />,

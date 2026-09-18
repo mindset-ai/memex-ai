@@ -177,13 +177,14 @@ function blockerFragments(p: {
   // React keys. They would not — `renderBlockers` keys groups by `rest`, and
   // the two fragments carry different `rest`. Corrected in review; the reading
   // problem above is the whole reason.)
+  //
+  // Excluded: `draft` (private authoring — nobody else is reading the prose
+  // yet) and `done` (read-only; a closed Spec has nothing to update). Same
+  // posture RefreshSpecButton documents for the decision path, arrived at
+  // independently: "any phase" in dec-2 (b) meant "not gated on `specify`",
+  // never "including the two phases where the affordance is meaningless".
   if (
     p.staleCriterionCount > 0 &&
-    // Not in `draft` (private authoring — nobody else is reading the prose yet)
-    // and not in `done` (read-only; a closed Spec has nothing to update). Same
-    // posture RefreshSpecButton documents for the decision path, arrived at
-    // independently: "any phase" in dec-2 (b) meant "not gated on `specify`",
-    // never "including the two phases where the affordance is meaningless".
     p.currentPhase !== 'draft' &&
     p.currentPhase !== 'done' &&
     !parts.some((part) => part.em === 'The spec narrative')
