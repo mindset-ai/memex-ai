@@ -171,6 +171,91 @@ export function needsPgPassword({ env, runPsql }) {
   }
 }
 
+
+/** The notice a bypassed run carries. Exported and pure so ac-16 is asserted on
+ *  the words rather than on whatever else this machine's preflight happens to
+ *  find. Printed on BOTH paths — a run that was bypassed AND tripped some other
+ *  check must still say it was bypassed, or the loudness bound only holds on the
+ *  happy path, which is the half that needed it least. */
+export function describeCapabilityBypass(names) {
+  return (
+    `⚠ THE CAPABILITY PROBE WAS BYPASSED — ${names.join(", ")} is set, so nothing\n` +
+    `  checked whether this Postgres can replay the migrations. If the run dies\n` +
+    `  inside a migration, that is why. This run is NOT a clean preflight.\n` +
+    `  Unset it to restore the check.\n`
+  );
+}
+
+/** The ONE escape hatch, and it is deliberately narrow (spec-524 dec-3, ac-15).
+ *  It disarms the capability probe and nothing else. There is no variable that
+ *  turns the preflight off as a whole: a blanket switch would hand anyone working
+ *  around one mistaken probe the power to disarm four unrelated guards, and the
+ *  hatch exists only because a wrong probe on a required check blocks everybody.
+ *  CI never sets it (ac-17) — if it appears in a workflow that is a defect. */
+export const PG_CAPABILITY_BYPASS = "E2E_SKIP_PG_CAPABILITY_CHECK";
+
+/** One round trip for the three facts. Exported so a test can assert the port
+ *  comes from `inet_server_port()` — the SERVER's answer — rather than from a
+ *  value we recomputed out of the environment (ac-23, [per std-50]). */
+export const PG_CAPABILITY_QUERY =
+  "SELECT current_setting('server_version'), " +
+  "EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'vector'), " +
+  "COALESCE(inet_server_port()::text, '')";
+
+/** The refusal a developer reads. Pure and exported: the end-to-end behaviour
+ *  depends on what Postgres this machine happens to run (CI's 5432 IS capable),
+ *  so a test that shelled out would be red in CI and green here — machine-shaped,
+ *  not claim-shaped. ac-13 is about the WORDS, so the words are the unit. */
+export function describePgCapabilityFailure(verdict) {
+  return (
+    `The target Postgres cannot replay the migrations.\n` +
+    `  The connection landed on port ${verdict.port}, PostgreSQL ${verdict.version},\n` +
+    `  and \`vector\` is NOT in pg_available_extensions.\n` +
+    `  Consequence: packages/server/drizzle/0023_add_codebase_intelligence.sql\n` +
+    `  will fail with "could not open extension control file ... vector.control",\n` +
+    `  about nine minutes from now, naming no cause.\n\n` +
+    `  Fix: point the run at a pgvector-capable instance by declaring it once in\n` +
+    `  the repo-root .env (template: .env.example):\n` +
+    `      PGPORT=<port of your pgvector-capable Postgres>\n` +
+    `  Find one:  pg_lsclusters    (or: psql -p <port> -c "select 1 from pg_available_extensions where name='vector'")\n` +
+    `  Check: ${SELF}`
+  );
+}
+
+/** Can the target Postgres replay the migrations?
+ *
+ *  spec-524 ac-12/ac-13/ac-23. The failure this closes: `make e2e-cold` replays
+ *  drizzle/*.sql into the template and dies inside 0023_add_codebase_intelligence
+ *  with `could not open extension control file .../vector.control` — nine minutes
+ *  in, naming no cause. The capability is knowable in milliseconds beforehand.
+ *
+ *  Deliberately checks ONE thing: is `vector` available. NOT a server-version
+ *  floor, even though an earlier draft of ac-12 asked for one. pgvector runs on
+ *  Postgres 14 perfectly well; the observed defect is an extension that is not
+ *  INSTALLED for that cluster, which is orthogonal to the version. Refusing on a
+ *  version we cannot read a requirement for would be inventing a constraint
+ *  [per std-50], and on a required check a wrong refusal blocks every PR.
+ *  The version is carried anyway, as diagnosis.
+ *
+ *  Pure: takes the probe's reading, returns a verdict. `examined: false` when the
+ *  probe learned nothing — an unexamined check must never count as a passed one. */
+export function classifyPgCapability(reading) {
+  if (!reading || reading.unreachable) {
+    return { ok: true, examined: false, why: reading?.why ?? "no reading" };
+  }
+  if (reading.vectorAvailable) return { ok: true, examined: true };
+  return {
+    ok: false,
+    examined: true,
+    version: reading.version,
+    // ac-23: the port is what the SERVER said, via inet_server_port(), not a
+    // value recomputed from the environment. Where a variable and reality
+    // disagree, reality is what prints. NULL over a unix socket, so say so in
+    // words rather than rendering a blank.
+    port: reading.port ?? "unix socket",
+  };
+}
+
 // ── Real probes ──────────────────────────────────────────────────────────────
 
 async function httpHealth(port) {
@@ -196,11 +281,51 @@ async function httpHealth(port) {
   }
 }
 
+
+// One round trip, three facts: whether `vector` can be installed, what server we
+// actually reached, and — ac-23 — which port the SERVER says we landed on. The
+// port is read from the connection rather than recomputed from PGPORT so that a
+// variable disagreeing with reality prints reality. `inet_server_port()` is NULL
+// over a unix socket; the classifier turns that into words, not a blank.
+//
+// Connects to the `postgres` maintenance database: the e2e database and its
+// template do not exist yet at preflight time, which is the whole point of
+// asking before the run rather than during it.
+function probePgCapability(cfg) {
+  const url = new URL(cfg.databaseUrl);
+  url.pathname = "/postgres";
+  try {
+    const out = execFileSync(
+      "psql",
+      [
+        url.toString(),
+        "-At",
+        "-c",
+        PG_CAPABILITY_QUERY,
+      ],
+      { stdio: ["ignore", "pipe", "pipe"], timeout: 5000, encoding: "utf8" },
+    );
+    const [version, vector, port] = out.trim().split("|");
+    return {
+      version,
+      vectorAvailable: vector === "t",
+      port: port || null,
+    };
+  } catch (err) {
+    // psql absent, Postgres down, wrong credentials — we learned NOTHING about
+    // capability, so this must read as unexamined rather than as a pass. The
+    // pg-password check ahead of us already speaks for the credential case.
+    const text = `${err?.stderr ?? ""}${err?.message ?? ""}`;
+    return { unreachable: true, why: text.trim().split("\n")[0] };
+  }
+}
+
 // ── Checks ───────────────────────────────────────────────────────────────────
 
 const failures = [];
 const warnings = [];
 const skipped = [];
+const bypassed = [];
 let checksRun = 0;
 
 function fail(message) {
@@ -362,6 +487,33 @@ function checkEmissionTarget() {
 
 // ── Entrypoint ───────────────────────────────────────────────────────────────
 
+
+// spec-524 dec-3. The preflight's four original checks all asked "is something
+// else in the way?". None asked the question that actually kills the run: can
+// this Postgres run our migrations at all? dec-2 made the server configurable,
+// not correct — a PGPORT aimed at a cluster without pgvector still dies in 0023,
+// just more tidily — so this check is now the only thing between a developer and
+// nine minutes of run that cannot mean anything.
+async function checkPgCapability(cfg) {
+  if (process.env[PG_CAPABILITY_BYPASS]) {
+    // ac-16: a bypassed run must not be able to read as a clean one. The same
+    // principle the gate applies to a meaningless test run, applied to the hatch.
+    bypassed.push(PG_CAPABILITY_BYPASS);
+    return;
+  }
+  const reading = probePgCapability(cfg);
+  const verdict = classifyPgCapability(reading);
+
+  if (!verdict.examined) {
+    skipped.push(`postgres capability (${verdict.why})`);
+    return;
+  }
+  checksRun++;
+  if (verdict.ok) return;
+
+  fail(describePgCapabilityFailure(verdict));
+}
+
 async function main() {
   const repoRoot = process.env.MEMEX_WORKSPACE_ROOT ?? process.cwd();
   const cfg = resolveE2eConfig(process.env, repoRoot);
@@ -370,6 +522,7 @@ async function main() {
     await checkPortOwnership(cfg, target);
   }
   checkPgPassword();
+  await checkPgCapability(cfg);
   checkSharedBuild(repoRoot);
   checkEmissionTarget();
 
@@ -388,6 +541,9 @@ async function main() {
   // Skips are stated, never swallowed — an unexamined check is not a passed one.
   for (const s of skipped) process.stdout.write(`⚠ check SKIPPED (examined nothing): ${s}\n`);
 
+  // Before ANY verdict, clean or not: a bypassed run says so.
+  if (bypassed.length > 0) process.stdout.write(describeCapabilityBypass(bypassed));
+
   if (failures.length > 0) {
     process.stderr.write(`\n${failures.join("\n\n")}\n\n`);
     process.stderr.write(
@@ -398,7 +554,7 @@ async function main() {
   }
 
   process.stdout.write(
-    `✓ e2e preflight passed (${checksRun} checks` +
+    `${bypassed.length > 0 ? "⚠" : "✓"} e2e preflight passed (${checksRun} checks` +
       `${skipped.length ? `, ${skipped.length} skipped` : ""}) — ` +
       `workspace ${cfg.workspaceId}, api:${cfg.apiPort} ui:${cfg.uiPort} db:${cfg.databaseName}\n`,
   );

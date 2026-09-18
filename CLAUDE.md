@@ -93,7 +93,14 @@ Ports and e2e database names are **derived per workspace** from a hash of its pa
 port — run `make dev` and read the ones it prints, or `node scripts/ci/workspace-alloc.mjs --all`.
 Prove isolation with `make prove-concurrent`.
 
-Local Postgres connection string: `postgresql://postgres:postgres@localhost:5432/memex` (full local-dev posture lives in std-9 §9).
+Which local Postgres the test tiers talk to is **declared once**, in the repo-root `.env`
+(template: `.env.example`) — `PGHOST` / `PGPORT` / `PGPASSWORD`, read by the allocator, the
+server vitest tier and the Makefile's `psql`/`dropdb`/`createdb` calls alike. Leave the host and
+port blank if yours is the default; set them if it is not. The e2e template replays migrations
+needing the `vector` extension, so the instance must be pgvector-capable — `make e2e-cold`
+refuses up front, naming the port it reached, when it is not. Do NOT put these in a shell
+profile: here they are scoped to this repo, in `~/.zshrc` they would steer every `psql` you run.
+Full local-dev posture lives in std-9 §9.
 
 ## Repository shape
 
