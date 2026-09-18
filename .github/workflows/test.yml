@@ -451,6 +451,13 @@ jobs:
   # the PRs it skips, and once registered as a required context that wedges
   # every such PR under `enforce_admins` with no bypass. That is why
   # db-schema-drift is in neither branch-protection list.
+  # Actions are pinned to full commit SHAs in these two jobs and nowhere else in
+  # this file. That is deliberate, not an oversight to tidy away: the `semgrep`
+  # required check runs as a DIFF scan, so its github-actions-mutable-action-tag
+  # rule blocks new `@v7`-style references while the twelve older jobs above keep
+  # theirs — nobody has touched those lines since the scan's baseline. Unpinning
+  # these to match the neighbours turns a required check red. Pinning the rest is
+  # a separate change (spec-570 issue-2).
   shared:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -463,9 +470,9 @@ jobs:
       # no bogus unauthenticated emission is attempted (mirrors ac-emit).
       MEMEX_EMIT: ${{ github.actor == 'dependabot[bot]' && 'false' || '' }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 22
           cache: pnpm
@@ -481,9 +488,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 22
           cache: pnpm
