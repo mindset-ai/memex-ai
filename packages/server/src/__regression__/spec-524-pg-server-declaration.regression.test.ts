@@ -236,8 +236,13 @@ describe("spec-524: the preflight refuses a Postgres that cannot replay the migr
   // machine rather than the claim, and would be red in exactly one of the two
   // places. The live behaviour is recorded as evidence on t-4 instead.
 
-  it("an incapable target is refused; a capable one is admitted (ac-12, ac-14)", () => {
-    tagAc(AC(12));
+  // Retagged 12 -> 24 (2026-09-18). dec-3's criterion was superseded when the
+  // version clause came out: pgvector runs on Postgres 14, so a version floor was
+  // the wrong predicate. The supersession minted ac-24 and left these tests
+  // pointing at the retired handle — green, passing, and proving a criterion that
+  // no longer governs, while the one that does had no evidence at all.
+  it("an incapable target is refused; a capable one is admitted (ac-24, ac-14)", () => {
+    tagAc(AC(24));
     tagAc(AC(14));
     expect(
       classifyPgCapability({ vectorAvailable: true, version: "16.14", port: "5433" }),
@@ -255,8 +260,8 @@ describe("spec-524: the preflight refuses a Postgres that cannot replay the migr
     expect(refused.version).toBe("14.20");
   });
 
-  it("a probe that learned nothing is SKIPPED, never counted as a pass (ac-12)", () => {
-    tagAc(AC(12));
+  it("a probe that learned nothing is SKIPPED, never counted as a pass (ac-24)", () => {
+    tagAc(AC(24));
     // psql absent, Postgres down, bad credentials — the check examined nothing.
     // Counting that as passed is how a preflight reports a clean bill of health
     // it never earned, which is the shape of defect this whole Spec is about.
