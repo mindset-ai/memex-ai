@@ -65,6 +65,25 @@ export default defineConfig({
           // bypass; otherwise packages/server/.env would leak into the test run and every
           // request would 401 without a real Google token.
           //
+          // DEV_USER_EMAIL is unset for the SAME reason, and its absence cost five
+          // weeks (spec-568). The bypass resolves the caller from it, so a developer
+          // whose packages/server/.env names their own address had every journey's
+          // API call authenticated as a person the seeded tenants grant nothing to.
+          // canReadMemex then returns false and [per std-7] that surfaces as 404, not
+          // 403 — indistinguishable from a missing resource. Fourteen journeys failed
+          // locally and passed in CI for exactly this, because CI has no .env at all.
+          // The list above is the mechanism for refusing that leak; this variable was
+          // simply never added to it.
+          //
+          // It is pinned to the value the suite wants, NOT to "". The two variables
+          // are read differently and the difference is load-bearing:
+          //   session.ts:117  const missingClientId = !process.env.GOOGLE_CLIENT_ID;
+          //   session.ts:65   process.env.DEV_USER_EMAIL ?? "dev@memex.ai"
+          // `!` treats "" as absent, so GOOGLE_CLIENT_ID="" works. `??` does not —
+          // "" is a value, so DEV_USER_EMAIL="" makes the bypass resolve an EMPTY
+          // address: a third wrong principal rather than the default. That was tried
+          // and the suite stayed red. Say what you mean.
+          //
           // NOTE: Stop any locally-running `make dev` before running E2E — a reused server
           // that has GOOGLE_CLIENT_ID set (from .env) will render the LoginScreen instead of
           // the dev-user auto-bootstrap the tests depend on.
@@ -106,7 +125,7 @@ export default defineConfig({
           // slug — which breaks CI retries, since seed-org is not idempotent —
           // or a test endpoint that mutates server env, which is worse than the
           // coverage it buys.
-          command: `COST_PANEL_MEMEXES="*" GOOGLE_CLIENT_ID="" MEMEX_ANTHROPIC_FAKE=1 JOURNEY_PREVIEW_DOMAINS="memex.ai" APP_BASE_URL="http://localhost:${SERVER_PORT}" SLACK_TOKEN_ENCRYPTION="${process.env.SLACK_TOKEN_ENCRYPTION ?? "plaintext"}" DATABASE_URL="${DATABASE_URL}" MEMEX_WORKSPACE_ID="${process.env.MEMEX_WORKSPACE_ID ?? ""}" PORT=${SERVER_PORT} pnpm --filter @memex/server dev`,
+          command: `COST_PANEL_MEMEXES="*" GOOGLE_CLIENT_ID="" DEV_USER_EMAIL="dev@memex.ai" MEMEX_ANTHROPIC_FAKE=1 JOURNEY_PREVIEW_DOMAINS="memex.ai" APP_BASE_URL="http://localhost:${SERVER_PORT}" SLACK_TOKEN_ENCRYPTION="${process.env.SLACK_TOKEN_ENCRYPTION ?? "plaintext"}" DATABASE_URL="${DATABASE_URL}" MEMEX_WORKSPACE_ID="${process.env.MEMEX_WORKSPACE_ID ?? ""}" PORT=${SERVER_PORT} pnpm --filter @memex/server dev`,
           url: `http://localhost:${SERVER_PORT}/api/health`,
           reuseExistingServer: !process.env.CI,
           timeout: 60_000,
