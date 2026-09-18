@@ -28,6 +28,7 @@ import type { DocWithGraph } from '../api/types';
 
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-196/acs/ac-${n}`;
 const AC233 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-233/acs/ac-${n}`;
+const AC569 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-569/acs/ac-${n}`;
 
 // ── Heavy children → identity markers (same trim as the spec-159 suite) ─────
 vi.mock('../components/DecisionPanel', () => ({
@@ -193,6 +194,63 @@ describe('spec-233 t-1 — prose sub-tab reads "Narrative", id stays narrative',
     expect(screen.getByTestId('section-card')).toBeInTheDocument();
   });
 
+  // ── spec-569 t-7 ──────────────────────────────────────────────────────────
+  //
+  // spec-569 t-2 widened `isSpecNarrativeStale` to count meaning-changed
+  // criteria. The page then fed that MIXED boolean to the decision fragment,
+  // whose copy — pinned verbatim by spec-196 ac-10 — says "to reflect the
+  // resolved decisions". A superseded criterion rendered a sentence naming an
+  // input that had not moved: exactly what spec-569 ac-4 forbids.
+  //
+  // The fix is NOT to rewrite spec-196's approved copy (that would make its
+  // ac-10 false, and updating its test to match would turn a criterion green
+  // while its statement lied — this Spec's own defect). The fix is to give the
+  // decision fragment back its decisions-only input. Criteria get their own
+  // fragment in t-8, per dec-2 (b).
+  it('a superseded criterion does not fire the DECISION sentence (spec-569 ac-4, ac-11)', async () => {
+    tagAc(AC569(4));
+    tagAc(AC569(11));
+
+    // Every gate on the decision fragment is OPEN except staleness itself:
+    // phase is specify, a decision exists, and it is resolved. So if the
+    // sentence appears, the criterion is the only thing that could have
+    // summoned it.
+    docDecisions = [resolvedDecision('d-1', '2026-06-01T00:00:00Z')];
+    docNarrativeConsolidatedAt = '2026-06-02T00:00:00Z';
+    docAcs = [
+      {
+        ac: { id: 'ac-1', status: 'superseded', updatedAt: '2026-06-05T00:00:00Z' },
+        verificationState: 'verified',
+      },
+    ];
+
+    renderAt();
+    const sentence = await screen.findByTestId('transition-sentence');
+    await waitFor(() => expect(sentence.textContent).not.toContain('Do you wish'));
+    expect(sentence.textContent).not.toContain('reflect the resolved decisions');
+  });
+
+  it('POSITIVE CONTROL: a stale DECISION still fires it, unchanged (spec-569 ac-11)', async () => {
+    tagAc(AC569(11));
+
+    // The same harness, the same anchor, the same criterion — only the decision
+    // moves. Without this, the assertion above could pass because the sentence
+    // never renders in this fixture at all, which would prove nothing.
+    docDecisions = [resolvedDecision('d-1', '2026-06-05T00:00:00Z')];
+    docNarrativeConsolidatedAt = '2026-06-02T00:00:00Z';
+    docAcs = [
+      {
+        ac: { id: 'ac-1', status: 'superseded', updatedAt: '2026-06-05T00:00:00Z' },
+        verificationState: 'verified',
+      },
+    ];
+
+    renderAt();
+    const sentence = await screen.findByTestId('transition-sentence');
+    await waitFor(() =>
+      expect(sentence.textContent).toContain('reflect the resolved decisions'),
+    );
+  });
   it('stale narrative threads from the doc payload to the Rubicon; consolidation clears it (ac-9)', async () => {
     tagAc(AC(9));
     // A resolved decision NEWER than the consolidation timestamp → stale.

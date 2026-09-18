@@ -40,6 +40,7 @@ import { useSwitchPosture } from '../hooks/useSwitchPosture';
 import { PostureDropdown, HEADER_PILL_CLASS } from '../components/PostureDropdown';
 import {
   countUnresolvedDecisions,
+  countStaleAcs,
   isSpecNarrativeStale,
   HANDOFF_BUTTON_BY_PHASE,
   isQaReportSectionType,
@@ -742,13 +743,40 @@ export function DocDocument() {
   // Same shared signal the refresh affordances key on — any decision modified
   // after `narrativeLastConsolidatedAt` means the prose hasn't caught up with
   // the decisions graph yet.
-  const narrativeStale = isSpecNarrativeStale(
+  // spec-569 t-7: DECISIONS ONLY, deliberately. This value feeds the fragment
+  // whose copy spec-196 ac-10 pins verbatim — "must be updated to reflect the
+  // resolved decisions". t-2 widened the shared predicate to count
+  // meaning-changed criteria, and passing that mixed boolean here made the
+  // sentence name an input that had not moved, which spec-569 ac-4 forbids.
+  //
+  // The answer is not to rewrite spec-196's approved copy: that would make its
+  // ac-10 false, and editing its test to match would turn a criterion green
+  // while its statement lied — this Spec's own defect, committed by this Spec.
+  // So the decision path keeps its decisions-only input and its exact wording,
+  // and criteria get their OWN fragment (dec-2 option b, t-8). The empty array
+  // is a statement, not a default: no criterion may reach this sentence.
+  const narrativeStaleFromDecisions = isSpecNarrativeStale(
     doc.narrativeLastConsolidatedAt ?? null,
     decs.map((d) => ({
       id: d.id,
       createdAt: d.createdAt,
       resolvedAt: d.resolvedAt,
       status: d.status,
+    })),
+    [],
+  );
+
+  // spec-569 dec-2 (b) — the criterion path. Separate from the value above by
+  // design: this one crosses every phase, because a superseded criterion will
+  // not move again and spec-196 dec-2's "consolidating would be premature"
+  // reasoning does not reach it. Already in hand — `acs` is fetched on mount
+  // for the AC panel — so this costs no extra request.
+  const staleCriterionCount = countStaleAcs(
+    doc.narrativeLastConsolidatedAt ?? null,
+    acs.map((a) => ({
+      id: a.ac.id,
+      status: a.ac.status,
+      updatedAt: a.ac.updatedAt,
     })),
   );
 
@@ -804,7 +832,8 @@ export function DocDocument() {
   // axis — but only once every decision is resolved (consolidating while
   // decisions are still open would be premature; the prose chases a moving
   // target). Mirrors the Rubicon line's fragment + how-to tail (dec-3 copy).
-  const planNarrativeStale = decs.length > 0 && openDecisionCount === 0 && narrativeStale;
+  const planNarrativeStale =
+    decs.length > 0 && openDecisionCount === 0 && narrativeStaleFromDecisions;
   const planDirective = directiveLine(
     phase === 'specify'
       ? [
@@ -1343,7 +1372,8 @@ export function DocDocument() {
               totalTaskCount={ts.length}
               openTaskCount={openTaskCount}
               unverifiedAcCount={unverifiedAcCount}
-              narrativeStale={narrativeStale}
+              narrativeStale={narrativeStaleFromDecisions}
+              staleCriterionCount={staleCriterionCount}
               onTransitioned={() => {
                 // The view follows the move: clear the browsed-tab pin so
                 // `viewedTab` falls back to the (re-fetched) current phase's

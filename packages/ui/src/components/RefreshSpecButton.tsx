@@ -1,6 +1,9 @@
 import { useChat } from './ChatContext';
 import type { Decision, SpecStatus } from '../api/types';
-import { isSpecNarrativeStale as sharedIsSpecNarrativeStale } from '@memex/shared';
+import {
+  isSpecNarrativeStale as sharedIsSpecNarrativeStale,
+  type AcForReadiness,
+} from '@memex/shared';
 import { Button } from './ui';
 
 // doc-12 t-11: surfaces a "Refresh Spec" affordance on the Spec top bar
@@ -25,6 +28,8 @@ export interface RefreshSpecButtonProps {
   /** Server-side timestamp; null = never consolidated. */
   narrativeLastConsolidatedAt: string | null | undefined;
   decisions: Decision[];
+  /** spec-569 dec-1: criteria, keyed on status. Required, not defaulted. */
+  acs: AcForReadiness[];
 }
 
 // spec-196 dec-3: the approved consolidation prompt. Kept verbatim in sync
@@ -42,19 +47,21 @@ const REFRESH_PROMPT =
 export function isSpecNarrativeStale(
   narrativeLastConsolidatedAt: string | null | undefined,
   decisions: Decision[],
+  acs: AcForReadiness[],
 ): boolean {
-  return sharedIsSpecNarrativeStale(narrativeLastConsolidatedAt, decisions);
+  return sharedIsSpecNarrativeStale(narrativeLastConsolidatedAt, decisions, acs);
 }
 
 export function RefreshSpecButton({
   phase,
   narrativeLastConsolidatedAt,
   decisions,
+  acs,
 }: RefreshSpecButtonProps) {
   const chat = useChat();
 
   if (phase === 'draft' || phase === 'done') return null;
-  if (!isSpecNarrativeStale(narrativeLastConsolidatedAt, decisions)) return null;
+  if (!isSpecNarrativeStale(narrativeLastConsolidatedAt, decisions, acs)) return null;
 
   return (
     <Button

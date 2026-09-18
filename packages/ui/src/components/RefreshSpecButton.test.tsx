@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { tagAc } from '@memex-ai-ac/vitest';
-import { BASE_SCAFFOLD } from '@memex/shared';
+import { BASE_SCAFFOLD, type AcForReadiness } from '@memex/shared';
 import {
   RefreshSpecButton,
   isSpecNarrativeStale,
@@ -38,19 +38,19 @@ function makeDecision(over: Partial<Decision> = {}): Decision {
 
 describe('isSpecNarrativeStale', () => {
   it('false when there are no decisions (nothing to consolidate)', () => {
-    expect(isSpecNarrativeStale('2026-05-01T00:00:00.000Z', [])).toBe(false);
-    expect(isSpecNarrativeStale(null, [])).toBe(false);
+    expect(isSpecNarrativeStale('2026-05-01T00:00:00.000Z', [], [])).toBe(false);
+    expect(isSpecNarrativeStale(null, [], [])).toBe(false);
   });
 
   it('true when never consolidated and at least one decision exists', () => {
-    expect(isSpecNarrativeStale(null, [makeDecision()])).toBe(true);
-    expect(isSpecNarrativeStale(undefined, [makeDecision()])).toBe(true);
+    expect(isSpecNarrativeStale(null, [makeDecision()], [])).toBe(true);
+    expect(isSpecNarrativeStale(undefined, [makeDecision()], [])).toBe(true);
   });
 
   it('true when a decision was created after the consolidation timestamp', () => {
     const consolidatedAt = '2026-05-01T00:00:00.000Z';
     const dec = makeDecision({ createdAt: '2026-05-02T00:00:00.000Z' });
-    expect(isSpecNarrativeStale(consolidatedAt, [dec])).toBe(true);
+    expect(isSpecNarrativeStale(consolidatedAt, [dec], [])).toBe(true);
   });
 
   it('true when a decision was resolved after the consolidation timestamp', () => {
@@ -60,7 +60,7 @@ describe('isSpecNarrativeStale', () => {
       resolvedAt: '2026-05-02T00:00:00.000Z',
       status: 'resolved',
     });
-    expect(isSpecNarrativeStale(consolidatedAt, [dec])).toBe(true);
+    expect(isSpecNarrativeStale(consolidatedAt, [dec], [])).toBe(true);
   });
 
   it('false when every decision is older than the consolidation timestamp', () => {
@@ -73,7 +73,7 @@ describe('isSpecNarrativeStale', () => {
         status: 'resolved',
       }),
     ];
-    expect(isSpecNarrativeStale(consolidatedAt, decs)).toBe(false);
+    expect(isSpecNarrativeStale(consolidatedAt, decs, [])).toBe(false);
   });
 });
 
@@ -81,12 +81,17 @@ function renderRefresh(over: {
   phase?: SpecStatus;
   narrativeLastConsolidatedAt?: string | null;
   decisions?: Decision[];
+  // spec-569 dec-1: criteria are a third freshness input. Defaulted to none
+  // HERE, in the fixture, where "this case has no criteria" is a statement the
+  // test is making — not in the component, where it would be a silent default.
+  acs?: AcForReadiness[];
 } = {}) {
   return render(
     <RefreshSpecButton
       phase={over.phase ?? 'build'}
       narrativeLastConsolidatedAt={over.narrativeLastConsolidatedAt ?? null}
       decisions={over.decisions ?? [makeDecision()]}
+      acs={over.acs ?? []}
     />,
   );
 }
@@ -110,6 +115,7 @@ describe('RefreshSpecButton — visibility', () => {
     renderRefresh({
       phase: 'build',
       narrativeLastConsolidatedAt: '2026-05-10T00:00:00.000Z',
+      acs: [],
       decisions: [makeDecision({ createdAt: '2026-04-01T00:00:00.000Z' })],
     });
     expect(

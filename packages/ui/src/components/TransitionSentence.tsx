@@ -94,6 +94,17 @@ export interface TransitionSentenceProps {
    * offer: the prose must reflect the resolutions before build.
    */
   narrativeStale?: boolean;
+  /**
+   * spec-569 dec-2 (b): how many acceptance criteria have changed MEANING
+   * (superseded / rejected) since the last consolidation. Its own path,
+   * deliberately separate from `narrativeStale`: spec-196 dec-2 gated the
+   * decision blocker to `specify` with every decision resolved because an open
+   * decision is going to move again, so demanding the prose catch up now buys
+   * work that will be undone. A superseded criterion will not move again, so
+   * that reasoning does not reach it and this fires in ANY phase — including
+   * `build` and `verify`, which is where spec-524 actually happened.
+   */
+  staleCriterionCount?: number;
   /** Fired after a successful transition so the parent can refetch / re-render. */
   onTransitioned?: (newPhase: SpecStatus) => void;
   /** The browse-confirm's [No]: return the view to the current phase's tab. */
@@ -114,6 +125,7 @@ function blockerFragments(p: {
   openTaskCount: number;
   unverifiedAcCount: number;
   narrativeStale: boolean;
+  staleCriterionCount: number;
 }): BlockerPart[] {
   const parts: BlockerPart[] = [];
   if (p.currentPhase === 'specify') {
@@ -155,6 +167,45 @@ function blockerFragments(p: {
     }
   }
   // draft → specify and done have no rubric gate.
+  // spec-569 dec-2 (b) — the criterion path, outside the phase chain above on
+  // purpose. Guarded against the decision fragment rather than added blindly:
+  // the sentence would name "The spec narrative" twice with two different
+  // requirements, and one blocker is the honest count once the decision path
+  // has already said the prose is behind.
+  //
+  // (An earlier version of this comment claimed the two would also collide on
+  // React keys. They would not — `renderBlockers` keys groups by `rest`, and
+  // the two fragments carry different `rest`. Corrected in review; the reading
+  // problem above is the whole reason.)
+  //
+  // Excluded: `draft` (private authoring — nobody else is reading the prose
+  // yet) and `done` (read-only; a closed Spec has nothing to update). Same
+  // posture RefreshSpecButton documents for the decision path, arrived at
+  // independently: "any phase" in dec-2 (b) meant "not gated on `specify`",
+  // never "including the two phases where the affordance is meaningless".
+  //
+  // The `done` half is DEFENCE-IN-DEPTH, not a live gate, and no test pins it
+  // because none honestly can: from `done` the blocker line is unreachable —
+  // its own tab exits at `if (!target) return null` (nextPhase('done') is
+  // null) and every other tab is a backward move, so the blocker branch is
+  // never taken. Measured in review across all four tabs × canTransition.
+  // Kept because it costs nothing and survives a phase being added after
+  // `done`; the test below asserts what IS falsifiable there instead.
+  if (
+    p.staleCriterionCount > 0 &&
+    p.currentPhase !== 'draft' &&
+    p.currentPhase !== 'done' &&
+    !parts.some((part) => part.em === 'The spec narrative')
+  ) {
+    parts.push({
+      em: 'The spec narrative',
+      rest:
+        p.staleCriterionCount === 1
+          ? 'must be updated to reflect the criterion that changed meaning'
+          : 'must be updated to reflect the criteria that changed meaning',
+    });
+  }
+
   return parts;
 }
 
@@ -194,6 +245,7 @@ export function TransitionSentence({
   openTaskCount = 0,
   unverifiedAcCount = 0,
   narrativeStale = false,
+  staleCriterionCount = 0,
   onTransitioned,
   onCancelBrowse,
 }: TransitionSentenceProps) {
@@ -221,6 +273,7 @@ export function TransitionSentence({
     openTaskCount,
     unverifiedAcCount,
     narrativeStale,
+    staleCriterionCount,
   });
 
   // spec-196 dec-3: when the staleness blocker is present, the sentence carries

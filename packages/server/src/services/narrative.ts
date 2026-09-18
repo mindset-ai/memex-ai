@@ -1,10 +1,15 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "../db/connection.js";
-import { documents, decisions, docSections } from "../db/schema.js";
+import { acs, documents, decisions, docSections } from "../db/schema.js";
 import type { Decision, DocSection } from "../db/schema.js";
+import type { Ac } from "./acs.js";
 import { NotFoundError, ValidationError } from "../types/errors.js";
 import { mutate, type Mutated } from "./mutate.js";
-import { isSpecNarrativeStale } from "@memex/shared";
+import {
+  isSpecNarrativeStale,
+  isMeaningChangedAcStatus,
+  type AcStatusForReadiness,
+} from "@memex/shared";
 
 // Re-export the cross-surface staleness predicate so server callers that
 // don't want the full `assessNarrativeFreshness` fact sheet still go through
@@ -36,6 +41,22 @@ export interface NarrativeFreshness {
   changedSections: {
     sectionType: string;
     title: string | null;
+    updatedAt: Date;
+  }[];
+  /**
+   * spec-569 ac-9: criteria whose row moved after the last consolidation —
+   * EVERY status, not only the meaning-changing ones. Reporting a movement and
+   * declaring the narrative stale are two different claims: this list is the
+   * first, `meaningChanged` marks the rows that carry the second. An agent
+   * reads a fact sheet cold on every call, so listing more here costs it
+   * nothing — the habituation argument that keeps the human verdict narrow
+   * does not transfer.
+   */
+  changedAcs: {
+    handle: string;
+    status: string;
+    /** True when this status is one dec-1 counts toward the stale verdict. */
+    meaningChanged: boolean;
     updatedAt: Date;
   }[];
   /** Short narrative the agent can read aloud — summarises the deltas. */
@@ -82,6 +103,14 @@ export async function assessNarrativeFreshness(
     .from(docSections)
     .where(eq(docSections.docId, briefId));
 
+  // spec-569: the third input. One indexed read on (memex_id, brief_id) —
+  // units per Spec, not thousands [per std-39], on an agent-initiated
+  // assessment rather than a render loop.
+  const allAcs: Ac[] = await db
+    .select()
+    .from(acs)
+    .where(and(eq(acs.briefId, briefId), eq(acs.memexId, memexId)));
+
   const last = spec.narrativeLastConsolidatedAt;
 
   // "When did this decision last change?" — best-effort: resolvedAt > createdAt.
@@ -109,6 +138,16 @@ export async function assessNarrativeFreshness(
       updatedAt: s.updatedAt,
     }));
 
+  const changedAcs = allAcs
+    .filter((a) => last === null || a.updatedAt > last)
+    .map((a) => ({
+      handle: `ac-${a.seq}`,
+      status: a.status,
+      meaningChanged: isMeaningChangedAcStatus(a.status as AcStatusForReadiness),
+      updatedAt: a.updatedAt,
+    }));
+  const meaningChangedAcs = changedAcs.filter((a) => a.meaningChanged);
+
   // Compose the agent-readable fact sheet.
   const lastStr = last ? last.toISOString() : "never";
   const lines: string[] = [];
@@ -121,10 +160,30 @@ export async function assessNarrativeFreshness(
     );
   }
   lines.push(
-    `Since then: ${changedDecisions.length} decision${changedDecisions.length === 1 ? "" : "s"} changed, ${changedSections.length} section${changedSections.length === 1 ? "" : "s"} updated.`,
+    `Since then: ${changedDecisions.length} decision${changedDecisions.length === 1 ? "" : "s"} changed, ${changedSections.length} section${changedSections.length === 1 ? "" : "s"} updated, ${changedAcs.length} criteri${changedAcs.length === 1 ? "on" : "a"} touched (${meaningChangedAcs.length} changed meaning).`,
   );
-  if (changedDecisions.length === 0 && changedSections.length === 0) {
+  if (
+    changedDecisions.length === 0 &&
+    changedSections.length === 0 &&
+    changedAcs.length === 0
+  ) {
     lines.push("Narrative is fresh — nothing has changed since the last consolidation.");
+  } else if (
+    changedDecisions.length === 0 &&
+    changedSections.length === 0 &&
+    meaningChangedAcs.length === 0
+  ) {
+    // Criteria moved, but only in ways that leave prose true (a manual
+    // verification accepted, a statement edited — dec-1 excludes both). Report
+    // the movement; do NOT claim the narrative is stale, and do not claim it is
+    // fresh either. Saying "fresh" here is what certified spec-524 falsely.
+    lines.push(
+      `Criteria moved (${changedAcs.map((a) => `${a.handle} → ${a.status}`).join(", ")}) but none changed meaning, so the narrative verdict is unaffected.`,
+    );
+  } else if (meaningChangedAcs.length > 0) {
+    lines.push(
+      `Criteria whose meaning changed — the prose describing them is false by construction: ${meaningChangedAcs.map((a) => `${a.handle} (${a.status})`).join(", ")}.`,
+    );
   }
   const factSheet = lines.join(" ");
 
@@ -136,6 +195,7 @@ export async function assessNarrativeFreshness(
     lastConsolidatedAt: last,
     changedDecisions,
     changedSections,
+    changedAcs,
     factSheet,
   };
 }
