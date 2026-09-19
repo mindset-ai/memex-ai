@@ -20,6 +20,7 @@
 // that is what actually gates the merge.
 
 import { execFileSync } from "node:child_process";
+import { COVERAGE } from "./package-test-coverage.mjs";
 
 const SELF = "scripts/ci/affected-tests.mjs";
 
@@ -61,11 +62,24 @@ export const RULES = [
   { test: /\.md$/, cmds: [], why: "documentation only" },
 ];
 
-const FULL_MATRIX = [
+// DERIVED from the coverage declaration, never restated (spec-570 dec-3, ac-12).
+//
+// This list used to be five hardcoded commands — and it contained neither
+// `@memex/shared` nor `@memex/extractor`. So a developer who edited
+// packages/shared/, ran the local loop, and was told by the rule below that the
+// change was "broad enough that narrowing is a lie" STILL did not run the 874
+// tests they had just changed. That was the fourth layer of spec-570's defect,
+// under the missing CI job, the missing git hook, and the missing root `test`
+// script: even doing the right thing missed them.
+//
+// Deriving it means a new package is ONE edit — its entry in COVERAGE — rather
+// than three scattered ones that drift apart silently.
+export const FULL_MATRIX = [
   "make check",
   "make typecheck",
-  "make test-server",
-  "make test-ui",
+  // De-duplicated: @memex/server and @memex/ui share `make test-server` /
+  // `make test-ui` with the targets a narrower rule would pick.
+  ...new Set(COVERAGE.map((e) => e.localSuite)),
   "make e2e-cold",
 ];
 
@@ -131,6 +145,39 @@ export function planFor(files) {
   };
 }
 
+/** True when git can resolve `ref` in this checkout. */
+export function remoteRefExists(ref) {
+  try {
+    execFileSync("git", ["rev-parse", "--verify", "--quiet", ref], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The ref to diff against. Prefers `origin/<name>` over the local branch.
+ *
+ * spec-512 issue-7: the local `develop` is stale in every worktree — one is
+ * created from a ref, never tracks it, and `EnterWorktree` does not fetch it.
+ * A branch that has merged `origin/develop` then reads every commit develop
+ * gained since as "something you changed". One phantom path is enough: the map
+ * has no rule for it, the plan fails open, and the tool silently degrades to
+ * "run everything" for exactly the workflow it exists to speed up.
+ *
+ * The two environments genuinely differ — a developer has `origin/develop`, a
+ * CI checkout usually does not — so the fallback is load-bearing, not defensive
+ * padding, and `refExists` is a parameter so both branches are testable without
+ * depending on the ambient checkout.
+ */
+export function resolveBase(name, refExists = remoteRefExists) {
+  if (name.includes("/")) return name; // already qualified (origin/x, a SHA, a tag)
+  return refExists(`origin/${name}`) ? `origin/${name}` : name;
+}
+
 function changedFiles(base) {
   const mergeBase = execFileSync("git", ["merge-base", "HEAD", base], { encoding: "utf8" }).trim();
   const committed = execFileSync("git", ["diff", "--name-only", `${mergeBase}...HEAD`], { encoding: "utf8" });
@@ -144,7 +191,7 @@ function changedFiles(base) {
 function main(argv) {
   const json = argv.includes("--json");
   const baseIdx = argv.indexOf("--base");
-  const base = baseIdx !== -1 ? argv[baseIdx + 1] : "develop";
+  const base = resolveBase(baseIdx !== -1 ? argv[baseIdx + 1] : "develop");
   const filesIdx = argv.indexOf("--files");
 
   let files;

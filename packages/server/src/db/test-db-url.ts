@@ -88,6 +88,25 @@ export function deriveRestrictedRoleUrl(url: string): string {
   return u.toString();
 }
 
+// The local Postgres SERVER, read rather than guessed (spec-524 dec-2/dec-7,
+// [per std-50]). PGHOST/PGPORT are libpq's own variables, so the same
+// declaration steers this resolver, the e2e allocator, and the bare
+// psql/dropdb/createdb calls in the Makefile without any of them being told.
+//
+// With no PGPORT the url carries NO port: postgres-js resolves it
+// (`src/index.js:439` — `port = o.port || url.port || env.PGPORT || 5432`), and
+// so does libpq. The driver owns that default; this repo does not restate it,
+// which is why a wrong guess can no longer drift out of sync here.
+//
+// Deliberately duplicated in scripts/ci/workspace-alloc.mjs rather than shared:
+// four lines of string building is a smaller cost than a dependency from the
+// server package into scripts/ci. Keep the two in step.
+function localBaseUrl(env: Record<string, string | undefined>): string {
+  const host = env.PGHOST || "localhost";
+  const port = env.PGPORT ? `:${env.PGPORT}` : "";
+  return `postgresql://postgres:postgres@${host}${port}/memex`;
+}
+
 // Env-aware resolution used by both vitest.config.ts (worker env override)
 // and vitest.global-setup.ts (create/migrate) so they always agree on the
 // same database.
@@ -96,7 +115,6 @@ export function resolveTestDatabaseUrl(
   worktreeRoot: string = process.cwd(),
 ): string {
   if (env.MEMEX_TEST_DATABASE_URL) return env.MEMEX_TEST_DATABASE_URL;
-  const base =
-    env.DATABASE_URL ?? "postgresql://postgres:postgres@localhost:5432/memex";
+  const base = env.DATABASE_URL ?? localBaseUrl(env);
   return deriveTestDatabaseUrl(base, worktreeRoot);
 }

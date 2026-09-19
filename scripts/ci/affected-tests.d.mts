@@ -12,6 +12,12 @@ export interface Rule {
 
 export const RULES: Rule[];
 
+/** The commands a FULL local run executes. DERIVED from the coverage
+ *  declaration (spec-570 ac-12), not restated: it once omitted @memex/shared
+ *  and @memex/extractor, so "run everything" skipped the very package the
+ *  developer had just edited. */
+export const FULL_MATRIX: readonly string[];
+
 export interface Plan {
   /** true ⇒ run the full matrix. ALWAYS true when any path is unrecognised. */
   full: boolean;
@@ -25,3 +31,17 @@ export interface Plan {
 /** Map changed paths to a test plan. An unrecognised path widens to the full
  *  matrix — it must never narrow to nothing. */
 export function planFor(files: string[] | null | undefined): Plan;
+
+/** True when git can resolve `ref`. The default probe behind `resolveBase`. */
+export function remoteRefExists(ref: string): boolean;
+
+/** The ref to diff against. Upgrades a bare branch name to its remote-tracking
+ *  ref (`develop` → `origin/develop`), because the local one is stale in every
+ *  worktree; passes an already-qualified ref through; falls back to the bare
+ *  name when no remote-tracking ref exists — a CI checkout usually has none
+ *  (spec-512 issue-7). `refExists` is injectable so both branches are testable
+ *  without depending on the ambient checkout. */
+export function resolveBase(
+  name: string,
+  refExists?: (ref: string) => boolean,
+): string;

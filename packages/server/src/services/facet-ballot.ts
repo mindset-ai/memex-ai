@@ -133,10 +133,29 @@ function normaliseArgName(name: string): string {
  * (dec-1, mcp/tools.ts); with the default strip the misnamed key is deleted before the
  * handler runs and is indistinguishable from a ballot that was never sent.
  */
+/** spec-565 ac-15 (issue-1) — argument names observed in prod that are plainly meant as
+ *  the ballot but do not fold to it. DATA, grown from telemetry — never a rule inferred
+ *  from shape.
+ *
+ *  `facets` is here because it is not an arbitrary typo: it is the name of the tool
+ *  whose whole job is to hand back the vocabulary, and whose own description ends
+ *  "cast these as the facetBallot argument on create_task / create_decision". An agent
+ *  following the documented procedure holds a list it just received from something
+ *  called `facets`, and reaches for that word. The most predictable wrong name there is.
+ *
+ *  Compared on the NORMALISED form, so `Facets` and `facet-s` land here too.
+ *
+ *  Deliberately NOT a prefix or fuzzy rule. `startsWith("facet")` catches `facets` and
+ *  would also swallow a future legitimate `facetScope` — and a false positive here does
+ *  not merely mislead, it REJECTS A VALID CALL. Add observed names one at a time. */
+const BALLOT_ALIASES: ReadonlySet<string> = new Set(["facets"]);
+
 export function nearMissBallotArg(receivedArgNames: string[]): string | undefined {
-  return receivedArgNames.find(
-    (name) => name !== BALLOT_ARG && normaliseArgName(name) === normaliseArgName(BALLOT_ARG),
-  );
+  return receivedArgNames.find((name) => {
+    if (name === BALLOT_ARG) return false;
+    const folded = normaliseArgName(name);
+    return folded === normaliseArgName(BALLOT_ARG) || BALLOT_ALIASES.has(folded);
+  });
 }
 
 /** Re-handing message for a ballot that is REQUIRED but ABSENT: leads with why it

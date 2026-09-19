@@ -95,13 +95,31 @@ export function withDatabase(baseUrl, databaseName) {
 // code-quality bot on PR #571; removed rather than wired in, because wiring it in
 // is the bug.)
 
+/** The local Postgres SERVER, read rather than guessed (spec-524 dec-2/dec-7,
+ *  [per std-50]). PGHOST/PGPORT are libpq's own variables, so one declaration
+ *  steers this allocator, the server tier's resolver, and the six bare
+ *  psql/dropdb/createdb calls in the Makefile — those last ones without being
+ *  edited at all, which is the reason dec-2 chose these two names.
+ *
+ *  With no PGPORT the url carries NO port, and the driver resolves it: libpq
+ *  for the Makefile's `psql`, postgres-js (`src/index.js:439`) for the server.
+ *  The default belongs to them; restating it here is what let three sites drift.
+ *
+ *  Deliberately duplicated in packages/server/src/db/test-db-url.ts rather than
+ *  shared — four lines beats a dependency from the server package into
+ *  scripts/ci. Keep the two in step. */
+function localBaseUrl(env) {
+  const host = env.PGHOST || "localhost";
+  const port = env.PGPORT ? `:${env.PGPORT}` : "";
+  return `postgresql://postgres:postgres@${host}${port}/memex`;
+}
+
 /** Effective e2e config, with every pre-existing override honoured ahead of the
  *  derivation so no current workflow breaks. */
 export function resolveE2eConfig(env = process.env, workspaceRoot = process.cwd()) {
   const ports = derivePorts(workspaceRoot);
   const names = deriveE2eDbNames(workspaceRoot);
-  const baseUrl =
-    env.E2E_DATABASE_URL ?? "postgresql://postgres:postgres@localhost:5432/memex";
+  const baseUrl = env.E2E_DATABASE_URL ?? localBaseUrl(env);
 
   return {
     workspaceRoot,

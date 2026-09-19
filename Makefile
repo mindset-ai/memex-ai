@@ -58,7 +58,7 @@ SHELL := /bin/bash
 ## The sub-minute guard battery: no database, no network. This is what replaces
 ## "push and wait for CI" as the tight feedback loop. Everything here is a pure
 ## static check — anything needing Postgres belongs in `make test`.
-check: check-url-shape check-portable-surface check-no-detector lint standards-check
+check: check-url-shape check-portable-surface check-no-detector check-pg-declaration check-package-coverage lint standards-check
 	@node scripts/ci/workspace-alloc.mjs --all > /dev/null || \
 		{ echo "✗ workspace allocator failed — see scripts/ci/workspace-alloc.mjs"; exit 1; }
 	@echo "✓ offline guard battery passed"
@@ -83,6 +83,10 @@ test: check-url-shape test-server
 check-url-shape:
 	node scripts/check-url-shape.mjs
 
+# spec-524 ac-11 — the Postgres server is read, never guessed [per std-50].
+check-pg-declaration:
+	node scripts/ci/check-pg-server-declaration.mjs
+
 ## spec-551 t-7 — std-22's portable surface carries no bare entity handle. Offline by
 ## measurement, not by hope: the collector reaches the live tool registry (which imports
 ## the DB module) yet needs no DATABASE_URL, because nothing queries during collection.
@@ -102,6 +106,20 @@ check-portable-surface:
 ## what survives someone bypassing the hook.
 check-no-detector:
 	cd packages/server && npx tsx scripts/check-no-detector.ts
+
+## spec-570 (dec-3, ac-11/ac-13/ac-14) — every workspace package with a `test`
+## script is accounted for, and "runs somewhere" stays distinct from "gates".
+## @memex/shared (876 tests) and @memex/extractor (62) ran in no CI job and no
+## git hook for three and a half months; the b-67 gate inside shared's suite had
+## never passed in the repository's history. Wiring those two fixed today —
+## nothing asserted the NEXT package would be reachable from CI, which was the
+## actual root cause. Offline by construction: reads package.json files, no DB,
+## no network. Twinned with src/__regression__/package-test-coverage.regression
+## .test.ts [per std-2's pattern]: this lane is what a developer meets before a
+## push (pre-push skips `make check`), the suite lane is what survives someone
+## bypassing the hook.
+check-package-coverage:
+	node scripts/ci/package-test-coverage.mjs
 
 ## Server: unit tests only (mocked, no DB required)
 test-unit:
@@ -177,6 +195,37 @@ e2e: e2e-preflight
 ## and `memex_e2e_template`, which meant a second worktree's `dropdb` destroyed the
 ## first one's database mid-run. Overrides (E2E_DATABASE_URL, E2E_SERVER_PORT,
 ## E2E_UI_PORT) still win — the allocator honours them.
+# ── The local Postgres server, declared once (spec-524 dec-2 / dec-7) ─────────
+# PGHOST / PGPORT / PGPASSWORD are libpq's OWN variables, which is the whole
+# reason dec-2 chose them: exporting them here steers the allocator, the server
+# tier's resolver, AND the bare psql/dropdb/createdb calls below — those last
+# ones without being edited at all, because libpq reads them itself.
+#
+# The values live in the repo-root .env (gitignored, template in .env.example),
+# so the declaration is bound to THIS repository. It is deliberately not a line
+# in a shell profile: an exported PGPORT would steer every psql the developer
+# runs all day, including one aimed at something that matters (ac-19).
+#
+# `?=` keeps precedence honest — a value already in the environment wins, and
+# .env only fills the gap. Only non-empty values are exported, so an absent
+# declaration leaves libpq and postgres-js on their own defaults rather than
+# being handed an empty string (spec-524 ac-9: unset must behave exactly as CI).
+#
+# Read line-by-line rather than `-include .env`: that file holds arbitrary
+# secrets, and make would try to parse every one of them as a make variable.
+PGHOST     ?= $(shell sed -n -E 's/^[[:space:]]*PGHOST=//p'     .env 2>/dev/null | tail -1)
+PGPORT     ?= $(shell sed -n -E 's/^[[:space:]]*PGPORT=//p'     .env 2>/dev/null | tail -1)
+PGPASSWORD ?= $(shell sed -n -E 's/^[[:space:]]*PGPASSWORD=//p' .env 2>/dev/null | tail -1)
+ifneq ($(strip $(PGHOST)),)
+export PGHOST
+endif
+ifneq ($(strip $(PGPORT)),)
+export PGPORT
+endif
+ifneq ($(strip $(PGPASSWORD)),)
+export PGPASSWORD
+endif
+
 E2E_DB_NAME  := $(shell node scripts/ci/workspace-alloc.mjs e2e-database-name)
 E2E_TPL_NAME := $(shell node scripts/ci/workspace-alloc.mjs e2e-template-name)
 E2E_COLD_DB  := $(shell node scripts/ci/workspace-alloc.mjs e2e-database-url)

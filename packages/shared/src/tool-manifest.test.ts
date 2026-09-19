@@ -20,10 +20,28 @@ const GROUPS: ReadonlyArray<ToolManifestEntry['group']> = [
   'comments',
 ];
 
-// A summary line is a single sentence sized for a terse reference block. The
-// longest real entry is ~140 chars; 240 leaves headroom without letting a
-// paragraph slip in.
+// A summary line is a single sentence sized for a terse reference block — it is
+// rendered into the Init Prompt's tool reference via scaffold-data.ts, NOT into
+// the model-facing description the server composes in agent/handlers/*.
+//
+// 240 is the bound. Its old justification — "the longest real entry is ~140
+// chars" — was false when spec-570 measured it: across all 75 entries the median
+// was 163, p75 220, p90 234, and 42 entries already exceeded 140. A number whose
+// stated reason has quietly become untrue is a number nobody is really checking,
+// which is how four entries at 306-454 shipped past it.
+//
+// So the reason is asserted now instead of written down. MIN_HEADROOM is the
+// gap the bound must keep over the longest shipped summary; at 20 it means no
+// entry may exceed 220, which sits just above the compliant population's p90
+// (214 after spec-570's shortening) and well clear of the median.
+//
+// WHEN THIS GOES RED, SHORTEN THE ENTRY. Do not raise MIN_HEADROOM and do not
+// raise MAX_SUMMARY_LEN: lifting the number to fit the text is precisely the
+// move that turned "~140" into a comment sitting beside a population of 234.
+// The population is dense in the 211-220 band, so the margin is deliberately
+// tight — a new summary that needs 221 characters needs one fewer clause.
 const MAX_SUMMARY_LEN = 240;
+const MIN_HEADROOM = 20;
 
 describe('toolManifest data integrity (b-67)', () => {
   it('exports a non-empty array', () => {
@@ -110,5 +128,113 @@ describe('spec-176: no create_spec alias in tool manifest (ac-8, ac-9)', () => {
     tagAc(AC176(9));
     const entry = toolManifest.find((e) => e.name === 'create_spec');
     expect(entry).toBeUndefined();
+  });
+});
+
+// spec-570 ac-5 + ac-7 (dec-1): the b-67 length bound had never passed in the
+// repository's history — the constant and two of its violations shipped in the
+// initial commit, and nothing automatic ran this suite to say so. These two
+// assertions are what the Spec's ACs are verified by; the per-entry
+// `summary is a single line within the length bound` test above stays the
+// enforcing check for every future entry.
+describe('spec-570: the bound keeps a measured margin (ac-6)', () => {
+  const AC6 =
+    'mindset-prod/memex-building-itself/specs/spec-570/acs/ac-6';
+
+  it('ac-6: MAX_SUMMARY_LEN stays at least MIN_HEADROOM above the longest entry', () => {
+    tagAc(AC6);
+    const lengths = toolManifest.map((e) => e.summary.length);
+    const longest = Math.max(...lengths);
+    const entry = toolManifest.find((e) => e.summary.length === longest)!;
+    expect(
+      MAX_SUMMARY_LEN - longest,
+      `the longest summary is "${entry.name}" at ${longest}, leaving ` +
+        `${MAX_SUMMARY_LEN - longest} of headroom under ${MAX_SUMMARY_LEN}. ` +
+        `Entries are crowding the bound — shorten "${entry.name}". Raising ` +
+        `MIN_HEADROOM or MAX_SUMMARY_LEN to fit the text is how the previous ` +
+        `justification ("the longest real entry is ~140 chars") came to sit ` +
+        `beside a population whose p90 was 234.`,
+    ).toBeGreaterThanOrEqual(MIN_HEADROOM);
+  });
+
+  it('ac-6: the margin is a real constraint, not a restatement of the bound', () => {
+    tagAc(AC6);
+    // A headroom of 0 would make this assertion equivalent to the per-entry
+    // length check above — green by construction and incapable of reporting
+    // crowding. Pinning the comment's cited maximum to Math.max(...) would be
+    // worse still: `max === max` at rest, firing only on a legitimate edit.
+    expect(MIN_HEADROOM).toBeGreaterThan(0);
+    expect(MIN_HEADROOM).toBeLessThan(MAX_SUMMARY_LEN);
+  });
+});
+
+describe('spec-570: the manifest length bound holds (ac-5, ac-7)', () => {
+  const AC570 = (n: number) =>
+    `mindset-prod/memex-building-itself/specs/spec-570/acs/ac-${n}`;
+
+  it('ac-5: every summary is within MAX_SUMMARY_LEN, with no entry exempted', () => {
+    tagAc(AC570(5));
+    const over = toolManifest
+      .filter((e) => e.summary.length > MAX_SUMMARY_LEN)
+      .map((e) => `${e.name} (${e.summary.length})`);
+    expect(
+      over,
+      over.length ? `entries over ${MAX_SUMMARY_LEN}: ${over.join(', ')}` : '',
+    ).toEqual([]);
+  });
+
+  // dec-1 shortened five summaries. `summary` feeds scaffold-data.ts ->
+  // BASE_SCAFFOLD.tools -> the Init Prompt reference block [per std-16 cl-20];
+  // it is NOT the model-facing description, which the server composes in
+  // agent/handlers/*. So the edit must move the summary and nothing else —
+  // an args or group drift would break the std-16 lockstep in a way this
+  // package's own suite would not otherwise catch.
+  it('ac-7: the five shortened entries kept every non-summary field', () => {
+    tagAc(AC570(7));
+    const PINNED: ReadonlyArray<
+      Pick<ToolManifestEntry, 'name' | 'args' | 'group' | 'readOnlyHint'>
+    > = [
+      {
+        name: 'list_docs',
+        args: 'list_docs(memex?, docType?, statusIn?, tags?)',
+        group: 'read',
+        readOnlyHint: true,
+      },
+      {
+        name: 'supersede_spec',
+        args: 'supersede_spec(ref, supersededBy, note?)',
+        group: 'planning',
+        readOnlyHint: false,
+      },
+      {
+        name: 'propose_standard_change',
+        args: 'propose_standard_change(operations, rationale?)',
+        group: 'build',
+        readOnlyHint: false,
+      },
+      {
+        name: 'accept_standard_change',
+        args: 'accept_standard_change(ref)',
+        group: 'build',
+        readOnlyHint: false,
+      },
+      {
+        name: 'update_ac',
+        args: 'update_ac(ref, statement)',
+        group: 'build',
+        readOnlyHint: false,
+      },
+    ];
+
+    for (const pin of PINNED) {
+      const entry = toolManifest.find((e) => e.name === pin.name);
+      expect(entry, `manifest entry "${pin.name}" is missing`).toBeDefined();
+      expect({
+        name: entry!.name,
+        args: entry!.args,
+        group: entry!.group,
+        readOnlyHint: entry!.readOnlyHint,
+      }).toEqual(pin);
+    }
   });
 });

@@ -35,6 +35,21 @@ export type DecisionForReadiness = {
   status: DecisionStatusForReadiness;
 };
 
+export type AcStatusForReadiness = 'proposed' | 'active' | 'rejected' | 'superseded';
+
+/**
+ * spec-569 dec-1. The narrative-freshness view of one acceptance criterion.
+ * `updatedAt` alone cannot express the rule — it is stamped equally by
+ * supersession, by `update_ac`, and by the spec-188 manual-verification
+ * overlay, all of which leave `status = 'active'`. Status is what separates a
+ * criterion whose MEANING changed from a human clicking "verified by hand".
+ */
+export type AcForReadiness = {
+  id: string;
+  status: AcStatusForReadiness;
+  updatedAt: string | Date;
+};
+
 export type CommentTypeBreakdown = Partial<
   Record<'note' | 'question' | 'drift' | 'plan_revision', number>
 >;
@@ -45,6 +60,14 @@ export type ReadinessInput = {
   openCommentCount: number;
   openCommentsByType?: CommentTypeBreakdown;
   narrativeLastConsolidatedAt: string | Date | null | undefined;
+  /**
+   * spec-569 dec-1: the Spec's acceptance criteria, for narrative freshness.
+   * REQUIRED, deliberately — an optional field defaulting to `[]` is a silent
+   * default on a value this computation depends on and another component owns
+   * [per std-50], and it would reproduce this Spec's own defect: a surface
+   * reporting "nothing changed" because it was not looking.
+   */
+  acs: AcForReadiness[];
   /**
    * spec-112 t-8: count of Issues that are still in flight (`open` + `converted`)
    * on this Spec. Resolved / wont_fix Issues are settled and don't count. Drives
@@ -59,7 +82,13 @@ export type ReadinessInput = {
 export type OutstandingItem =
   | { kind: 'unresolved_comments'; count: number; label: string; cta: string }
   | { kind: 'unresolved_decisions'; count: number; label: string; cta: string }
-  | { kind: 'stale_narrative'; staleDecisionCount: number; label: string; cta: string }
+  | {
+      kind: 'stale_narrative';
+      staleDecisionCount: number;
+      staleAcCount: number;
+      label: string;
+      cta: string;
+    }
   // spec-112 t-8: open + converted Issues outstanding at the verify→done gate.
   // SOFT signal — surfaced as a warning, never a hard block (ac-17 / ac-18).
   | { kind: 'open_issues'; count: number; label: string; cta: string };
@@ -110,15 +139,62 @@ export function countStaleDecisions(
 }
 
 /**
- * True when at least one decision is newer than the last consolidation (or
- * the Spec has never been consolidated and has any decisions). Drop-in
- * replacement for the local helper that lived in RefreshBriefButton.
+ * The AC statuses that mean a criterion's MEANING changed, so prose describing
+ * it is false by construction (spec-569 dec-1, option b).
+ *
+ * `superseded` — retired and replaced; its whole purpose is that the meaning moved.
+ * `rejected`   — killed outright; the prose describes a commitment that no longer exists.
+ *
+ * Deliberately EXCLUDED: `update_ac` (a rewritten statement does invalidate
+ * prose, but it is indistinguishable at the column level from the routine
+ * acceptance writes, and separating it costs a new column plus a migration —
+ * its own Spec), and every spec-188 acceptance-overlay write, which is the
+ * ordinary act of marking a criterion verified by hand and changes no prose.
+ */
+const MEANING_CHANGED_STATUSES: readonly AcStatusForReadiness[] = ['superseded', 'rejected'];
+
+/**
+ * The single definition of "this criterion's meaning changed". Exported so the
+ * server's fact-sheet projection classifies rows the same way the verdict does
+ * — a second hardcoded list of statuses would be the very class of divergence
+ * this Spec exists to close.
+ */
+export function isMeaningChangedAcStatus(status: AcStatusForReadiness): boolean {
+  return MEANING_CHANGED_STATUSES.includes(status);
+}
+
+/**
+ * Count criteria whose meaning changed after the consolidation anchor. Mirrors
+ * `countStaleDecisions`: a null anchor means the narrative has never captured
+ * anything, so every meaning-changed criterion counts.
+ */
+export function countStaleAcs(
+  narrativeLastConsolidatedAt: string | Date | null | undefined,
+  acs: AcForReadiness[],
+): number {
+  const moved = acs.filter((a) => isMeaningChangedAcStatus(a.status));
+  if (moved.length === 0) return 0;
+  const consolidatedAt = toMillis(narrativeLastConsolidatedAt);
+  if (consolidatedAt === null) return moved.length;
+  return moved.filter((a) => (toMillis(a.updatedAt) ?? 0) > consolidatedAt).length;
+}
+
+/**
+ * True when at least one decision OR one meaning-changed criterion is newer
+ * than the last consolidation (or the Spec has never been consolidated and has
+ * either). spec-569: `acs` is a REQUIRED third input, not an optional one —
+ * every caller must answer where its criteria come from rather than defaulting
+ * to none [per std-50].
  */
 export function isSpecNarrativeStale(
   narrativeLastConsolidatedAt: string | Date | null | undefined,
   decisions: DecisionForReadiness[],
+  acs: AcForReadiness[],
 ): boolean {
-  return countStaleDecisions(narrativeLastConsolidatedAt, decisions) > 0;
+  return (
+    countStaleDecisions(narrativeLastConsolidatedAt, decisions) > 0 ||
+    countStaleAcs(narrativeLastConsolidatedAt, acs) > 0
+  );
 }
 
 export function isForwardTransition(from: SpecPhase, to: SpecPhase): boolean {
@@ -179,12 +255,23 @@ export function computeSpecReadiness(input: ReadinessInput): SpecReadiness {
     input.narrativeLastConsolidatedAt,
     input.decisions,
   );
-  if (staleCount > 0) {
-    const noun = staleCount === 1 ? 'decision' : 'decisions';
+  const staleAcCount = countStaleAcs(input.narrativeLastConsolidatedAt, input.acs);
+  if (staleCount > 0 || staleAcCount > 0) {
+    // spec-569 ac-4/ac-8: the sentence names what it actually counted. A zero
+    // count is omitted, never rendered — "0 decisions and 1 criterion" would be
+    // the same class of lie as reporting criteria under the word "decisions".
+    const parts: string[] = [];
+    if (staleCount > 0) {
+      parts.push(`${staleCount} ${staleCount === 1 ? 'decision' : 'decisions'}`);
+    }
+    if (staleAcCount > 0) {
+      parts.push(`${staleAcCount} ${staleAcCount === 1 ? 'criterion' : 'criteria'}`);
+    }
     items.push({
       kind: 'stale_narrative',
       staleDecisionCount: staleCount,
-      label: `${staleCount} ${noun} not yet reflected in the narrative`,
+      staleAcCount,
+      label: `${parts.join(' and ')} not yet reflected in the narrative`,
       cta: REFRESH_SPEC_CTA,
     });
   }

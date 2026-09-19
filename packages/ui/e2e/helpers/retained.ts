@@ -310,3 +310,14 @@ export async function seedAcProposal(opts: {
 }): Promise<{ commentId: string; commentSeq: number }> {
   return call("POST", "/seed-ac-proposal", opts);
 }
+
+/** spec-569 t-6: ACCEPT a seeded supersession through the real
+ *  `acceptAcSupersession` service — the browser cannot, since supersession is
+ *  MCP-only. Retires the criterion to `superseded` and stamps `acs.updatedAt`,
+ *  which is the input narrative freshness keys on. */
+export async function acceptAcSupersession(opts: {
+  memexId: string;
+  commentId: string;
+}): Promise<{ ok: true }> {
+  return call("POST", "/accept-ac-supersession", opts);
+}

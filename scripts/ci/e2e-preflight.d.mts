@@ -53,3 +53,42 @@ export function needsPgPassword(args: {
   env: Record<string, string | undefined>;
   runPsql: () => unknown;
 }): { blocked: boolean; examined: boolean; why?: string };
+
+// ── spec-524: can the target Postgres replay the migrations? ─────────────────
+
+/** What one probe round trip learned. `unreachable` means psql was absent,
+ *  Postgres was down, or credentials were refused — we learned nothing. */
+export type PgCapabilityReading =
+  | { version: string; vectorAvailable: boolean; port: string | null }
+  | { unreachable: true; why?: string };
+
+/** `examined: false` means the probe learned nothing, so the caller must NOT
+ *  count it as a check that passed — the same discipline as needsPgPassword.
+ *  `ok: true` with `examined: false` is an abstention, not an endorsement. */
+export type PgCapabilityVerdict =
+  | { ok: true; examined: true }
+  | { ok: true; examined: false; why: string }
+  | { ok: false; examined: true; version: string; port: string };
+
+export function classifyPgCapability(
+  reading: PgCapabilityReading | null | undefined,
+): PgCapabilityVerdict;
+
+/** The refusal a developer reads. Pure and exported because ac-13 is a claim
+ *  about WORDS: asserting it end-to-end would depend on which Postgres this
+ *  machine happens to run, and CI's differs from a workstation's. */
+export function describePgCapabilityFailure(verdict: {
+  version: string;
+  port: string;
+}): string;
+
+/** The notice a bypassed run carries, on both the clean and the failing path. */
+export function describeCapabilityBypass(names: string[]): string;
+
+/** The one query, exported so a test can assert the port is asked OF THE SERVER
+ *  (`inet_server_port()`) rather than recomputed from the environment. */
+export const PG_CAPABILITY_QUERY: string;
+
+/** The single, narrow escape hatch: it disarms the capability probe and nothing
+ *  else. There is deliberately no variable that disables the preflight. */
+export const PG_CAPABILITY_BYPASS: string;

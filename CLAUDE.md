@@ -88,12 +88,45 @@ make affected     # which suites your diff actually needs (advisory)
 make test         # full server suite
 ```
 
+`make affected` is the **local loop while you build** — it maps your diff to the suites worth
+running, which is seconds instead of the ~12 minutes `make test-server` + `make test-ui` cost.
+Run the full matrix **once, before opening the PR**, not per iteration: CI is the backstop, not
+where you should learn a suite is red. The full matrix is **derived** from
+`scripts/ci/package-test-coverage.mjs`, so every workspace package with a `test` script is in it —
+until spec-570 it was five hardcoded commands that contained neither `@memex/shared` nor
+`@memex/extractor`, and "run everything" ran neither. One caveat the tool still cannot fix for
+you: std-28's `make e2e-cold` before every PR is mandatory whatever `affected` says.
+
 Ports and e2e database names are **derived per workspace** from a hash of its path
 (`scripts/ci/workspace-alloc.mjs`), so parallel worktrees never collide. Never hardcode a
 port — run `make dev` and read the ones it prints, or `node scripts/ci/workspace-alloc.mjs --all`.
 Prove isolation with `make prove-concurrent`.
 
-Local Postgres connection string: `postgresql://postgres:postgres@localhost:5432/memex` (full local-dev posture lives in std-9 §9).
+Which local Postgres the test tiers talk to is **declared once**, in the repo-root `.env`
+(template: `.env.example`) — `PGHOST` / `PGPORT` / `PGPASSWORD`, read by the allocator, the
+server vitest tier and the Makefile's `psql`/`dropdb`/`createdb` calls alike. Leave the host and
+port blank if yours is the default; set them if it is not. The e2e template replays migrations
+needing the `vector` extension, so the instance must be pgvector-capable — `make e2e-cold`
+refuses up front, naming the port it reached, when it is not. Do NOT put these in a shell
+profile: here they are scoped to this repo, in `~/.zshrc` they would steer every `psql` you run.
+Full local-dev posture lives in std-9 §9.
+
+## Staging in a shared working tree
+
+Several Claude sessions routinely run **in this same directory**, and a worktree is one working
+tree plus **one index** — so `git add -A` and `git commit -a` stage whatever any other session
+has written and not yet committed. Measured: commit `32e56cd6` ("feat(spec-530): let the agent
+read the proposal…") carried three **spec-528** files another session was still working on —
+right code, wrong Spec, wrong branch. Untangling it afterwards is the expensive part: `git reset
+--soft` is safe, but switching branches rewrites files under every other live session.
+
+- Stage **explicit paths** — `git add packages/server/src/mcp/dispatch-deadline.ts`, never `-A`.
+- `git status --short` before every commit; every line listed must be yours.
+- Work already trapped in another session's commit: `git branch <rescue> <sha>` first — a pure
+  ref write, invisible to the others — then split once they are idle.
+
+No check enforces this one; it costs a `git status` per commit. A Spec of your own gets a
+worktree instead (`git worktree add`) — ports and e2e DB names already derive from the path.
 
 ## Repository shape
 
@@ -122,6 +155,7 @@ Each rule below has a check. Break one and the check tells you what to run — y
 | Every mutation goes through `mutate()` (std-8) | `mutate-coverage.*` guards | — |
 | No direct `new Anthropic(...)` (std-30) | `no-direct-anthropic` guard | use `getAnthropicClient()` |
 | Every user-facing flow change has an e2e journey (std-28) | `make e2e-cold` before every PR | — |
+| Every workspace package with a `test` script is reachable from CI, and "runs" stays distinct from "gates" (spec-570) | `make check-package-coverage` (in `make check`) + its server-suite twin | add an entry to `scripts/ci/package-test-coverage.mjs` |
 
 `make check` runs the offline battery (no DB, no network, ~1s). `.husky/pre-push` runs lint + typecheck + unit tests.
 
