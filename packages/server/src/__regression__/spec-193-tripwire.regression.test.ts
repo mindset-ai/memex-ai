@@ -327,6 +327,8 @@ describe("ac-21 — no product starter standards, no agent-authored gap-filling 
 describe("ac-19 — org_scaffold_additions per-memex scope merges account-wide + this memex", () => {
   const accountWide: GuidanceBlock = {
     kind: "guidance_block",
+    // spec-510 t-11: Org blocks carry their org_scaffold_additions row id.
+    id: "org-fixture-account-wide",
     source: "org",
     target: { phase: "build" },
     text: "ACCOUNT-WIDE house style",
@@ -376,6 +378,7 @@ describe("ac-7 / ac-20 — tenant extension flows through org_scaffold_additions
     tagAc(AC(7));
     const orgBlock: GuidanceBlock = {
       kind: "guidance_block",
+      id: "org-fixture-per-memex",
       source: "org",
       target: { phase: "build" },
       text: "TENANT EXTRA tripwire: licensing",

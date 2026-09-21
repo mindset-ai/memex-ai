@@ -146,6 +146,39 @@ export interface TransitionRubric extends BaseNodeShape {
  *  attaches; an absent dimension matches every value of that dimension. */
 export interface GuidanceBlock extends BaseNodeShape {
   kind: 'guidance_block';
+  /**
+   * Stable identity for this block (spec-510 dec-8, t-11).
+   *
+   * REQUIRED, and on `GuidanceBlock` rather than `BaseNodeShape`: only this
+   * node type needs to be addressable, and widening the base shape would make
+   * `id` a concern of five node types to serve one consumer [per std-51].
+   * `PromptButtonNode` and `PromptBlockNode` already carry their own `id`, so
+   * this aligns the model with its siblings rather than adding a new concept.
+   *
+   * What reads it: spec-510's per-session cadence keys its seen-set on
+   * `block:{id}`. `order` cannot serve — it is not unique (the four
+   * classify-and-consult blocks all carry `order: 30`), and a content hash
+   * cannot either, because editing a block's copy would silently reset the
+   * suppression state of every live session (dec-8).
+   *
+   * Two populations, one field, and they cannot collide:
+   *   - `source: 'base'` — a hand-authored kebab-case slug from
+   *     `scaffold-data.ts` (`tripwire-protocol-build`). Human-readable on
+   *     purpose: this string is what a suppression bug is diagnosed by, read
+   *     straight out of a claim key in the database.
+   *   - `source: 'org'`  — the `org_scaffold_additions` row's primary key,
+   *     already projected onto `OrgScaffoldAdditionView`. Org additions are
+   *     therefore suppressible on the same mechanism, with no new API.
+   *
+   * Required, not optional, so a construction site cannot omit one in silence
+   * — an unsuppressible block would otherwise be indistinguishable from a
+   * deliberate choice (t-11 ac-20).
+   *
+   * STABLE, like a database key: ids are persisted in live sessions' claim
+   * keys, so renaming one orphans the suppression state of every session that
+   * has already seen it.
+   */
+  id: string;
   source: GuidanceSource;
   target: GuidanceTarget;
   text: string;
