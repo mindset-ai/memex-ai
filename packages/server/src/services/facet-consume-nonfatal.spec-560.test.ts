@@ -18,6 +18,13 @@ import { tagAc } from "@memex-ai-ac/vitest";
 const SPEC = "mindset-prod/memex-building-itself/specs/spec-560";
 const AC = (n: number) => `${SPEC}/acs/ac-${n}`;
 
+// spec-567 ac-8 makes the same two claims about the TIMING code this seam now also
+// carries: an advisory failure stays invisible to the agent, and the swallowed error
+// reaches the operator as an Error object. The timers live inside `routeAndReadout`, so
+// these tests already exercise them — tagged rather than copied, because two copies of
+// one assertion drift apart and only one of them gets updated.
+const AC_567_NONFATAL = "mindset-prod/memex-building-itself/specs/spec-567/acs/ac-8";
+
 // ── stubs ────────────────────────────────────────────────────────────────────
 const storeTaskBallot = vi.hoisted(() => vi.fn());
 const storeDecisionBallot = vi.hoisted(() => vi.fn());
@@ -146,6 +153,7 @@ describe("spec-560: a post-commit step never reports the committed write as fail
 
   it("an advisory-only failure is invisible to the agent — byte-identical to clean success", async () => {
     tagAc(AC(14));
+    tagAc(AC_567_NONFATAL);
     // The ballot stored cleanly; only the routing/readout half failed. Nothing the agent
     // needed is lost, so it degrades in silence, matching the five precedents in s-3.
     routeFacets.mockRejectedValue(new Error("cohere upstream 503"));
@@ -164,6 +172,7 @@ describe("spec-560: a post-commit step never reports the committed write as fail
 
   it("every swallowed failure reaches the operator with the original error AND its stack", async () => {
     tagAc(AC(15));
+    tagAc(AC_567_NONFATAL);
     const boom = connectTimeout();
 
     storeTaskBallot.mockRejectedValue(boom);

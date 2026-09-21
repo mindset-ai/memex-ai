@@ -36,6 +36,8 @@ export async function logRouting(
     candidates: result.all.map((s) => ({ handle: s.handle, title: s.title, score: s.score, surfaced: s.surfaced })),
     k: result.k,
     rankerModel: result.rankerModel,
-    rankerParams: occasion ? { occasion } : null,
+    // spec-567 t-1 (dec-1): the per-stage timings ride the row that is already written,
+    // beside the occasion — no migration, no second INSERT, no extra round trip (ac-7).
+    rankerParams: { ...(occasion ? { occasion } : {}), timings: result.timings },
   });
 }
