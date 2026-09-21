@@ -15,6 +15,19 @@ const AC = (n: number) => `${SPEC}/acs/ac-${n}`;
 
 const RERANKER = "cohere:rerank-v3.5";
 
+// spec-567 t-1 — the renderer ignores timings; present only to satisfy the type.
+const NO_TIMINGS = {
+  generateCandidates: 0,
+  semanticCandidates: 0,
+  keylessDensity: 0,
+  sectionDocs: 0,
+  rerank: 0,
+  implicatedSections: 0,
+  total: 0,
+  unattributed: 0,
+};
+
+
 // One surfaced standard is enough — the declaration rides the heading, not the entries.
 function resultWith(rankerModel: string): RoutingResult {
   const std = {
@@ -25,7 +38,7 @@ function resultWith(rankerModel: string): RoutingResult {
     surfaced: true,
     sections: [],
   };
-  return { surfaced: [std], all: [std], k: 10, rankerModel };
+  return { surfaced: [std], all: [std], k: 10, rankerModel, timings: NO_TIMINGS };
 }
 
 // A realistic shape: a wide candidate field, only the top K surfaced. Scores descend
@@ -40,7 +53,7 @@ function wideResult(surfacedCount = 3, totalCount = 24): RoutingResult {
     sections: [],
   });
   const all = Array.from({ length: totalCount }, (_, i) => mk(i, i < surfacedCount));
-  return { surfaced: all.slice(0, surfacedCount), all, k: 10, rankerModel: RERANKER };
+  return { surfaced: all.slice(0, surfacedCount), all, k: 10, rankerModel: RERANKER, timings: NO_TIMINGS };
 }
 
 describe("spec-550 dec-1 — the readout names the ranker that actually scored this call", () => {
@@ -85,7 +98,9 @@ describe("spec-550 dec-1 — the readout names the ranker that actually scored t
   it("says nothing when nothing is surfaced (ac-4)", () => {
     tagAc(AC(4));
     // An empty routing emits no readout at all; the declaration must not resurrect one.
-    expect(formatRoutedStandards({ surfaced: [], all: [], k: 10, rankerModel: RERANKER })).toBe("");
+    expect(
+      formatRoutedStandards({ surfaced: [], all: [], k: 10, rankerModel: RERANKER, timings: NO_TIMINGS }),
+    ).toBe("");
   });
 });
 

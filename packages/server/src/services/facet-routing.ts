@@ -48,6 +48,37 @@ export interface RankedStandard {
   sections?: ImplicatedSection[];
 }
 
+// spec-567 t-1 (dec-1) — the per-stage cost of a routing call, in milliseconds.
+//
+// Why this exists: a routed write commits in ~804 ms and then holds the caller ~2 038 ms
+// more while this chain runs, and nothing here was ever timed — so the cost could be
+// blamed on "routing" but never on a stage. ac-3 forbids fixing what has not been
+// measured, which made this the first thing the Spec owes.
+//
+// `semanticCandidates` is ONE key, not two. The query embedding happens inside
+// `runSectionVector` (memex-search/retrieval.ts), two modules down and concurrent with
+// the FTS arm — it has no seam here to time it at. Splitting it is dec-4; until that
+// resolves, ac-5's embedding clause is knowingly unmet rather than faked.
+export interface RoutingTimings {
+  generateCandidates: number;
+  /** The whole `searchMemex` arm: query embedding + pgvector + FTS (dec-4 splits it). */
+  semanticCandidates: number;
+  keylessDensity: number;
+  sectionDocs: number;
+  rerank: number;
+  implicatedSections: number;
+  /** Wall time of the entire `routeFacets` call. */
+  total: number;
+  /**
+   * `total` minus the sum of the segments — the time the segments do not account for,
+   * named rather than dropped (ac-6). Deliberately NOT clamped at zero: the segments
+   * are sequential today, so this is non-negative, and a NEGATIVE value is the honest
+   * signal that some of them have begun to overlap — exactly what dec-2's
+   * parallelisation would do.
+   */
+  unattributed: number;
+}
+
 export interface RoutingResult {
   /** The top-K, ordered by score, scored, NO floor (dec-2). The payoff readout. */
   surfaced: RankedStandard[];
@@ -56,6 +87,8 @@ export interface RoutingResult {
   k: number;
   /** 'keyless-density' | 'cohere:rerank-v3.5' — what actually scored this call. */
   rankerModel: string;
+  /** Per-stage cost of this call (spec-567 dec-1). */
+  timings: RoutingTimings;
 }
 
 // The attention cap (dec-2). Starts at 10, env-tunable from the dec-4 logs.
@@ -405,19 +438,54 @@ export async function routeFacets(
   reranker: Reranker | null = getReranker(),
 ): Promise<RoutingResult> {
   const k = topK();
-  const facetCands = await generateCandidates(memexId, facetKeys);
+
+  // spec-567 t-1 — the accumulator is a local, never module state: at concurrency 80 a
+  // shared one would blend the segments of unrelated calls into a plausible average.
+  const segments: Record<keyof Omit<RoutingTimings, "total" | "unattributed">, number> = {
+    generateCandidates: 0,
+    semanticCandidates: 0,
+    keylessDensity: 0,
+    sectionDocs: 0,
+    rerank: 0,
+    implicatedSections: 0,
+  };
+  const startedAt = Date.now();
+  // `finally`, not a trailing assignment: the re-rank segment must keep the time it
+  // burned before throwing or aborting, or a spent 4 s timeout vanishes into
+  // `unattributed` and reproduces the confound spec-567 c-1 exposed (ac-9).
+  const seg = async <T>(key: keyof typeof segments, run: () => Promise<T>): Promise<T> => {
+    const started = Date.now();
+    try {
+      return await run();
+    } finally {
+      segments[key] += Date.now() - started;
+    }
+  };
+  const timings = (): RoutingTimings => {
+    const total = Date.now() - startedAt;
+    const accounted = Object.values(segments).reduce((a, b) => a + b, 0);
+    return { ...segments, total, unattributed: total - accounted };
+  };
+
+  const facetCands = await seg("generateCandidates", () => generateCandidates(memexId, facetKeys));
   const {
     candidates: semCands,
     scoreByHandle: semScore,
     sectionsByHandle: semSections,
-  } = await semanticCandidates(memexId, queryText, k);
+  } = await seg("semanticCandidates", () => semanticCandidates(memexId, queryText, k));
   const candidates = unionByHandle(facetCands, semCands);
   if (candidates.length === 0) {
-    return { surfaced: [], all: [], k, rankerModel: reranker?.model ?? KEYLESS_MODEL };
+    return {
+      surfaced: [],
+      all: [],
+      k,
+      rankerModel: reranker?.model ?? KEYLESS_MODEL,
+      timings: timings(),
+    };
   }
 
   // Baseline: RRF of the facet-density arm and the semantic arm (dec-3).
-  const density = await keylessDensity(memexId, facetCands);
+  const density = await seg("keylessDensity", () => keylessDensity(memexId, facetCands));
   let scoreByHandle = rrfFuse(candidates.map((c) => c.handle), density, semScore);
   let rankerModel = KEYLESS_MODEL;
 
@@ -425,8 +493,8 @@ export async function routeFacets(
   // when present; degrade to the RRF baseline on any error (advisory, never blocks).
   if (reranker) {
     try {
-      const docs = await sectionDocs(candidates);
-      const reranked = await reranker.rerank(queryText, docs);
+      const docs = await seg("sectionDocs", () => sectionDocs(candidates));
+      const reranked = await seg("rerank", () => reranker.rerank(queryText, docs));
       if (reranked.size > 0) {
         scoreByHandle = reranked;
         rankerModel = reranker.model;
@@ -460,10 +528,12 @@ export async function routeFacets(
   const surfacedCandidates = surfaced
     .map((s) => candidateByHandle.get(s.handle))
     .filter((c): c is Candidate => c !== undefined);
-  const sectionsByHandle = await buildImplicatedSections(memexId, surfacedCandidates, semSections);
+  const sectionsByHandle = await seg("implicatedSections", () =>
+    buildImplicatedSections(memexId, surfacedCandidates, semSections),
+  );
   for (const s of surfaced) s.sections = sectionsByHandle.get(s.handle) ?? [];
 
-  return { surfaced, all, k, rankerModel };
+  return { surfaced, all, k, rankerModel, timings: timings() };
 }
 
 // The lifecycle moment a readout is surfaced at (dec-10). Drives both the heading

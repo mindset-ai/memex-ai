@@ -26,6 +26,18 @@ const RESULT: RoutingResult = {
   ],
   k: 1,
   rankerModel: "cohere:rerank-v3.5",
+  // spec-567 t-1 — not this test's subject; the timings' own coverage is
+  // facet-routing-timings.spec-567.test.ts.
+  timings: {
+    generateCandidates: 1,
+    semanticCandidates: 2,
+    keylessDensity: 3,
+    sectionDocs: 4,
+    rerank: 5,
+    implicatedSections: 6,
+    total: 30,
+    unattributed: 9,
+  },
 };
 
 beforeAll(async () => {
