@@ -12,7 +12,7 @@
 // What is NOT separable is the pgvector/FTS cost: those arms run CONCURRENTLY, so the
 // third key is `semanticRemainder`, not `search` (ac-11).
 
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { eq } from "drizzle-orm";
 import { db } from "../db/connection.js";
@@ -128,6 +128,11 @@ function countingProvider(): EmbeddingProvider & { calls: number } {
   };
   return p;
 }
+
+// t-4 (ac-7) — the drizzle-level query count of one full routed call, measured and then
+// pinned. Counts `db.select` + `db.execute` entry points across routeFacets AND the
+// searchMemex arm it calls.
+const QUERIES_PER_ROUTED_CALL = 9;
 
 const BURNED_MS = 40;
 const FAILS_AFTER_BURNING: Reranker = {
@@ -344,5 +349,38 @@ describe("the readout never renders a timing (spec-567 t-3, ac-8)", () => {
 
     expect(slow).toBe(fast);
     for (const n of ["999", "31415", "2718", "99999", "-17"]) expect(slow).not.toContain(n);
+  });
+});
+
+// ── t-4 (ac-7) — the instrumentation issues no query of its own ──────────────
+//
+// Pinned, not bounded. The number below is what a routed call costs today; the guard's
+// job is to FAIL when it changes, so whoever adds a query has to justify it here rather
+// than discover it in prod six weeks later — which is the shape of the defect this whole
+// Spec exists to correct.
+describe("a routed call's query count is unchanged by the timers (spec-567 t-4, ac-7)", () => {
+  it("issues exactly the queries it issued before the instrumentation", async () => {
+    tagAc(AC(7));
+    const selectSpy = vi.spyOn(db, "select");
+    const executeSpy = vi.spyOn(db, "execute");
+    try {
+      const result = await routeFacets(
+        memexId,
+        ["zt-security"],
+        "the auth guard on the write path",
+        SLOW_RERANKER,
+        countingProvider(),
+      );
+      // Vacuity guard: a short-circuited route would issue almost nothing and the count
+      // would be meaningless.
+      expect(result.all.length).toBeGreaterThan(0);
+      expect(result.timings.queryEmbedding).toBeGreaterThan(0);
+
+      const issued = selectSpy.mock.calls.length + executeSpy.mock.calls.length;
+      expect(issued).toBe(QUERIES_PER_ROUTED_CALL);
+    } finally {
+      selectSpy.mockRestore();
+      executeSpy.mockRestore();
+    }
   });
 });
