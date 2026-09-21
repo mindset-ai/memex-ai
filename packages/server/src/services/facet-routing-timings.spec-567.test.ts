@@ -27,7 +27,7 @@ import {
   facetRoutingLog,
 } from "../db/schema.js";
 import { makeTestMemex } from "./test-helpers.js";
-import { routeFacets } from "./facet-routing.js";
+import { routeFacets, KEYLESS_MODEL } from "./facet-routing.js";
 import { logRouting } from "./facet-routing-log.js";
 import type { Reranker } from "./facet-rerank.js";
 
@@ -94,6 +94,27 @@ const SLOW_RERANKER: Reranker = {
   async rerank(_query, docs) {
     await new Promise((r) => setTimeout(r, 25));
     return new Map(docs.map((d, i) => [d.handle, 1 - i * 0.01]));
+  },
+};
+
+// t-2 — the two failure shapes, as `routeFacets` sees them. `CohereReranker` distinguishes
+// an HTTP error from an `AbortController` timeout internally; at THIS seam both arrive as a
+// rejected promise, and what separates them is how much time was burned first.
+const FAILS_FAST: Reranker = {
+  model: "stub:fails-fast",
+  async rerank() {
+    throw new Error("Cohere rerank failed: 429");
+  },
+};
+
+const BURNED_MS = 40;
+const FAILS_AFTER_BURNING: Reranker = {
+  model: "stub:aborts",
+  async rerank() {
+    await new Promise((r) => setTimeout(r, BURNED_MS));
+    const err = new Error("The operation was aborted");
+    err.name = "AbortError";
+    throw err;
   },
 };
 
@@ -166,5 +187,44 @@ describe("routing timings (spec-567 t-1, dec-1)", () => {
     for (const key of SEGMENTS) expect(typeof timings[key]).toBe("number");
     expect(typeof timings.total).toBe("number");
     expect(typeof timings.unattributed).toBe("number");
+  });
+});
+
+// ── t-2 (ac-9) — the burned timeout must stay visible ────────────────────────
+//
+// prod holds 127 keyless-density rows, and they are NOT "the re-ranker was off":
+// COHERE_API_KEY is set, as 22 099 cohere rows prove. They are the FAILURE path, each
+// carrying a spent timeout — which is why their p50 is 6 172 ms against cohere's 2 936 ms.
+// An instrument that dropped that burned time would push it into `unattributed` and
+// regenerate exactly the confound c-1 exposed, this time with per-stage numbers lending
+// it credibility. So the re-rank segment is timed in `finally`, and this is what says so.
+describe("re-rank timing on the failure path (spec-567 t-2, ac-9)", () => {
+  it("keeps the time burned before an abort, and does not leak it into unattributed", async () => {
+    tagAc(AC(9));
+    const result = await routeFacets(memexId, ["zt-security"], "the retry budget", FAILS_AFTER_BURNING);
+
+    // Vacuity guard: the failure path must actually have been taken. If routing had
+    // surfaced nothing, or the re-ranker had somehow succeeded, every assertion below
+    // would pass for the wrong reason.
+    expect(result.all.length).toBeGreaterThan(0);
+    expect(result.rankerModel).toBe(KEYLESS_MODEL);
+
+    // The burned time is charged to the re-rank — neither zero nor absent.
+    expect(result.timings.rerank).toBeGreaterThanOrEqual(BURNED_MS - 5);
+    // …and it is NOT sitting in the remainder instead.
+    expect(result.timings.unattributed).toBeLessThan(BURNED_MS);
+    // The segment that completed before the throw still reports its own cost.
+    expect(typeof result.timings.sectionDocs).toBe("number");
+  });
+
+  it("charges the re-rank ~nothing when it fails immediately", async () => {
+    tagAc(AC(9));
+    const result = await routeFacets(memexId, ["zt-security"], "the retry budget", FAILS_FAST);
+
+    expect(result.all.length).toBeGreaterThan(0);
+    expect(result.rankerModel).toBe(KEYLESS_MODEL);
+    // The pair is the point: a timer that always reported a constant — or always zero —
+    // would satisfy one of these two tests and fail the other.
+    expect(result.timings.rerank).toBeLessThan(BURNED_MS - 5);
   });
 });
