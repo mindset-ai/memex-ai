@@ -13,6 +13,7 @@ import { db } from "../db/connection.js";
 import { facets, standardClauseFacets, standardClauses, documents, docSections, memexes, namespaces } from "../db/schema.js";
 import { getReranker, type Reranker, type RerankDoc } from "./facet-rerank.js";
 import { searchMemex, type MemexSearchHit, type MatchingSection } from "./memex-search.js";
+import { resolveEmbeddingProvider, type EmbeddingProvider } from "./embedding-provider.js";
 
 export const KEYLESS_MODEL = "keyless-density";
 
@@ -55,14 +56,21 @@ export interface RankedStandard {
 // blamed on "routing" but never on a stage. ac-3 forbids fixing what has not been
 // measured, which made this the first thing the Spec owes.
 //
-// `semanticCandidates` is ONE key, not two. The query embedding happens inside
-// `runSectionVector` (memex-search/retrieval.ts), two modules down and concurrent with
-// the FTS arm — it has no seam here to time it at. Splitting it is dec-4; until that
-// resolves, ac-5's embedding clause is knowingly unmet rather than faked.
+// dec-4: the query embedding is timed by decorating the provider `searchMemex` already
+// accepts as an option — nothing inside memex-search/retrieval.ts is instrumented.
 export interface RoutingTimings {
   generateCandidates: number;
-  /** The whole `searchMemex` arm: query embedding + pgvector + FTS (dec-4 splits it). */
-  semanticCandidates: number;
+  /** The `provider.embed` round trip, measured exactly (dec-4, ac-10). */
+  queryEmbedding: number;
+  /**
+   * What is left of the `searchMemex` arm once the embedding is taken out. NOT the
+   * pgvector/FTS query's own cost and deliberately not named `search` (ac-11): the FTS
+   * and vector arms run CONCURRENTLY inside `searchMemex`, so this is a remainder, and a
+   * name claiming otherwise would assert a decomposition the concurrency makes
+   * unavailable. `semanticCandidates` is gone rather than kept beside its two parts —
+   * keeping it would double-count and make `unattributed` meaningless.
+   */
+  semanticRemainder: number;
   keylessDensity: number;
   sectionDocs: number;
   rerank: number;
@@ -194,6 +202,9 @@ async function semanticCandidates(
   memexId: string,
   queryText: string,
   limit: number,
+  // dec-4: passed through to `searchMemex`'s existing `provider` option so the embed can
+  // be timed by its caller. `null` reproduces today's behaviour when no key is set.
+  provider: EmbeddingProvider | null,
 ): Promise<{
   candidates: Candidate[];
   scoreByHandle: Map<string, number>;
@@ -203,7 +214,7 @@ async function semanticCandidates(
   if (q.length === 0) return { candidates: [], scoreByHandle: new Map(), sectionsByHandle: new Map() };
   let hits: MemexSearchHit[] = [];
   try {
-    hits = await searchMemex(memexId, q, { kind: "standard", limit });
+    hits = await searchMemex(memexId, q, { kind: "standard", limit, provider });
   } catch {
     return { candidates: [], scoreByHandle: new Map(), sectionsByHandle: new Map() };
   }
@@ -436,6 +447,11 @@ export async function routeFacets(
   facetKeys: string[],
   queryText: string,
   reranker: Reranker | null = getReranker(),
+  // dec-4 — injectable exactly like `reranker` above it, and for the same reason: local
+  // runs have no embedding credential, so this is the only way a test reaches the vector
+  // arm at all. The default preserves production behaviour (`searchMemex` would have
+  // resolved the same provider itself).
+  provider: EmbeddingProvider | null = resolveEmbeddingProvider(),
 ): Promise<RoutingResult> {
   const k = topK();
 
@@ -443,7 +459,8 @@ export async function routeFacets(
   // shared one would blend the segments of unrelated calls into a plausible average.
   const segments: Record<keyof Omit<RoutingTimings, "total" | "unattributed">, number> = {
     generateCandidates: 0,
-    semanticCandidates: 0,
+    queryEmbedding: 0,
+    semanticRemainder: 0,
     keylessDensity: 0,
     sectionDocs: 0,
     rerank: 0,
@@ -467,12 +484,24 @@ export async function routeFacets(
     return { ...segments, total, unattributed: total - accounted };
   };
 
+  // dec-4 — an explicit delegate, never a spread of the provider class: spreading an
+  // instance drops its prototype methods. The decorator is what makes the embed round
+  // trip attributable without touching `searchMemex` or the retrieval module (ac-10).
+  const timedProvider: EmbeddingProvider | null = provider && {
+    name: provider.name,
+    dim: provider.dim,
+    maxBatchSize: provider.maxBatchSize,
+    embed: (texts, kind) => seg("queryEmbedding", () => provider.embed(texts, kind)),
+  };
+
   const facetCands = await seg("generateCandidates", () => generateCandidates(memexId, facetKeys));
+  const armStartedAt = Date.now();
   const {
     candidates: semCands,
     scoreByHandle: semScore,
     sectionsByHandle: semSections,
-  } = await seg("semanticCandidates", () => semanticCandidates(memexId, queryText, k));
+  } = await semanticCandidates(memexId, queryText, k, timedProvider);
+  segments.semanticRemainder = Date.now() - armStartedAt - segments.queryEmbedding;
   const candidates = unionByHandle(facetCands, semCands);
   if (candidates.length === 0) {
     return {

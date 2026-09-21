@@ -7,10 +7,10 @@
 // DB-backed because the point is that the REAL segments are measured: a mocked router
 // would time stubs and prove nothing. The re-ranker is injected (no network).
 //
-// Scope note: the semantic arm is ONE key here. `searchMemex` performs the query
-// embedding inside `runSectionVector` (memex-search/retrieval.ts), two modules down and
-// concurrent with the FTS arm — splitting it is dec-4, not this task. ac-5's
-// embedding-as-its-own-key clause is therefore NOT yet satisfied, deliberately.
+// dec-4: the query embedding is timed by decorating the provider that `searchMemex`
+// already accepts as an option — nothing inside memex-search/retrieval.ts is touched.
+// What is NOT separable is the pgvector/FTS cost: those arms run CONCURRENTLY, so the
+// third key is `semanticRemainder`, not `search` (ac-11).
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
@@ -30,16 +30,18 @@ import { makeTestMemex } from "./test-helpers.js";
 import { routeFacets, KEYLESS_MODEL } from "./facet-routing.js";
 import { logRouting } from "./facet-routing-log.js";
 import type { Reranker } from "./facet-rerank.js";
+import type { EmbeddingProvider } from "./embedding-provider.js";
 
 const SPEC = "mindset-prod/memex-building-itself/specs/spec-567";
 const AC = (n: number) => `${SPEC}/acs/ac-${n}`;
 
-// The six segments this task times. The seventh key — the query embedding, split out
-// of `semanticCandidates` — is dec-4's to add; asserting its ABSENCE here would pin the
-// gap in place, so this list is what t-1 claims and nothing more.
+// The seven timed segments ac-5 requires. `semanticCandidates` is NOT among them: it was
+// replaced by `queryEmbedding` + `semanticRemainder`, which must not double-count or
+// `unattributed` stops meaning anything (ac-6).
 const SEGMENTS = [
   "generateCandidates",
-  "semanticCandidates",
+  "queryEmbedding",
+  "semanticRemainder",
   "keylessDensity",
   "sectionDocs",
   "rerank",
@@ -107,6 +109,26 @@ const FAILS_FAST: Reranker = {
   },
 };
 
+// dec-4 (ac-10) — a provider we can COUNT and whose cost we choose. Local runs have no
+// COHERE_API_KEY / OPENAI_API_KEY, so `resolveEmbeddingProvider()` returns null and the
+// vector arm never runs: injecting one is the only way to exercise the embed at all.
+const EMBED_MS = 30;
+function countingProvider(): EmbeddingProvider & { calls: number } {
+  const p = {
+    calls: 0,
+    name: "stub:embed",
+    dim: 1536,
+    maxBatchSize: 96,
+    async embed(texts: string[]): Promise<number[][]> {
+      p.calls++;
+      await new Promise((r) => setTimeout(r, EMBED_MS));
+      // A unit vector of the column's width — a zero vector makes cosine distance NaN.
+      return texts.map(() => [1, ...Array<number>(1535).fill(0)]);
+    },
+  };
+  return p;
+}
+
 const BURNED_MS = 40;
 const FAILS_AFTER_BURNING: Reranker = {
   model: "stub:aborts",
@@ -134,13 +156,15 @@ afterAll(async () => {
 });
 
 describe("routing timings (spec-567 t-1, dec-1)", () => {
-  // DELIBERATELY NOT tagged to ac-5. ac-5 requires SEVEN keys, the query embedding among
-  // them; this asserts six. Tagging it would emit a pass and paint ac-5 verified while
-  // its central clause — the embedding as its own key — is unmet, which is worse than no
-  // signal: it retires the question. ac-5 stays untested until dec-4 resolves and the
-  // seventh key exists.
-  it("measures every segment of the chain separately (ac-5 partial — see dec-4)", async () => {
-    const result = await routeFacets(memexId, ["zt-security"], "the auth guard on the write path", SLOW_RERANKER);
+  it("measures every one of the seven segments separately (ac-5)", async () => {
+    tagAc(AC(5));
+    const result = await routeFacets(
+      memexId,
+      ["zt-security"],
+      "the auth guard on the write path",
+      SLOW_RERANKER,
+      countingProvider(),
+    );
 
     // Vacuity guard: with no candidates `routeFacets` short-circuits before most of the
     // chain, and every segment would trivially read 0. Assert the full path really ran.
@@ -187,6 +211,36 @@ describe("routing timings (spec-567 t-1, dec-1)", () => {
     for (const key of SEGMENTS) expect(typeof timings[key]).toBe("number");
     expect(typeof timings.total).toBe("number");
     expect(typeof timings.unattributed).toBe("number");
+  });
+});
+
+// ── dec-4 (ac-10, ac-11) — the embedding is timed through the seam that existed ──
+describe("query-embedding timing (spec-567 dec-4)", () => {
+  it("times the injected provider's embed, calling it exactly once (ac-10)", async () => {
+    tagAc(AC(10));
+    const provider = countingProvider();
+    const result = await routeFacets(memexId, ["zt-security"], "the rate limiter", SLOW_RERANKER, provider);
+
+    // Vacuity guard: if the decorator never reached `runSectionVector`, `calls` is 0 and
+    // every timing assertion below would be about a call that never happened.
+    expect(provider.calls).toBe(1);
+    // The measured time tracks the provider's OWN delay — so the decorator wraps the real
+    // call rather than reporting a constant.
+    expect(result.timings.queryEmbedding).toBeGreaterThanOrEqual(EMBED_MS - 5);
+    // …and it is charged to the embedding, not left inside the arm's remainder.
+    expect(result.timings.semanticRemainder).toBeLessThan(result.timings.queryEmbedding + EMBED_MS);
+  });
+
+  it("names the third key semanticRemainder, never search (ac-11)", async () => {
+    tagAc(AC(11));
+    const result = await routeFacets(memexId, ["zt-security"], "the rate limiter", SLOW_RERANKER, countingProvider());
+
+    expect(result.timings).toHaveProperty("semanticRemainder");
+    // The FTS and vector arms run concurrently inside searchMemex, so no key may claim to
+    // be the search's own cost. `semanticCandidates` is gone too: keeping it beside its
+    // two parts would double-count and make `unattributed` meaningless.
+    expect(result.timings).not.toHaveProperty("search");
+    expect(result.timings).not.toHaveProperty("semanticCandidates");
   });
 });
 

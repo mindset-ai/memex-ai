@@ -18,7 +18,8 @@ const RERANKER = "cohere:rerank-v3.5";
 // spec-567 t-1 — the renderer ignores timings; present only to satisfy the type.
 const NO_TIMINGS = {
   generateCandidates: 0,
-  semanticCandidates: 0,
+  queryEmbedding: 0,
+  semanticRemainder: 0,
   keylessDensity: 0,
   sectionDocs: 0,
   rerank: 0,

@@ -30,13 +30,14 @@ const RESULT: RoutingResult = {
   // facet-routing-timings.spec-567.test.ts.
   timings: {
     generateCandidates: 1,
-    semanticCandidates: 2,
+    queryEmbedding: 2,
+    semanticRemainder: 2,
     keylessDensity: 3,
     sectionDocs: 4,
     rerank: 5,
     implicatedSections: 6,
     total: 30,
-    unattributed: 9,
+    unattributed: 7,
   },
 };
 
