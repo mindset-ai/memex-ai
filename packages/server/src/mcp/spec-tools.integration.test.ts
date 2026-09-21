@@ -10,7 +10,7 @@
 // Spec lifecycle verbs (assess_spec / publish_spec).
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import {
   memexes,
@@ -657,5 +657,37 @@ describe("phase handoff full-vs-essence delivery (spec-203 Layer 2, ac-10)", () 
       ref: buildSpecRef,
     });
     expect(fresh.content[0].text).toContain(FULL_MARKER);
+  });
+
+  // spec-510 t-4 — the claim became ASYNC, and the one way to get that wrong is
+  // to await it OUTSIDE the `&&` chain that guards it. Nothing else in the suite
+  // would notice: the response is identical either way.
+  it("does NOT consume a claim on a phase that has no handoff at all", async () => {
+    tagAc(`mindset-prod/memex-building-itself/specs/spec-510/acs/ac-19`);
+    process.env.HANDOFF_SHARED_STORE_ENABLED = "true";
+    const sessionId = "handoff-sess-draft";
+    try {
+      await db
+        .insert(mcpSessions)
+        .values([{ sessionId, userId: actor.user.id }])
+        .onConflictDoNothing();
+      // `HANDOFF_BUTTON_BY_PHASE` is a Partial — draft and done are not in it, so
+      // a verbose read here delivers no handoff and must therefore claim nothing.
+      const draft = await createDocDraft(actor.account.id, "No-Handoff Spec", "P", "spec");
+      created.docs.push(draft.id);
+
+      await callToolWithSession(actor.user.id, sessionId, "get_doc", {
+        ref: `${actor.account.slug}/main/specs/${draft.handle}`,
+      });
+
+      const rows = (await db.execute(
+        sql`SELECT count(*)::int AS n FROM agent_session_claims WHERE session_id = ${sessionId}`,
+      )) as unknown as Array<{ n: number }>;
+      // Awaiting the claim above the guard would write a row here — burning a
+      // claim for a key that can never deliver, on every verbose draft read.
+      expect(rows[0]?.n ?? 0).toBe(0);
+    } finally {
+      delete process.env.HANDOFF_SHARED_STORE_ENABLED;
+    }
   });
 });

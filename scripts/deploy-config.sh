@@ -217,6 +217,20 @@ fi
 if [ -n "${COST_PANEL_MEMEXES+set}" ]; then
   export COST_PANEL_MEMEXES
 fi
+# HANDOFF_SHARED_STORE_ENABLED — spec-510 t-4 (dec-9): where the phase-handoff claim
+# lives. ON = the shared agent_session_claims row (the corrected behaviour, fixing a
+# measured 2.672x over-delivery); OFF/unset = the process-local Map retained as the
+# retreat path. Default OFF, read live, so flipping it is an instant kill switch with
+# no deploy.
+#
+# Same set-vs-unset semantics as ACTIVATION_EMAILS_ENABLED, and dec-9 names exactly why
+# it matters here: this flag guards a SILENT failure — if the migration regresses phase
+# priming there is no error, no red test and no log line, only agents less well primed.
+# A deploy from a checkout that never set it must not flip the storage source in either
+# direction, or the switch is "armed and is not" at the one moment it is needed.
+if [ -n "${HANDOFF_SHARED_STORE_ENABLED+set}" ]; then
+  export HANDOFF_SHARED_STORE_ENABLED
+fi
 
 # OTEL_EXPORTER_OTLP_ENDPOINT — turns on database observability and chooses
 # where the metrics go. Unset (the default) means telemetry is off with zero

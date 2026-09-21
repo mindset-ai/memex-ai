@@ -438,10 +438,21 @@ export async function composeGuidanceEnvelope(
         const handoffContext = handoffButtonId
           ? handoffInterpolationContext(baseUrl, state.doc)
           : undefined;
+        // spec-510 t-4: the claim is now async (it may hit the shared store).
+        // It MUST stay LAST in this chain — `&&` short-circuits, so the claim is
+        // made only when a handoff would actually be delivered. Awaiting it
+        // above the other two conditions would consume a claim on every verbose
+        // read of a Spec that has no handoff at all: HANDOFF_BUTTON_BY_PHASE is
+        // a Partial, and draft and done are not in it.
         if (
           handoffButtonId &&
           handoffContext &&
-          claimFullHandoffDelivery(ctx.userId, ctx.sessionId, state.doc.id, state.doc.status)
+          (await claimFullHandoffDelivery(
+            ctx.userId,
+            ctx.sessionId,
+            state.doc.id,
+            state.doc.status,
+          ))
         ) {
           // spec-263 dec-2 (ac-9): compose WITH the Org appends already fetched
           // above — the same composition the UI button and get_prompt use, so
