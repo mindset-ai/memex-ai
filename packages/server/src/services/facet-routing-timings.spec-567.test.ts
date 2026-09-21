@@ -27,7 +27,7 @@ import {
   facetRoutingLog,
 } from "../db/schema.js";
 import { makeTestMemex } from "./test-helpers.js";
-import { routeFacets, KEYLESS_MODEL } from "./facet-routing.js";
+import { routeFacets, formatRoutedStandards, KEYLESS_MODEL } from "./facet-routing.js";
 import { logRouting } from "./facet-routing-log.js";
 import type { Reranker } from "./facet-rerank.js";
 import type { EmbeddingProvider } from "./embedding-provider.js";
@@ -280,5 +280,69 @@ describe("re-rank timing on the failure path (spec-567 t-2, ac-9)", () => {
     // The pair is the point: a timer that always reported a constant — or always zero —
     // would satisfy one of these two tests and fail the other.
     expect(result.timings.rerank).toBeLessThan(BURNED_MS - 5);
+  });
+});
+
+// ── t-3 (ac-8) — no timing value may reach the agent ─────────────────────────
+//
+// std-53 already guarantees the OTHER two halves of ac-8, and it guarantees them for
+// this code without a line being written here: the timers run inside `routeAndReadout`,
+// which spec-560 wrapped in `afterCommit`, and facet-consume-nonfatal.spec-560.test.ts
+// drives that seam — a rejected `routeFacets` degrades to "" with no ⚠, and the swallowed
+// error reaches the log as an Error OBJECT with its stack. Those two tests are tagged to
+// ac-8 as well rather than copied here; duplicating an assertion is how two copies drift.
+//
+// What is genuinely NEW in spec-567, and therefore lives here: the timings are a field on
+// the same object the readout renders from. Nothing stops a future edit from printing one.
+// If that happened the agent-facing response would change with the clock — no longer
+// byte-identical to an uninstrumented one, and non-deterministic on top.
+describe("the readout never renders a timing (spec-567 t-3, ac-8)", () => {
+  const std = {
+    handle: "std-53",
+    title: "After a write commits, nothing that runs next may report it as failed",
+    facetKeys: ["architecture"],
+    score: 1,
+    surfaced: true,
+    sections: [],
+  };
+  const withTimings = (t: Partial<Record<string, number>>) => ({
+    surfaced: [std],
+    all: [std],
+    k: 10,
+    rankerModel: "cohere:rerank-v3.5",
+    timings: {
+      generateCandidates: 0,
+      queryEmbedding: 0,
+      semanticRemainder: 0,
+      keylessDensity: 0,
+      sectionDocs: 0,
+      rerank: 0,
+      implicatedSections: 0,
+      total: 0,
+      unattributed: 0,
+      ...t,
+    },
+  });
+
+  it("renders byte-identically for two results that differ only in their timings", () => {
+    tagAc(AC(8));
+    const fast = formatRoutedStandards(withTimings({}));
+    const slow = formatRoutedStandards(
+      withTimings({
+        generateCandidates: 999,
+        queryEmbedding: 31415,
+        semanticRemainder: 2718,
+        rerank: 4000,
+        total: 99999,
+        unattributed: -17, // the overlap case, which must not surface either
+      }),
+    );
+
+    // Vacuity guard: an empty readout would satisfy any equality.
+    expect(fast).toContain("std-53");
+    expect(fast.length).toBeGreaterThan(50);
+
+    expect(slow).toBe(fast);
+    for (const n of ["999", "31415", "2718", "99999", "-17"]) expect(slow).not.toContain(n);
   });
 });
