@@ -13,6 +13,7 @@ import { db } from "../db/connection.js";
 import { facets, standardClauseFacets, standardClauses, documents, docSections, memexes, namespaces } from "../db/schema.js";
 import { getReranker, type Reranker, type RerankDoc } from "./facet-rerank.js";
 import { searchMemex, type MemexSearchHit, type MatchingSection } from "./memex-search.js";
+import { resolveEmbeddingProvider, type EmbeddingProvider } from "./embedding-provider.js";
 
 export const KEYLESS_MODEL = "keyless-density";
 
@@ -48,6 +49,44 @@ export interface RankedStandard {
   sections?: ImplicatedSection[];
 }
 
+// spec-567 t-1 (dec-1) — the per-stage cost of a routing call, in milliseconds.
+//
+// Why this exists: a routed write commits in ~804 ms and then holds the caller ~2 038 ms
+// more while this chain runs, and nothing here was ever timed — so the cost could be
+// blamed on "routing" but never on a stage. ac-3 forbids fixing what has not been
+// measured, which made this the first thing the Spec owes.
+//
+// dec-4: the query embedding is timed by decorating the provider `searchMemex` already
+// accepts as an option — nothing inside memex-search/retrieval.ts is instrumented.
+export interface RoutingTimings {
+  generateCandidates: number;
+  /** The `provider.embed` round trip, measured exactly (dec-4, ac-10). */
+  queryEmbedding: number;
+  /**
+   * What is left of the `searchMemex` arm once the embedding is taken out. NOT the
+   * pgvector/FTS query's own cost and deliberately not named `search` (ac-11): the FTS
+   * and vector arms run CONCURRENTLY inside `searchMemex`, so this is a remainder, and a
+   * name claiming otherwise would assert a decomposition the concurrency makes
+   * unavailable. `semanticCandidates` is gone rather than kept beside its two parts —
+   * keeping it would double-count and make `unattributed` meaningless.
+   */
+  semanticRemainder: number;
+  keylessDensity: number;
+  sectionDocs: number;
+  rerank: number;
+  implicatedSections: number;
+  /** Wall time of the entire `routeFacets` call. */
+  total: number;
+  /**
+   * `total` minus the sum of the segments — the time the segments do not account for,
+   * named rather than dropped (ac-6). Deliberately NOT clamped at zero: the segments
+   * are sequential today, so this is non-negative, and a NEGATIVE value is the honest
+   * signal that some of them have begun to overlap — exactly what dec-2's
+   * parallelisation would do.
+   */
+  unattributed: number;
+}
+
 export interface RoutingResult {
   /** The top-K, ordered by score, scored, NO floor (dec-2). The payoff readout. */
   surfaced: RankedStandard[];
@@ -56,6 +95,8 @@ export interface RoutingResult {
   k: number;
   /** 'keyless-density' | 'cohere:rerank-v3.5' — what actually scored this call. */
   rankerModel: string;
+  /** Per-stage cost of this call (spec-567 dec-1). */
+  timings: RoutingTimings;
 }
 
 // The attention cap (dec-2). Starts at 10, env-tunable from the dec-4 logs.
@@ -161,6 +202,9 @@ async function semanticCandidates(
   memexId: string,
   queryText: string,
   limit: number,
+  // dec-4: passed through to `searchMemex`'s existing `provider` option so the embed can
+  // be timed by its caller. `null` reproduces today's behaviour when no key is set.
+  provider: EmbeddingProvider | null,
 ): Promise<{
   candidates: Candidate[];
   scoreByHandle: Map<string, number>;
@@ -170,7 +214,7 @@ async function semanticCandidates(
   if (q.length === 0) return { candidates: [], scoreByHandle: new Map(), sectionsByHandle: new Map() };
   let hits: MemexSearchHit[] = [];
   try {
-    hits = await searchMemex(memexId, q, { kind: "standard", limit });
+    hits = await searchMemex(memexId, q, { kind: "standard", limit, provider });
   } catch {
     return { candidates: [], scoreByHandle: new Map(), sectionsByHandle: new Map() };
   }
@@ -403,21 +447,74 @@ export async function routeFacets(
   facetKeys: string[],
   queryText: string,
   reranker: Reranker | null = getReranker(),
+  // dec-4 — injectable exactly like `reranker` above it, and for the same reason: local
+  // runs have no embedding credential, so this is the only way a test reaches the vector
+  // arm at all. The default preserves production behaviour (`searchMemex` would have
+  // resolved the same provider itself).
+  provider: EmbeddingProvider | null = resolveEmbeddingProvider(),
 ): Promise<RoutingResult> {
   const k = topK();
-  const facetCands = await generateCandidates(memexId, facetKeys);
+
+  // spec-567 t-1 — the accumulator is a local, never module state: at concurrency 80 a
+  // shared one would blend the segments of unrelated calls into a plausible average.
+  const segments: Record<keyof Omit<RoutingTimings, "total" | "unattributed">, number> = {
+    generateCandidates: 0,
+    queryEmbedding: 0,
+    semanticRemainder: 0,
+    keylessDensity: 0,
+    sectionDocs: 0,
+    rerank: 0,
+    implicatedSections: 0,
+  };
+  const startedAt = Date.now();
+  // `finally`, not a trailing assignment: the re-rank segment must keep the time it
+  // burned before throwing or aborting, or a spent 4 s timeout vanishes into
+  // `unattributed` and reproduces the confound spec-567 c-1 exposed (ac-9).
+  const seg = async <T>(key: keyof typeof segments, run: () => Promise<T>): Promise<T> => {
+    const started = Date.now();
+    try {
+      return await run();
+    } finally {
+      segments[key] += Date.now() - started;
+    }
+  };
+  const timings = (): RoutingTimings => {
+    const total = Date.now() - startedAt;
+    const accounted = Object.values(segments).reduce((a, b) => a + b, 0);
+    return { ...segments, total, unattributed: total - accounted };
+  };
+
+  // dec-4 — an explicit delegate, never a spread of the provider class: spreading an
+  // instance drops its prototype methods. The decorator is what makes the embed round
+  // trip attributable without touching `searchMemex` or the retrieval module (ac-10).
+  const timedProvider: EmbeddingProvider | null = provider && {
+    name: provider.name,
+    dim: provider.dim,
+    maxBatchSize: provider.maxBatchSize,
+    embed: (texts, kind) => seg("queryEmbedding", () => provider.embed(texts, kind)),
+  };
+
+  const facetCands = await seg("generateCandidates", () => generateCandidates(memexId, facetKeys));
+  const armStartedAt = Date.now();
   const {
     candidates: semCands,
     scoreByHandle: semScore,
     sectionsByHandle: semSections,
-  } = await semanticCandidates(memexId, queryText, k);
+  } = await semanticCandidates(memexId, queryText, k, timedProvider);
+  segments.semanticRemainder = Date.now() - armStartedAt - segments.queryEmbedding;
   const candidates = unionByHandle(facetCands, semCands);
   if (candidates.length === 0) {
-    return { surfaced: [], all: [], k, rankerModel: reranker?.model ?? KEYLESS_MODEL };
+    return {
+      surfaced: [],
+      all: [],
+      k,
+      rankerModel: reranker?.model ?? KEYLESS_MODEL,
+      timings: timings(),
+    };
   }
 
   // Baseline: RRF of the facet-density arm and the semantic arm (dec-3).
-  const density = await keylessDensity(memexId, facetCands);
+  const density = await seg("keylessDensity", () => keylessDensity(memexId, facetCands));
   let scoreByHandle = rrfFuse(candidates.map((c) => c.handle), density, semScore);
   let rankerModel = KEYLESS_MODEL;
 
@@ -425,8 +522,8 @@ export async function routeFacets(
   // when present; degrade to the RRF baseline on any error (advisory, never blocks).
   if (reranker) {
     try {
-      const docs = await sectionDocs(candidates);
-      const reranked = await reranker.rerank(queryText, docs);
+      const docs = await seg("sectionDocs", () => sectionDocs(candidates));
+      const reranked = await seg("rerank", () => reranker.rerank(queryText, docs));
       if (reranked.size > 0) {
         scoreByHandle = reranked;
         rankerModel = reranker.model;
@@ -460,10 +557,12 @@ export async function routeFacets(
   const surfacedCandidates = surfaced
     .map((s) => candidateByHandle.get(s.handle))
     .filter((c): c is Candidate => c !== undefined);
-  const sectionsByHandle = await buildImplicatedSections(memexId, surfacedCandidates, semSections);
+  const sectionsByHandle = await seg("implicatedSections", () =>
+    buildImplicatedSections(memexId, surfacedCandidates, semSections),
+  );
   for (const s of surfaced) s.sections = sectionsByHandle.get(s.handle) ?? [];
 
-  return { surfaced, all, k, rankerModel };
+  return { surfaced, all, k, rankerModel, timings: timings() };
 }
 
 // The lifecycle moment a readout is surfaced at (dec-10). Drives both the heading
