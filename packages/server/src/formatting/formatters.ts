@@ -38,6 +38,8 @@ import {
   type ToNudgeInput,
   // spec-542: the grounding dimension the Scaffold selects on.
   type GroundingState,
+  // spec-510 dec-4: the agent-surface dimension.
+  type GuidanceChannel,
 } from "@memex/shared";
 import type { AcWithVerification } from "../services/acs.js";
 
@@ -153,6 +155,7 @@ export function nudgeInputFor(
     // caller has to say WHICH state. Passing nothing emits no claim, which is
     // correct for a read that does not know (ac-7) and wrong as a default.
     grounding: groundingStateOf(doc),
+    channel: nudge?.channel,
     orgBlocks: nudge?.orgBlocks,
   };
 }
@@ -172,6 +175,11 @@ export interface NudgeContext {
   // or a surface with no cadence key — falls through to the unchanged `toNudge`
   // call below, which is what makes "flag off" byte-identical to today.
   guidance?: string;
+  // spec-510 t-5 (dec-4): the agent surface this response is for. The seat holds
+  // it on `ctx.channel` and until now never read it — s-3's claim that the seat
+  // "already holds both the channel and the session id" was half true. Undefined
+  // asserts nothing, so no channel-targeted block fires.
+  channel?: GuidanceChannel;
 }
 
 // spec-203 dec-3 (t-3): a piece of platform-injected guidance a tool reports for

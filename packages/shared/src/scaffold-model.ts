@@ -230,14 +230,48 @@ export interface GuidanceTarget {
   /**
    * Fire only when the Spec is in this grounding state (spec-542 dec-1).
    *
-   * BASE-only today: the org-addition API surface (`routes/scaffold.ts`,
-   * `routes/personal-scaffold.ts`, `services/scaffold-additions.ts`) validates
-   * the other four dimensions and does not accept this one, so an Org cannot
-   * scope an addition by grounding. That is deliberate, not an oversight —
-   * widening it means deciding what an Org may assert about grounding.
+   * BASE-only today, so an Org cannot scope an addition by grounding. That is
+   * deliberate, not an oversight — widening it means deciding what an Org may
+   * assert about grounding.
+   *
+   * ⚠ MECHANISM CORRECTED (spec-510 t-5, by mutation probe). This comment used
+   * to say the org-addition API "does not accept" the dimension. It accepts it
+   * and DROPS it: `parseTarget` builds a fresh target from four known keys, so
+   * an unknown one vanishes and the caller gets a 201 (spec-510 issue-8). What
+   * actually holds the line is the STORAGE — `org_scaffold_additions` has
+   * exactly four target columns and `services/scaffold-additions.ts` rebuilds
+   * every target from them, so no extra dimension survives a round-trip.
+   * Measured, not reasoned: opening `parseTarget`'s allow-list changes nothing
+   * observable; adding a `target_channel` column is what reds the guard. Guard
+   * the columns, not the parser.
    */
   grounding?: GroundingState;
+  /**
+   * Fire only on this agent surface (spec-510 dec-4).
+   *
+   * Exists because some guidance names an affordance one surface cannot reach —
+   * "the same text the web UI's copy-prompt button produces" is tokens spent
+   * describing a world an MCP coding agent does not inhabit. The mirror of
+   * [per std-34]'s honest-CTA rule. Per-channel prose is authored as TWO BLOCKS
+   * OF DATA [per std-15], never a branch in a projector.
+   *
+   * Absent — which every block shipped before spec-510 is — matches BOTH
+   * surfaces, exactly as before. That is what makes the dimension additive.
+   *
+   * BASE-only, like `grounding` above and for the reason spec-510 dec-10
+   * recorded: the org-addition surface persists a target as four columns
+   * (`target_phase` / `target_tool` / `target_transition` / `target_button`), so
+   * an Org block cannot carry this even if an API accepted it. Widening that is
+   * a decision about what an Org may assert about the agent surface, and nobody
+   * has asked for it.
+   */
+  channel?: GuidanceChannel;
 }
+
+/** The two agent surfaces a guidance block can be aimed at. Mirrors
+ *  `ToolCtx.channel` on the server (spec-156 ac-19) — one vocabulary, so the
+ *  seat can pass what it already holds straight through. */
+export type GuidanceChannel = 'mcp' | 'in_app_agent';
 
 export type ScaffoldNode =
   | PhaseNode
@@ -314,6 +348,12 @@ export interface ToNudgeInput {
    *  at all. Passing `not_grounded` here to stand in for "unknown" would
    *  reinstate the defect. */
   grounding?: GroundingState;
+  /** The agent surface this response is for (spec-510 dec-4). Undefined where
+   *  the caller does not know it, which matches only channel-agnostic blocks —
+   *  the same shape as `grounding` above, and correct for the same reason: a
+   *  caller that does not know must assert nothing rather than pick a default
+   *  and silently emit the wrong surface's prose. */
+  channel?: GuidanceChannel;
   /** Org additions already filtered to `source: 'org'` + the principal's Org. */
   orgBlocks?: readonly GuidanceBlock[];
 }
@@ -435,9 +475,9 @@ export function toNudge(input: ToNudgeInput): string {
  *  boundary [per std-15] — a session argument here would drag that scope in and
  *  break the React path, which has no session at all. */
 export function toNudgeBlocks(input: ToNudgeInput): readonly GuidanceBlock[] {
-  const { dataset, tool, phase, grounding, orgBlocks } = input;
+  const { dataset, tool, phase, grounding, channel, orgBlocks } = input;
   const matches = (block: GuidanceBlock): boolean =>
-    matchesNudgeTarget(block.target, { tool, phase, grounding });
+    matchesNudgeTarget(block.target, { tool, phase, grounding, channel });
 
   const base = filterAndSort(dataset.baseGuidance, (b) => b.source === 'base' && matches(b));
   const org = filterAndSort(orgBlocks ?? [], (b) => b.source === 'org' && b.enabled && matches(b));
@@ -564,7 +604,7 @@ export function toInitPromptRef(tool: ToolNode): InitPromptRefEntry {
  */
 function matchesNudgeTarget(
   target: GuidanceTarget,
-  context: { tool?: string; phase?: Phase; grounding?: GroundingState },
+  context: { tool?: string; phase?: Phase; grounding?: GroundingState; channel?: GuidanceChannel },
 ): boolean {
   if (target.transition !== undefined) return false;
   if (target.button !== undefined) return false;
@@ -578,6 +618,12 @@ function matchesNudgeTarget(
   // `return false` and never become an early `return true`: as a positive match
   // it would let grounding override a phase or tool mismatch.
   if (target.grounding !== undefined && target.grounding !== context.grounding) return false;
+  // spec-510 dec-4: same shape again, and the same trap — this must stay an
+  // early `return false`. As a positive match, a channel hit would override a
+  // phase or tool mismatch and send an agent prose meant for a different
+  // context. Absent channel still matches every surface, which is what keeps
+  // every pre-spec-510 block reaching both.
+  if (target.channel !== undefined && target.channel !== context.channel) return false;
   return true;
 }
 

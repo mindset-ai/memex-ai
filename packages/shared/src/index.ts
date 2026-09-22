@@ -43,6 +43,7 @@ export {
   toNudge,
   // spec-510 t-2: the addressable sibling the server seat claims against.
   toNudgeBlocks,
+  type GuidanceChannel,
   toRubric,
   toInitPromptRef,
   toButtonPrompt,

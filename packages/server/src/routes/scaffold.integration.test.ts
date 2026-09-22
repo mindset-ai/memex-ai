@@ -9,7 +9,7 @@
 //                     can't write; non-members 404 on both reads and writes.
 
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 
 // Force per-user JWT-mode session middleware so each fixture carries its own
 // identity — dev mode would resolve every request to dev@memex.ai.
@@ -537,5 +537,100 @@ describe("dec-3: no schema path to send `source` or `kind` (ac-11)", () => {
     expect(row).toBeDefined();
     expect("source" in (row as object)).toBe(false);
     expect("kind" in (row as object)).toBe(false);
+  });
+});
+
+// ── spec-510 t-5 (dec-10) — `channel` is a BASE-only target dimension ────────
+//
+// WHY HERE AND NOT IN A FILE OF ITS OWN. The subject is this API, and the
+// precedent is the block directly above: ac-11 proves there is no schema path
+// to send `source`/`kind`. This proves the same for `channel`, with fixtures
+// that already exist in this file.
+//
+// WHAT dec-10 DECIDED. t-5 adds `channel` so guidance can name an affordance
+// only one surface has. dec-4 assumed Org additions would inherit the dimension
+// for free; they do not, and dec-10 decided to keep it that way — matching
+// spec-542's identical call on `grounding`, because nobody has asked to target
+// by surface and a dimension is far cheaper to open later than to take back
+// once tenants depend on it.
+//
+// A DECISION THAT LIVES ONLY IN A DOCUMENT IS NOT A DECISION. Without these
+// tests the parser's allow-list could gain a key in a later edit and nothing
+// would notice — the dimension would quietly become tenant-settable, which is
+// the one thing dec-10 says it must not be.
+//
+// NOTE THE VERB. The API DROPS an unknown target key, it does not 400 on it —
+// which is how `grounding` and every other unknown key already behave here, so
+// spec-510 is not introducing that. It is why ac-23 reads "cannot be set"
+// rather than "is rejected" (issue-8).
+//
+// WHICH OF THE TWO TESTS IS LOAD-BEARING — measured, not assumed. Opening the
+// parser's allow-list (`out.channel = t.channel` in parseTarget) leaves BOTH
+// tests green: the response is rebuilt from the persisted row, so the parser
+// never gets to decide. The ONLY thing keeping the dimension out is the column
+// set, and adding `target_channel` reds the second test (verified — it also
+// leaves the first one green, since the ORM mapper still would not read it).
+// So the two are not redundant and neither subsumes the other: the second is
+// the guard, the first is the end-to-end statement of what a caller observes.
+describe("spec-510 t-5 — a tenant cannot target guidance by agent surface (ac-23)", () => {
+  const AC_23 = "mindset-prod/memex-building-itself/specs/spec-510/acs/ac-23";
+
+  it("POST drops target.channel — it reaches neither the response nor the row", async () => {
+    tagAc(AC_23);
+    const admin = await seedUser("ac23-channel");
+    const fx = await seedOrg("ac23-channel");
+    await grant(admin.userId, fx.orgId, "administrator");
+
+    const res = await authedRequest(
+      `/api/orgs/${fx.orgId}/scaffold/additions`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          // `phase` rides along so a green result cannot come from the whole
+          // target being rejected — the block IS created, minus the channel.
+          target: { phase: "build", channel: "mcp" },
+          text: "Org block attempting to scope itself to one agent surface.",
+          rationale: "Proves the dimension is not tenant-settable.",
+        }),
+      },
+      admin.bearer,
+    );
+    expect(res.status).toBe(201);
+
+    const body = (await res.json()) as { target: Record<string, unknown> };
+    expect(body.target.phase).toBe("build");
+    expect("channel" in body.target).toBe(false);
+
+    // …and nothing landed on disk either. Asserted separately from the response
+    // because they can fail apart: a future mapper could read a column the
+    // response then exposes.
+    const row = (await db.query.orgScaffoldAdditions.findFirst({
+      where: eq(orgScaffoldAdditions.orgId, fx.orgId),
+    })) as Record<string, unknown> | undefined;
+    expect(row).toBeDefined();
+    expect(row?.targetPhase).toBe("build");
+    expect("targetChannel" in (row as object)).toBe(false);
+  });
+
+  it("the table persists EXACTLY four target dimensions", async () => {
+    tagAc(AC_23);
+    // One table serves both the Org and the Personal surface (owner_xor), so
+    // this single assertion closes both doors at once — a `target_channel`
+    // column is the only way the dimension could become tenant-settable.
+    const rows = (await db.execute(sql`
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_name = 'org_scaffold_additions'
+        AND column_name LIKE 'target\\_%'
+      ORDER BY column_name
+    `)) as unknown as Array<{ column_name: string }>;
+
+    expect(
+      rows.map((r) => r.column_name),
+      "org_scaffold_additions gained or lost a target dimension. Adding " +
+        "target_channel would make `channel` tenant-settable, which dec-10 " +
+        "decided against (and spec-542 decided against for `grounding` " +
+        "before it). If that is now deliberate, change the decision first.",
+    ).toEqual(["target_button", "target_phase", "target_tool", "target_transition"]);
   });
 });

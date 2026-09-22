@@ -490,11 +490,18 @@ export async function composeGuidanceEnvelope(
       const cadenceKey = await ctx.cadenceKey?.();
       const cadenced = await composeCadencedGuidance(
         cadenceKey,
-        toNudgeBlocks(nudgeInputFor(state.doc, phase, { tool: ctx.toolName, orgBlocks })),
+        toNudgeBlocks(
+          nudgeInputFor(state.doc, phase, {
+            tool: ctx.toolName,
+            orgBlocks,
+            // spec-510 t-5: the seat reads ctx.channel for the first time here.
+            channel: ctx.channel,
+          }),
+        ),
       );
       const nudge =
         ctx.toolName || orgBlocks || fullHandoff || cadenced
-          ? { tool: ctx.toolName, orgBlocks, fullHandoff, guidance: cadenced?.text }
+          ? { tool: ctx.toolName, orgBlocks, fullHandoff, guidance: cadenced?.text, channel: ctx.channel }
           : undefined;
       let acVerifications: AcWithVerification[] | undefined;
       if (phase === "build") {
