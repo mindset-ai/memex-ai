@@ -239,6 +239,35 @@ async function conversationIdFor(
 }
 
 /**
+ * spec-510 t-10 (ac-22): the in-app agent's CADENCE KEY — the identifier
+ * spec-510's per-session guidance suppression keys on for this surface.
+ *
+ * The MCP surface has `Mcp-Session-Id`; the React agent has no equivalent, so it
+ * uses its conversation (thread) id. Resolved LAZILY through `ctx.cadenceKey`,
+ * because this is a DB read and most in-app tool calls never reach a Spec footer
+ * — the same reasoning `getOrgBlocksForNudge` carries.
+ *
+ * ⚠ THE TWO SURFACES DO NOT MEAN THE SAME THING BY "SESSION". An MCP session
+ * spans every Spec an agent touches; a conversation is per (doc, user). So
+ * "shown once per session" is once across all of an agent's work over MCP, and
+ * once PER SPEC in the web app. ac-4 committed to "each keyed to its own session
+ * or thread", so that is within scope — but the suppression rates differ, which
+ * matters when reading t-9's dogfood numbers per surface.
+ *
+ * Returns undefined — never a fabricated key — when the chat is not bound to a
+ * document, when the conversation row does not exist yet (the first call of
+ * every conversation), or when the lookup fails. The caller's documented
+ * fallback is to emit guidance in full, which is the pre-spec-510 behaviour.
+ */
+export async function conversationCadenceKey(
+  docId: string | undefined,
+  userId: string,
+): Promise<string | undefined> {
+  if (!docId) return undefined;
+  return (await conversationIdFor(docId, userId)) ?? undefined;
+}
+
+/**
  * Emit a read/call activity event for an in-app agent tool invocation. Fully
  * advisory — see the section comment above. Never awaited by the caller; never
  * throws.
