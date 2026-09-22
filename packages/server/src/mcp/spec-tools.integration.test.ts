@@ -795,4 +795,127 @@ describe("phase handoff full-vs-essence delivery (spec-203 Layer 2, ac-10)", () 
       delete process.env.HANDOFF_SHARED_STORE_ENABLED;
     }
   });
+
+// ── spec-510 t-7 (dec-6, dec-9) — the flags in COMBINATION ───────────────────
+//
+// NESTED inside this describe deliberately: it reuses the fixtures declared
+// above (`actor`, `buildSpecRef`, `callToolWithSession`). Lifting it out would
+// mean a second set of fixtures for the same Spec in the same phase — more code
+// asserting less, and a second thing to keep in step.
+//
+// Each flag's own behaviour is covered above. This block covers what the tests
+// above cannot see: that the two are genuinely independent when set together.
+//
+// WHY IT IS WORTH TESTING AT ALL. Both halves land in the SAME function on a
+// global multi-tenant rollout. dec-6 split them into two switches precisely so a
+// production symptom can be bisected in seconds without a deploy — but that
+// promise is only worth something if the intermediate positions actually work.
+// A switch you have never operated in the position you will reach for in an
+// incident is not a switch.
+//
+// ONLY THE COMBINATIONS THAT CARRY MEANING. Eight exist; three are asserted:
+//   - (handoff OFF, cadence ON) — dec-9's retreat: the shared store is suspected,
+//     the cadence stays on. The position an incident actually reaches for.
+//   - (both ON)                 — the target state after rollout.
+//   - (both OFF)                — today's behaviour, already covered above by the
+//     "byte-identical to the first" retreat-path test.
+// The rest are permutations of the same two independent axes and testing them
+// would assert arithmetic, not behaviour.
+describe("spec-510 t-7 — cadence and handoff-storage flags are independent (ac-16, ac-21)", () => {
+  const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-510/acs/ac-${n}`;
+  const STATIC_MARKER = "classify-and-consult";
+  const POINTER = "guidance shown earlier this session";
+
+  it("handoff store OFF + cadence ON — the retreat position still cadences (dec-9)", async () => {
+    tagAc(AC(16));
+    tagAc(AC(21));
+    delete process.env.HANDOFF_SHARED_STORE_ENABLED; // the Map, dec-9's retreat
+    process.env.GUIDANCE_CADENCE_ENABLED = "true";
+    const sessionId = "combo-sess-handoff-off";
+    try {
+      await db
+        .insert(mcpSessions)
+        .values([{ sessionId, userId: actor.user.id }])
+        .onConflictDoNothing();
+
+      const first = await callToolWithSession(actor.user.id, sessionId, "get_doc", {
+        ref: buildSpecRef,
+      });
+      const second = await callToolWithSession(actor.user.id, sessionId, "get_doc", {
+        ref: buildSpecRef,
+      });
+
+      // The cadence does not depend on where the HANDOFF claim is stored: it has
+      // its own store and its own key. If rolling the handoff back also silenced
+      // the cadence, the two switches would not be independent and dec-6's whole
+      // reason for having two would be false.
+      expect(first.content[0].text).toContain(STATIC_MARKER);
+      expect(second.content[0].text).toContain(POINTER);
+      expect(second.content[0].text).not.toContain(STATIC_MARKER);
+
+      // …and with the store off, no HANDOFF claim was written to the shared
+      // table. This is what makes the test a real combination rather than the
+      // cadence test with an extra line: it pins BOTH axes in one run.
+      //
+      // ⚠ PREFIX MATCH, NOT `claims ? 'handoff'`. The key is
+      // `handoff:<userId>:<specId>:<phase>` (handoffClaimKey), so an equality
+      // test against the bare word is false for every row ever written and the
+      // assertion would pass without observing anything. Caught here only
+      // because the sibling test below asserts the same key is PRESENT and went
+      // red on it.
+      const rows = (await db.execute(
+        sql`SELECT count(*)::int AS n FROM agent_session_claims
+            WHERE session_id = ${sessionId}
+              AND EXISTS (
+                SELECT 1 FROM jsonb_object_keys(claims) k WHERE k LIKE 'handoff:%'
+              )`,
+      )) as unknown as Array<{ n: number }>;
+      expect(rows[0]?.n ?? 0).toBe(0);
+    } finally {
+      delete process.env.GUIDANCE_CADENCE_ENABLED;
+    }
+  });
+
+  it("both ON — the target state delivers the cadence and the shared claim together", async () => {
+    tagAc(AC(16));
+    tagAc(AC(21));
+    process.env.HANDOFF_SHARED_STORE_ENABLED = "true";
+    process.env.GUIDANCE_CADENCE_ENABLED = "true";
+    const sessionId = "combo-sess-all-on";
+    try {
+      await db
+        .insert(mcpSessions)
+        .values([{ sessionId, userId: actor.user.id }])
+        .onConflictDoNothing();
+
+      const first = await callToolWithSession(actor.user.id, sessionId, "get_doc", {
+        ref: buildSpecRef,
+      });
+      const second = await callToolWithSession(actor.user.id, sessionId, "get_doc", {
+        ref: buildSpecRef,
+      });
+
+      expect(first.content[0].text).toContain(STATIC_MARKER);
+      expect(second.content[0].text).toContain(POINTER);
+      expect(second.content[0].text.length).toBeLessThan(first.content[0].text.length);
+
+      // Both mechanisms wrote to the same row without treading on each other —
+      // the cadence records bytes, the handoff records its claim. Asserting the
+      // row alone would not show that; asserting both keys does.
+      const rows = (await db.execute(
+        sql`SELECT guidance_bytes::int AS bytes,
+                   EXISTS (
+                     SELECT 1 FROM jsonb_object_keys(claims) k WHERE k LIKE 'handoff:%'
+                   ) AS claimed
+            FROM agent_session_claims WHERE session_id = ${sessionId}`,
+      )) as unknown as Array<{ bytes: number; claimed: boolean }>;
+      expect(rows.length).toBe(1);
+      expect(rows[0].claimed).toBe(true);
+      expect(rows[0].bytes).toBeGreaterThan(0);
+    } finally {
+      delete process.env.HANDOFF_SHARED_STORE_ENABLED;
+      delete process.env.GUIDANCE_CADENCE_ENABLED;
+    }
+  });
+});
 });
