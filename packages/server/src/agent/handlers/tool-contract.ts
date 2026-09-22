@@ -363,6 +363,32 @@ export function mcpCadenceKey(
   return async () => sessionId;
 }
 
+/**
+ * spec-510 t-13 (ac-27): the in-app surface's `cadenceKey`, MEMOISED.
+ *
+ * Why it moved here from an inline arrow at the construction site. The cadence
+ * key is now resolved TWICE per response — once at the seat, to decide
+ * suppression, and once at the choke point, to record what the response cost.
+ * On this surface the resolver reads the database, so an un-memoised thunk would
+ * put a second query on the hot path of every in-app tool call [per std-39] to
+ * answer a question it already answered.
+ *
+ * Memoised on the THUNK, not on the underlying function: the thunk is built once
+ * per request ctx, so the cache lives exactly as long as the request and cannot
+ * leak a conversation id across users or turns. A module-level cache on
+ * `conversationCadenceKey` would have to be keyed and invalidated, which is the
+ * kind of correctness someone eventually gets wrong.
+ *
+ * The promise is cached, not the value — two callers in the same tick share one
+ * in-flight read rather than starting two.
+ */
+export function memoisedCadenceKey(
+  resolve: () => Promise<string | undefined>,
+): () => Promise<string | undefined> {
+  let pending: Promise<string | undefined> | undefined;
+  return () => (pending ??= resolve());
+}
+
 export function buildNudgeOrgBlocksGetter(
   getMemexId: () => string | undefined,
 ): () => Promise<readonly GuidanceBlock[]> {

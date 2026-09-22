@@ -12,6 +12,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { eq, inArray, sql } from "drizzle-orm";
 import { db } from "../db/connection.js";
+import { FOOTER_DELIMITER } from "./footer-delimiter.js";
 import {
   memexes,
   namespaces,
@@ -900,6 +901,65 @@ describe("spec-510 t-7 — cadence and handoff-storage flags are independent (ac
               )`,
       )) as unknown as Array<{ n: number }>;
       expect(rows[0]?.n ?? 0).toBe(0);
+    } finally {
+      delete process.env.GUIDANCE_CADENCE_ENABLED;
+    }
+  });
+
+  it("the byte record measures the WHOLE response, not the footer (ac-27)", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-510/acs/ac-27");
+    // The backstop guards against context compaction, and what fills a context
+    // is the PAYLOAD. The record used to run at the seat on `footer.length`,
+    // which after suppression is 84 chars — so the counter slowed by an order of
+    // magnitude exactly when suppression began, while the 90k `get_doc` that
+    // actually consumed the window went uncounted.
+    //
+    // Driven through a real tool call because the claim is about WHERE the record
+    // happens: it moved to the choke point, which is the first place the whole
+    // response exists. A unit test on `recordCadenceBytes` would pass with the
+    // call site still at the seat.
+    process.env.GUIDANCE_CADENCE_ENABLED = "true";
+    // ⚠ UNIQUE PER RUN [per std-37], and this test proved why. With a fixed id
+    // the row survives between runs and `guidance_bytes` ACCUMULATES — so a
+    // mutation that broke the record (back to `footer.length`) still passed,
+    // carried over the line by the correct total the previous run had left
+    // behind. The assertion was reading history, not this call.
+    const sessionId = `bytes-whole-response-${process.pid}-${Date.now()}`;
+    try {
+      await db
+        .insert(mcpSessions)
+        .values([{ sessionId, userId: actor.user.id }])
+        .onConflictDoNothing();
+
+      const res = await callToolWithSession(actor.user.id, sessionId, "get_doc", {
+        ref: buildSpecRef,
+      });
+      const responseLength = res.content[0].text.length;
+
+      const rows = (await db.execute(
+        sql`SELECT guidance_bytes::int AS bytes FROM agent_session_claims
+            WHERE session_id = ${sessionId}`,
+      )) as unknown as Array<{ bytes: number }>;
+      const recorded = rows[0]?.bytes ?? 0;
+
+      // ⚠ COMPARE AGAINST THE FOOTER, not against a fraction of the response.
+      // A first version asserted `recorded > responseLength * 0.8` and stayed
+      // GREEN under the mutation it was written to catch: on a freshly seeded
+      // Spec the body is small and the FOOTER is most of the response, so 80%
+      // of the whole and the footer alone are barely distinguishable. The test
+      // has to discriminate against the exact quantity it is rejecting.
+      const delimiterAt = res.content[0].text.indexOf(FOOTER_DELIMITER);
+      expect(delimiterAt, "no footer in this response — fixture is wrong").toBeGreaterThan(0);
+      const footerLength = responseLength - delimiterAt;
+
+      expect(responseLength).toBeGreaterThan(2_000);
+      expect(
+        recorded,
+        `Recorded ${recorded} bytes. The footer alone is ${footerLength} and the whole ` +
+          `response is ${responseLength} — a record at or below the footer means it is ` +
+          `still measuring the one part of the response the cadence shrank.`,
+      ).toBeGreaterThan(footerLength);
+      expect(recorded).toBe(responseLength);
     } finally {
       delete process.env.GUIDANCE_CADENCE_ENABLED;
     }

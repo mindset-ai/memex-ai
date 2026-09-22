@@ -32,6 +32,7 @@ import { formatArchivedDocStub } from "../services/archived-docs.js";
 import {
   toolSpecs,
   buildNudgeOrgBlocksGetter,
+  memoisedCadenceKey,
   type ResolvedRef,
   type ToolCtx,
   type ToolSpec,
@@ -780,7 +781,10 @@ function buildAgentCtx(
     // footer. Undefined for an unbound chat or before the conversation row
     // exists (the first call of every conversation), which the seat reads as
     // "emit guidance in full".
-    cadenceKey: () => conversationCadenceKey(currentDocId, userId),
+    // MEMOISED (spec-510 t-13): the key is resolved twice per response — at the
+    // seat to decide suppression, at the choke point to record what the response
+    // cost — and on this surface resolving means a database read.
+    cadenceKey: memoisedCadenceKey(() => conversationCadenceKey(currentDocId, userId)),
     // Validates the resolved entity actually belongs to the bound memex.
     // Throws NotFoundError on a miss or a cross-tenant reference — looks
     // identical to the entity not existing, which is the right answer for

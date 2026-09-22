@@ -53,6 +53,7 @@ import { promoteToEditor } from "./doc-members.js";
 import { markPresent } from "./presence.js";
 import { enforceCheckoutGate } from "./checkout-gate.js";
 import { enforcePhaseGate } from "./phase-gate.js";
+import { recordCadenceBytes } from "./guidance-cadence.js";
 // Type-only imports — erased at compile time, so no runtime cycle with
 // agent/tool-specs.ts (which imports this module's consumers).
 import type { ToolCtx, FooterSlot } from "../agent/tool-specs.js";
@@ -242,6 +243,34 @@ export async function runToolWithSpecTraffic(
       let out = text;
       if (header) out = `${header}${out}`;
       if (footer) out = `${out}\n\n${FOOTER_DELIMITER}\n${footer}`;
+
+      // spec-510 t-13 (ac-27): record what this response ACTUALLY cost the
+      // agent's context — here, because this is the first line where the whole
+      // response exists. The seat used to record `footer.length`, which after
+      // suppression is 84 chars against a payload that can be 92,070; the
+      // backstop was therefore measuring the one part of the response the
+      // cadence had just made small, and advancing ~an order of magnitude too
+      // slowly exactly when it mattered.
+      //
+      // ORDERING IS THE CONTRACT: the claims happened inside
+      // composeGuidanceEnvelope above, this records strictly after. A claim
+      // granted on this response marks the total as it stood BEFORE it, which is
+      // what "bytes since you were last shown this" means.
+      //
+      // AWAITED, as it was at the seat. Fire-and-forget was tried and is wrong
+      // here: the write would race the NEXT response's claim read, so a
+      // threshold would be compared against a total that had not landed yet and
+      // every refresh would run late. The cost is one UPDATE that was already on
+      // this path before the record moved.
+      //
+      // Never fatal — `recordCadenceBytes` swallows and logs its own failures (a
+      // lost record costs a stale threshold, not a broken tool call), and the
+      // key resolution is guarded because a throwing resolver must not cost the
+      // tool its result. `ctx.cadenceKey` is memoised, so resolving it a second
+      // time here costs no extra query on either surface.
+      const cadenceKey = await wrappedCtx.cadenceKey?.().catch(() => undefined);
+      await recordCadenceBytes(cadenceKey, out.length);
+
       return out;
     } catch {
       // swallow — the tool's real result already succeeded.

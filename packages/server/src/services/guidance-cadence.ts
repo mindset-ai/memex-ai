@@ -85,7 +85,35 @@ export function guidanceCadenceEnabled(): boolean {
  * asymmetry says start high and tighten with dogfood evidence (t-9), not the
  * other way round. ~12 build-phase footers' worth.
  */
-export const CADENCE_REFRESH_BYTES = 120_000;
+export const CADENCE_REFRESH_BYTES = 400_000;
+
+/**
+ * ⚠ RE-DERIVED, NOT SCALED (spec-510 t-13, ac-27). It was 120,000 when the
+ * counter measured `footer.length`; it now measures the WHOLE response, which is
+ * a different and much larger quantity, so carrying the old number forward would
+ * have made the backstop fire several times sooner than anyone intended — in the
+ * opposite direction from the defect it was raised for.
+ *
+ * WHAT THE NUMBER IS ANCHORED TO. The thing being guarded is context compaction:
+ * an agent forgets a block because its window turned over. A window is ~200k
+ * tokens, call it ~800k characters. 400,000 is therefore "about half a window of
+ * transcript since you last saw this block" — a quantity that means something
+ * about the failure, rather than a multiple of a footer.
+ *
+ * WHAT IT IS NOT. It is not measured against a distribution of real response
+ * sizes, because there is not one to hand: the evidence is a single outlier
+ * (`get_doc` at 92,070 chars) plus the footer sizes this Spec measured. Under
+ * the old counter 120,000 was "~12 build footers"; 400,000 is ~4 of those large
+ * reads, or ~20 modest ones. The VARIANCE is the point — it is now proportional
+ * to what actually fills the window instead of to how many times a tool was
+ * called.
+ *
+ * STILL DELIBERATELY GENEROUS, for the reason the old comment gave and which has
+ * not changed: re-showing guidance costs bytes, never re-showing it costs an
+ * agent that has silently lost its steering. The asymmetry says start high and
+ * tighten on dogfood evidence (t-9), not the other way round. This is the first
+ * number the dogfood measurement should revisit.
+ */
 
 export interface CadencedGuidance {
   /** The composed guidance for this response — full blocks, then one pointer. */

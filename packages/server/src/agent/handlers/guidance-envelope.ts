@@ -49,10 +49,7 @@ import {
   type Phase,
 } from "@memex/shared";
 import { claimFullHandoffDelivery } from "../../services/handoff-delivery.js";
-import {
-  composeCadencedGuidance,
-  recordCadenceBytes,
-} from "../../services/guidance-cadence.js";
+import { composeCadencedGuidance } from "../../services/guidance-cadence.js";
 import type { ToolCtx, FooterSignal } from "./tool-contract.js";
 import { fullDocState, type FullDocState } from "./doc-state.js";
 import { relatedIssuesNudge } from "./related-issues.js";
@@ -551,12 +548,18 @@ export async function composeGuidanceEnvelope(
         nudge,
         acVerifications,
       );
-      // spec-510 t-3 (dec-3): record what this response actually emitted, so the
-      // per-block byte thresholds measure real volume. AFTER the claims above,
-      // never before — a claim granted on this response marks the total as it
-      // stood BEFORE it, which is what "bytes since you were last shown this"
-      // means. Recording first would push every threshold one response late.
-      await recordCadenceBytes(cadenceKey, footer?.length ?? 0);
+      // ⚠ THE BYTE RECORD IS NOT HERE ANY MORE (spec-510 t-13, ac-27). It used
+      // to be `recordCadenceBytes(cadenceKey, footer?.length ?? 0)` on this
+      // line, and the footer is the wrong quantity: after suppression it drops
+      // from ~10,700 chars to 84, so the counter slowed by an order of magnitude
+      // exactly when suppression began — while what actually fills an agent's
+      // context is the PAYLOAD this seat never sees (one measured `get_doc`
+      // returned 92,070 chars).
+      //
+      // It now runs at the choke point, where body + envelope are assembled and
+      // the whole response exists. The claim-first/record-after ordering that
+      // this comment used to protect still holds: the claims happen here, the
+      // record happens strictly after, one frame up.
       // spec-219 ac-10 / dec-4: the AC-coverage HEADER is composed HERE (the one
       // seat), not in the get_doc handler. It is the get_doc-verbose-only surface
       // — emitted only when this is a `get_doc` call (the coverage summary above
