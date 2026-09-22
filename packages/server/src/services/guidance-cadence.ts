@@ -26,6 +26,12 @@
 import { CADENCE_POINTER, type GuidanceBlock } from "@memex/shared";
 import { claimOnce, recordGuidanceBytes } from "./session-claims.js";
 
+/** Per-domain debug log [per std-14], same shape as activity-log / comms-log. */
+function log(...args: unknown[]): void {
+  // eslint-disable-next-line no-console
+  console.error("[guidance-cadence]", ...args);
+}
+
 /** The env var gating the cadence (spec-510 dec-6). */
 export const GUIDANCE_CADENCE_FLAG = "GUIDANCE_CADENCE_ENABLED";
 
@@ -97,22 +103,47 @@ export async function composeCadencedGuidance(
   if (!cadenceKey) return undefined;
   if (blocks.length === 0) return { text: "", suppressed: 0 };
 
-  const shown: string[] = [];
-  let suppressed = 0;
-  for (const block of blocks) {
-    // Claimed = "this session has not seen it, or has not seen it for
-    // CADENCE_REFRESH_BYTES" → emit in full. Otherwise it stays behind the
-    // pointer. The claim is per block, so a block first seen mid-session is not
-    // instantly due for a refresh.
-    const granted = await claimOnce(cadenceKey, `block:${block.id}`, {
-      bytes: CADENCE_REFRESH_BYTES,
-    });
-    if (granted) shown.push(block.text);
-    else suppressed++;
-  }
+  // A STORE THAT CANNOT ANSWER IS "the cadence does not apply" (PR #740 review,
+  // M-3). This is fourteen round trips on a verbose build read, and the seat's
+  // own catch is not a safety net for them: it returns a footer with no
+  // guidance, no handoff, no AC nag, no activity and no state line. So one pool
+  // timeout on one upsert would turn a response that should carry guidance IN
+  // FULL into one carrying none — the inverse of this function's contract, and
+  // worse than the behaviour before this Spec.
+  //
+  // Guarded HERE rather than at the seat [per std-51]: this function already
+  // owns "must not apply" and signals it with undefined, so the failure folds
+  // into the path that already has coverage instead of growing a second one. A
+  // wider catch at the seat would also swallow failures that should be loud.
+  //
+  // ALL-OR-NOTHING, deliberately. Catching per block would emit the blocks that
+  // happened to claim plus a pointer standing in for the one that failed — a
+  // response indistinguishable from a correct cadence that has silently dropped
+  // a block this session has never seen.
+  try {
+    const shown: string[] = [];
+    let suppressed = 0;
+    for (const block of blocks) {
+      // Claimed = "this session has not seen it, or has not seen it for
+      // CADENCE_REFRESH_BYTES" → emit in full. Otherwise it stays behind the
+      // pointer. The claim is per block, so a block first seen mid-session is not
+      // instantly due for a refresh.
+      const granted = await claimOnce(cadenceKey, `block:${block.id}`, {
+        bytes: CADENCE_REFRESH_BYTES,
+      });
+      if (granted) shown.push(block.text);
+      else suppressed++;
+    }
 
-  if (suppressed > 0) shown.push(CADENCE_POINTER);
-  return { text: shown.join("\n\n"), suppressed };
+    if (suppressed > 0) shown.push(CADENCE_POINTER);
+    return { text: shown.join("\n\n"), suppressed };
+  } catch (err) {
+    // The ERROR OBJECT, never a stringified message — a silent degrade is
+    // forbidden [per std-53, std-50, std-14], and the stack is the only thing
+    // that says which of the claims failed.
+    log("claim store unavailable — emitting guidance in full:", err);
+    return undefined;
+  }
 }
 
 /**
