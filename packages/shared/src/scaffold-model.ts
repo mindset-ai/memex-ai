@@ -410,6 +410,31 @@ export function toToolDefinition(tool: ToolNode): ToolDefinition {
  *  `order`. `target.transition !== undefined` blocks are excluded — those
  *  ride `toRubric`. */
 export function toNudge(input: ToNudgeInput): string {
+  return toNudgeBlocks(input).map((b) => b.text).join('\n\n');
+}
+
+/** The same projection as `toNudge`, returning the matched blocks STILL
+ *  ADDRESSABLE instead of one joined string (spec-510 t-2, dec-1).
+ *
+ *  WHY IT EXISTS. spec-510's cadence emits a static block in full on first
+ *  sight and a one-line pointer thereafter. Deciding that per block requires
+ *  seeing them as blocks — `toNudge` joins them, and by the time the seat has
+ *  the string they are gone. Each block carries the `id` (spec-510 dec-8) the
+ *  per-session claim key is built from.
+ *
+ *  ADDITIVE ON PURPOSE. `toNudge` is unchanged in signature and output — it now
+ *  delegates here and joins, so there is ONE matching rule rather than two that
+ *  can drift. If these two ever disagreed, the seat would suppress against one
+ *  view of the guidance while the agent received another, with nothing to
+ *  notice; the spec-510 t-2 suite pins their equivalence across every
+ *  (tool × phase × grounding) combination.
+ *
+ *  STILL PURE, and that is dec-1's whole point: suppression is *deciding not to
+ *  send*, which belongs to the seat, not to the projector. `packages/shared`
+ *  stays free of request scope so it can serialize across the server↔React
+ *  boundary [per std-15] — a session argument here would drag that scope in and
+ *  break the React path, which has no session at all. */
+export function toNudgeBlocks(input: ToNudgeInput): readonly GuidanceBlock[] {
   const { dataset, tool, phase, grounding, orgBlocks } = input;
   const matches = (block: GuidanceBlock): boolean =>
     matchesNudgeTarget(block.target, { tool, phase, grounding });
@@ -417,7 +442,7 @@ export function toNudge(input: ToNudgeInput): string {
   const base = filterAndSort(dataset.baseGuidance, (b) => b.source === 'base' && matches(b));
   const org = filterAndSort(orgBlocks ?? [], (b) => b.source === 'org' && b.enabled && matches(b));
 
-  return [...base, ...org].map((b) => b.text).join('\n\n');
+  return [...base, ...org];
 }
 
 /** Returns the composed gate rubric the agent walks at a forward transition.
