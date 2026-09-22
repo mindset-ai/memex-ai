@@ -125,7 +125,24 @@ export default defineConfig({
           // slug — which breaks CI retries, since seed-org is not idempotent —
           // or a test endpoint that mutates server env, which is worse than the
           // coverage it buys.
-          command: `COST_PANEL_MEMEXES="*" GOOGLE_CLIENT_ID="" DEV_USER_EMAIL="dev@memex.ai" MEMEX_ANTHROPIC_FAKE=1 JOURNEY_PREVIEW_DOMAINS="memex.ai" APP_BASE_URL="http://localhost:${SERVER_PORT}" SLACK_TOKEN_ENCRYPTION="${process.env.SLACK_TOKEN_ENCRYPTION ?? "plaintext"}" DATABASE_URL="${DATABASE_URL}" MEMEX_WORKSPACE_ID="${process.env.MEMEX_WORKSPACE_ID ?? ""}" PORT=${SERVER_PORT} pnpm --filter @memex/server dev`,
+          // spec-510 t-9: the cadence + shared-handoff flags are ON here, for the
+          // same reason COST_PANEL_MEMEXES is — journeys should exercise the state
+          // we intend to ship, not the retreat path. Both default OFF everywhere
+          // else (dec-6, dec-9), and issue-9 retires them once the rollout holds.
+          //
+          // ⚠ WIDER BLAST RADIUS THAN THE LINE ABOVE. COST_PANEL_MEMEXES gates one
+          // panel; GUIDANCE_CADENCE_ENABLED changes what EVERY agent response
+          // carries after the first call of a session. That is deliberate — if it
+          // breaks another journey, the whole suite is where we want to find out —
+          // but it means a red journey elsewhere should be read as "the cadence
+          // touched this" before it is read as a flake.
+          //
+          // ⚠ AND `reuseExistingServer` IS TRUE LOCALLY (line below). A server left
+          // running from before this change has neither flag, and the cadence
+          // journey would then silently exercise the OFF path and still pass its
+          // first assertion. That journey names this trap in its failure message;
+          // if it reds, kill the stale server before suspecting the code.
+          command: `COST_PANEL_MEMEXES="*" GUIDANCE_CADENCE_ENABLED=1 HANDOFF_SHARED_STORE_ENABLED=1 GOOGLE_CLIENT_ID="" DEV_USER_EMAIL="dev@memex.ai" MEMEX_ANTHROPIC_FAKE=1 JOURNEY_PREVIEW_DOMAINS="memex.ai" APP_BASE_URL="http://localhost:${SERVER_PORT}" SLACK_TOKEN_ENCRYPTION="${process.env.SLACK_TOKEN_ENCRYPTION ?? "plaintext"}" DATABASE_URL="${DATABASE_URL}" MEMEX_WORKSPACE_ID="${process.env.MEMEX_WORKSPACE_ID ?? ""}" PORT=${SERVER_PORT} pnpm --filter @memex/server dev`,
           url: `http://localhost:${SERVER_PORT}/api/health`,
           reuseExistingServer: !process.env.CI,
           timeout: 60_000,

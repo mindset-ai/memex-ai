@@ -733,15 +733,35 @@ describe("phase handoff full-vs-essence delivery (spec-203 Layer 2, ac-10)", () 
 
   it("with the flag OFF the second response is byte-identical to the first (the retreat path)", async () => {
     tagAc(`mindset-prod/memex-building-itself/specs/spec-510/acs/ac-9`);
+    // ac-7 (scope): "switching it off restores the previous emission behaviour
+    // EXACTLY". This is the test that says what "exactly" means; the other half
+    // of ac-7 — that switching off needs no deploy — is the flag being read live
+    // plus it actually reaching the service, which t-7's passthrough guard pins.
+    tagAc(`mindset-prod/memex-building-itself/specs/spec-510/acs/ac-7`);
     delete process.env.GUIDANCE_CADENCE_ENABLED;
     const sessionId = "cadence-sess-off";
     await db.insert(mcpSessions).values([{ sessionId, userId: actor.user.id }]).onConflictDoNothing();
     const a = await callToolWithSession(actor.user.id, sessionId, "get_doc", { ref: buildSpecRef });
     const b = await callToolWithSession(actor.user.id, sessionId, "get_doc", { ref: buildSpecRef });
-    // Not merely "still works" — the guidance half must be the SAME BYTES it was
-    // before this Spec, which is what makes the kill switch a real retreat.
+    // The STATIC half must be the same on both calls — that is what makes the
+    // kill switch a real retreat rather than a different behaviour.
     expect(b.content[0].text).toContain(STATIC_MARKER);
     expect(b.content[0].text).not.toContain(POINTER);
+
+    // ⚠ THE WHOLE RESPONSE IS NOT BYTE-IDENTICAL, AND MUST NOT BE ASSERTED SO.
+    // An earlier version of this comment said "the guidance half must be the
+    // SAME BYTES", which reads as a claim about the response; tightening the
+    // assertion to `b === a` reds it. The difference is spec-203 Layer 2 and
+    // predates this Spec entirely: call one carries the FULL phase handoff,
+    // call two its essence. So the two responses legitimately differ in the
+    // dynamic half whatever the cadence flag says.
+    //
+    // What ac-7 actually promises is that flipping the flag off restores the
+    // behaviour that existed BEFORE spec-510 — asserted as the static guidance
+    // surviving both calls, above. Comparing the two calls to each other tests
+    // spec-203, not this flag.
+    expect(a.content[0].text).toContain(STATIC_MARKER);
+    expect(a.content[0].text).not.toContain(POINTER);
   });
 
   it("a session with no cadence key gets full guidance every time (the no-key fallback)", async () => {
