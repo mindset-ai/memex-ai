@@ -31,7 +31,7 @@
 // thread", so this is within what was promised — but it means the two surfaces
 // get materially different suppression rates, which matters when t-9 reads the
 // dogfood numbers.
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { eq, inArray } from "drizzle-orm";
 import { db } from "../db/connection.js";
@@ -144,10 +144,36 @@ describe("the in-app surface yields its conversation id (ac-22)", () => {
     expect(await conversationCadenceKey(undefined, actor.user.id)).toBeUndefined();
   });
 
-  it("yields undefined rather than throwing when the lookup fails", async () => {
+  it("yields undefined rather than throwing when the lookup fails — and says so in the log", async () => {
     tagAc(AC_22);
     // A malformed id must not take down a tool turn: guidance cadence is
     // advisory, and the fallback (emit in full) is the pre-Spec behaviour.
-    expect(await conversationCadenceKey("not-a-uuid", actor.user.id)).toBeUndefined();
+    //
+    // ⚠ THIS TEST USED TO ASSERT ONLY THE `undefined` (PR #740 round-5, M-16).
+    // "not-a-uuid" into a uuid column raises Postgres 22P02, which
+    // `conversationIdFor` catches — so the test was green BECAUSE of a swallow
+    // while its comment claimed the failure was handled. Those two states look
+    // identical from here, and the difference is the whole point: a PERSISTENT
+    // lookup failure returns undefined forever, the in-app cadence silently
+    // never applies, and ac-4's "both surfaces" quietly becomes one.
+    //
+    // Asserting the log is what separates handled from hidden.
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(await conversationCadenceKey("not-a-uuid", actor.user.id)).toBeUndefined();
+      const logged = (errorSpy.mock.calls as unknown[][]).some((args) =>
+        args.some((a) => a instanceof Error),
+      );
+      expect(
+        logged,
+        "The failed lookup was swallowed without a word. That is the only " +
+          "signal that the in-app surface has stopped getting a cadence key — " +
+          "the tool turn still succeeds and the response still looks correct.",
+      ).toBe(true);
+    } finally {
+      // Restore, never clear [per std-37] — a leaked console stub silences every
+      // suite that runs after this one in the same worker.
+      errorSpy.mockRestore();
+    }
   });
 });

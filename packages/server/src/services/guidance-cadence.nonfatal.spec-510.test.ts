@@ -14,10 +14,15 @@
 // before this Spec. Nothing would have surfaced it: the tool call still
 // succeeds, the payload is still correct, only the steering silently vanishes.
 //
-// TWO AWAITS, NOT ONE. The review named the claim loop. The key resolver is the
-// same hazard and was not named: `ctx.cadenceKey()` on the in-app surface is
-// `conversationCadenceKey` → `conversationIdFor` → a database read. A failure
-// there reached the same catch with the same result.
+// TWO AWAITS, ONE LIVE. The review named the claim loop, which really can throw
+// — `claimOnce` writes to the database with no catch of its own — so the guard
+// in `composeCadencedGuidance` fixes a live path and everything below tests it.
+//
+// The key resolver is guarded too, but as DEFENCE IN DEPTH rather than a fix:
+// neither shipped resolver can reject (`mcpCadenceKey` returns a string;
+// `conversationCadenceKey` goes through `conversationIdFor`, which catches its
+// own error). An earlier version of this header said otherwise — corrected at
+// PR #740 round-5, M-16. Its own test file states the same distinction.
 //
 // WHERE THE GUARD BELONGS. Inside the helpers, not as a wider try/catch at the
 // seat [per std-51 — depth at the interface]. `composeCadencedGuidance` already

@@ -2,17 +2,25 @@
 // Round-1 review of PR #740, M-3 — the half the review did not name.
 //
 // ─────────────────────────────────────────────────────────────────────────────
-// THE HAZARD. `composeGuidanceEnvelope` awaits `ctx.cadenceKey?.()`. On the
-// in-app surface that thunk is `conversationCadenceKey` → `conversationIdFor`,
-// which READS THE DATABASE. An unguarded throw there lands in the seat's own
-// catch, which returns `compose(withLead(undefined), undefined)` — a footer
-// with no guidance, no handoff, no acceptance-criteria nag, no activity block
-// and no state line.
+// THE HAZARD, and its honest status. `composeGuidanceEnvelope` awaits
+// `ctx.cadenceKey?.()`. An unguarded throw there lands in the seat's own catch,
+// which returns `compose(withLead(undefined), undefined)` — a footer with no
+// guidance, no handoff, no acceptance-criteria nag, no activity block and no
+// state line. A transient on a lookup whose ONLY job is to pick a suppression
+// key would have removed every steer from the response.
 //
-// So a transient on a lookup whose ONLY job is to pick a suppression key would
-// have silently removed every steer from the response. The documented contract
-// is the opposite: a key that cannot be resolved means "no key", and no key
-// means emit guidance IN FULL.
+// ⚠ NO SHIPPED RESOLVER CAN ACTUALLY REJECT TODAY (PR #740 round-5, M-16).
+// `mcpCadenceKey` is `async () => sessionId`. `conversationCadenceKey` reads the
+// database, but through `conversationIdFor`, which catches and returns null. An
+// earlier version of this header presented the throw as a live path; it is
+// DEFENCE IN DEPTH.
+//
+// This test is still worth its weight, and the guard still worth keeping:
+// `ctx.cadenceKey` is typed as an arbitrary thunk, so a third surface or a
+// resolver that stops swallowing reintroduces the hazard with nothing to catch
+// it, and the test drives exactly that state. What it proves is that IF a
+// resolver throws, the seat degrades to the documented fallback — a key that
+// cannot be resolved means "no key", and no key means emit guidance IN FULL.
 //
 // WHY THIS FILE EXISTS SEPARATELY. Its sibling
 // `guidance-cadence.nonfatal.spec-510.test.ts` mocks `./session-claims.js` to

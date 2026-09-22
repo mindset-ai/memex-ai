@@ -233,7 +233,27 @@ async function conversationIdFor(
       columns: { id: true },
     });
     return row?.id ?? null;
-  } catch {
+  } catch (err) {
+    // Swallowed, but NEVER silently (PR #740 round-5, M-16).
+    //
+    // This catch was written for ONE consumer — `emitInAppAgentActivity`, which
+    // is explicitly advisory and detached, so losing an activity row costs
+    // nothing worth a log line. spec-510 gave it a SECOND consumer with quite
+    // different needs (`conversationCadenceKey`, the in-app cadence key) and
+    // nothing was re-examined at that join.
+    //
+    // For the second consumer a persistent failure here is not advisory: null
+    // reads as "this surface has no cadence key", the in-app cadence never
+    // applies, and ac-4's "both surfaces" is dead in production with no error,
+    // no red test and no log line. The same shape as the byte-record swallow in
+    // guidance-cadence.ts, and the same standards answer it — the error OBJECT
+    // reaches the log [per std-53, std-50, std-14].
+    //
+    // Still returns null rather than throwing: the advisory consumer must keep
+    // working, and the cadence's documented fallback for "no key" is to emit
+    // guidance in full, which is safe.
+    // eslint-disable-next-line no-console
+    console.error("[conversations] conversation lookup failed — callers will read 'no conversation':", err);
     return null;
   }
 }

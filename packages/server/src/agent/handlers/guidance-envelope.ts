@@ -487,14 +487,26 @@ export async function composeGuidanceEnvelope(
       // the first call of a conversation (t-10). `composeCadencedGuidance` then
       // returns undefined and the renderer projects as it always has — the
       // fallback is today's behaviour, not an error.
-      // ⚠ GUARDED, and not for symmetry. On the in-app surface this resolver is
-      // `conversationCadenceKey` → `conversationIdFor` → a DATABASE READ, so it
-      // carries the same hazard as the claim loop below: an unguarded throw
+      // DEFENCE IN DEPTH — and the distinction is worth stating, because an
+      // earlier version of this comment claimed more (PR #740 round-2 → round-5,
+      // M-16). NEITHER shipped resolver can actually reject today:
+      // `mcpCadenceKey` is `async () => sessionId`, and `conversationCadenceKey`
+      // goes through `conversationIdFor`, which catches its own DB error and
+      // returns null. So the log below is unreachable in shipped code.
+      //
+      // Kept anyway, for two reasons. `ctx.cadenceKey` is typed as an arbitrary
+      // thunk, so a third surface — or a future rewrite of either resolver that
+      // stops swallowing — reintroduces the hazard silently. And what it guards
+      // against is severe out of proportion to its cost: an unguarded throw here
       // reaches this function's catch, which returns a footer with no guidance,
-      // no handoff, no AC nag, no activity and no state line. The contract
-      // already says an unresolvable key yields undefined and the caller emits
-      // in full — a lookup that FAILED is that same case, so it folds in here
-      // rather than becoming a second kind of outcome (PR #740 review, M-3).
+      // no handoff, no AC nag, no activity and no state line.
+      //
+      // The contract already says an unresolvable key yields undefined and the
+      // caller emits in full, so a lookup that FAILED folds into that same case
+      // rather than becoming a second kind of outcome.
+      //
+      // The claim loop below is the opposite case: `claimOnce` really can throw,
+      // and that guard fixes a live path.
       let cadenceKey: string | undefined;
       try {
         cadenceKey = await ctx.cadenceKey?.();
