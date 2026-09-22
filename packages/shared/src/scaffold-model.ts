@@ -468,28 +468,56 @@ export function toPhaseGuidance(dataset: ScaffoldDataset, phase: Phase): string 
  * the absence reads as a decision, not an oversight [per std-50].
  */
 export function toGuidanceRecovery(dataset: ScaffoldDataset, phase: Phase): string {
-  const tools: Array<string | undefined> = [undefined, ...dataset.tools.map((t) => t.name)];
-  const groundings: Array<GroundingState | undefined> = [
-    undefined,
-    'not_grounded',
-    'grounded',
-    'grounded_stale',
-  ];
+  return filterAndSort(dataset.baseGuidance, (b) => b.source === 'base' && reachableInPhase(b, phase))
+    .map((b) => b.text)
+    .join('\n\n');
+}
 
-  // Union by id, so a block reachable through several (tool, grounding) pairs is
-  // carried once. Insertion order follows the first projection that yielded it,
-  // which is `filterAndSort`'s order — base-first by `order`, the same sequence
-  // the agent originally read them in.
-  const byId = new Map<string, GuidanceBlock>();
-  for (const tool of tools) {
-    for (const grounding of groundings) {
-      for (const block of toNudgeBlocks({ dataset, tool, phase, grounding })) {
-        if (!byId.has(block.id)) byId.set(block.id, block);
-      }
-    }
-  }
-
-  return [...byId.values()].map((b) => b.text).join('\n\n');
+/**
+ * Is `block` reachable as a nudge in `phase` — by ANY caller, on any tool, in any
+ * grounding state?
+ *
+ * ⚠ THIS DOES NOT ENUMERATE, AND THAT IS THE POINT (PR #740 round-9, H-18).
+ *
+ * The first version of `toGuidanceRecovery` looped over (tool x grounding) and
+ * unioned the results. `matchesNudgeTarget` selects on FOUR dimensions — tool,
+ * phase, grounding and `channel`, the last added by this same Spec's t-5 — so a
+ * channel-targeted block was suppressible (the seat passes `ctx.channel`) and
+ * could never enter the union (the projection passed `channel: undefined`, and
+ * the matcher rejects a channel-targeted block when the context's is unset).
+ * Suppressible and permanently unrecoverable: H-1 recreated inside the fix for
+ * H-1. Latent only because no shipped block uses the dimension yet.
+ *
+ * The guard could not see it either, because it built its expected set from the
+ * same two axes — both sides derived, both from the same blind spot. That is
+ * s-14's "generate, don't curate" caveat landing on itself: a completeness check
+ * answerable to the enumeration rather than to the source.
+ *
+ * SO THE ENUMERATION IS GONE. Reachability is decided from the matcher's SHAPE
+ * instead, which is provable rather than maintained: every narrowing clause
+ * there reads `target.X !== undefined && target.X !== context.X`, and any such
+ * clause is satisfiable by a caller whose `context.X` equals `target.X`. Only
+ * the two UNCONDITIONAL rejections — `transition` and `button` — can never be
+ * satisfied. So "reachable at all" is exactly "carries neither", and a fifth
+ * narrowing dimension added tomorrow is included automatically, with nothing to
+ * keep in step.
+ *
+ * ⚠ `channel` IS NOT HANDLED HERE, DELIBERATELY AND LOUDLY. A recovery document
+ * scoped only by phase cannot honour it: including a channel-targeted block
+ * would hand an MCP agent prose written because the web UI has an affordance it
+ * does not, which is what dec-4 exists to prevent; excluding it silently is the
+ * defect above. Neither is acceptable, so while the dimension has no users the
+ * guard `scaffold-data.channel-recovery.spec-510.test.ts` FAILS THE BUILD on the
+ * first base block that carries one, naming this function. Serving it means
+ * scoping the topic by (phase, channel) and threading `ctx.channel` from the
+ * `get_information` handler — real work, and work that should be done when
+ * something needs it rather than guessed at now.
+ */
+function reachableInPhase(block: GuidanceBlock, phase: Phase): boolean {
+  if (block.target.transition !== undefined) return false;
+  if (block.target.button !== undefined) return false;
+  if (block.target.phase !== undefined && block.target.phase !== phase) return false;
+  return true;
 }
 
 /** Returns the minimal tool-registration shape for a ToolNode. Strips
