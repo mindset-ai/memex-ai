@@ -132,9 +132,17 @@ export async function claimFullHandoffDelivery(
   return true;
 }
 
-/** Test-only escape hatch — clears the OFF path's store. It does NOT touch the
- *  shared store (use `_resetSessionClaims` for that, or worker-unique session ids
- *  [per std-37]). Production never calls it. */
+/** Test-only escape hatch — clears the OFF path's process-local Map. It does NOT
+ *  touch the shared store.
+ *
+ *  This used to point at `_resetSessionClaims()` as the equivalent for the ON
+ *  path. That helper is gone (PR #740 round-4, L-15): it was a TRUNCATE with no
+ *  callers, and files sharing a worker share that worker's database clone, so it
+ *  would wipe claims a neighbouring file was relying on. For the shared store,
+ *  use a worker-unique session id and DELETE that key in `afterEach`
+ *  [per std-37] — `guidance-cadence.backstop.spec-510.test.ts` is the pattern.
+ *
+ *  Production never calls this. */
 export function _clearHandoffDeliveries(): void {
   lastFullDelivery.clear();
 }

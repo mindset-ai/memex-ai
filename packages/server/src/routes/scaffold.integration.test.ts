@@ -606,7 +606,11 @@ describe("spec-510 t-5 — a tenant cannot target guidance by agent surface (ac-
     expect(body.target.phase).toBe("build");
     expect("channel" in body.target).toBe(false);
 
-    // …and nothing landed on disk either. Asserted separately from the response
+    // …and the MAPPED row carries no channel either. Note what this can and
+    // cannot see: `findFirst` returns Drizzle's projection of the columns
+    // declared in schema.ts, so an undeclared `target_channel` sitting on disk
+    // would be invisible here. The on-disk claim is the second test's, which
+    // reads information_schema directly. Asserted separately from the response
     // because they can fail apart: a future mapper could read a column the
     // response then exposes.
     const row = (await db.query.orgScaffoldAdditions.findFirst({
@@ -625,7 +629,8 @@ describe("spec-510 t-5 — a tenant cannot target guidance by agent surface (ac-
     const rows = (await db.execute(sql`
       SELECT column_name
       FROM information_schema.columns
-      WHERE table_name = 'org_scaffold_additions'
+      WHERE table_schema = 'public'
+        AND table_name = 'org_scaffold_additions'
         AND column_name LIKE 'target\\_%'
       ORDER BY column_name
     `)) as unknown as Array<{ column_name: string }>;

@@ -150,8 +150,11 @@ describe("spec-510 — a cadence key that throws must not empty the footer", () 
       //
       // The flake it was trading against is real but tiny: the activity block
       // carries a relative-time label (`agoLabel` — "just now", "Nm ago", "Nh
-      // ago", "Nd ago") that flips once a minute has passed, so two calls
-      // milliseconds apart can differ on a fraction of a percent of runs.
+      // ago", "Nd ago") that changes under two calls milliseconds apart on a
+      // fraction of a percent of runs. The first boundary is at 30 SECONDS, not
+      // 60: `agoLabel` uses `Math.round(ms / 60000)`, so 30_000ms already rounds
+      // to 1 and renders "1m ago" (PR #740 round-4 — I had this wrong once).
+      // Every later rounding step is a boundary too, and the regex covers them.
       // Normalising that ONE volatile segment keeps the full reach and removes
       // the window, which is better than choosing between them.
       const STATIC_MARKER = "classify-and-consult";

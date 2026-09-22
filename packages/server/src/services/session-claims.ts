@@ -198,7 +198,16 @@ export async function readSessionClaims(
   };
 }
 
-/** Test hook: wipe the store so tests cannot leak into one another. */
-export async function _resetSessionClaims(): Promise<void> {
-  await db.execute(sql`TRUNCATE agent_session_claims`);
-}
+// REMOVED: `_resetSessionClaims()`, a TRUNCATE-the-table test hook (PR #740
+// round-4, L-15). It had ZERO callers — the only mentions in the tree were its
+// own definition and a docstring recommending it — so std-51's deletion test
+// answers this on its own: nothing outside the module used it.
+//
+// It was also the wrong shape to leave lying around. Test files sharing one
+// worker share that worker's database clone, so a TRUNCATE here wipes claims a
+// neighbouring file is mid-way through relying on, and the failure surfaces
+// somewhere else as "the claim I just made says not-granted".
+//
+// The pattern that IS safe is a targeted delete of the keys a test made — see
+// `guidance-cadence.backstop.spec-510.test.ts`, which pairs a worker-unique key
+// with `DELETE ... WHERE session_id = <key>` in its afterEach [per std-37].
