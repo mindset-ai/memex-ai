@@ -573,10 +573,15 @@ describe("dec-3: no schema path to send `source` or `kind` (ac-11)", () => {
 // So the two are not redundant and neither subsumes the other: the second is
 // the guard, the first is the end-to-end statement of what a caller observes.
 describe("spec-510 t-5 — a tenant cannot target guidance by agent surface (ac-23)", () => {
-  const AC_23 = "mindset-prod/memex-building-itself/specs/spec-510/acs/ac-23";
+  // ac-24, not ac-23. ac-23 stated the right outcome with the wrong mechanism —
+  // it said the API "refuses" the dimension, which the mutation probe below
+  // disproved — and a VERIFIED criterion's wording is not a free edit, so it was
+  // superseded (c-17) and replaced rather than quietly rewritten under its own
+  // passing tests. ac-23 keeps its original words, retired.
+  const AC_24 = "mindset-prod/memex-building-itself/specs/spec-510/acs/ac-24";
 
   it("POST drops target.channel — it reaches neither the response nor the row", async () => {
-    tagAc(AC_23);
+    tagAc(AC_24);
     const admin = await seedUser("ac23-channel");
     const fx = await seedOrg("ac23-channel");
     await grant(admin.userId, fx.orgId, "administrator");
@@ -613,7 +618,7 @@ describe("spec-510 t-5 — a tenant cannot target guidance by agent surface (ac-
   });
 
   it("the table persists EXACTLY four target dimensions", async () => {
-    tagAc(AC_23);
+    tagAc(AC_24);
     // One table serves both the Org and the Personal surface (owner_xor), so
     // this single assertion closes both doors at once — a `target_channel`
     // column is the only way the dimension could become tenant-settable.
