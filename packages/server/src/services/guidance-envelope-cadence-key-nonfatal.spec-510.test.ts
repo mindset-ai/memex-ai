@@ -165,7 +165,7 @@ describe("spec-510 — a cadence key that throws must not empty the footer", () 
       // Every later rounding step is a boundary too, and the regex covers them.
       // Normalising that ONE volatile segment keeps the full reach and removes
       // the window, which is better than choosing between them.
-      const STATIC_MARKER = "classify-and-consult";
+      const STATIC_MARKER = "Tasks are first-class"; // dec-12-proof (round-6)
       const stable = (s: string | undefined): string =>
         (s ?? "").replace(/just now|\d+[mhd] ago/g, "<t>");
 

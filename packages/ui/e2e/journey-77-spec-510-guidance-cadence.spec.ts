@@ -62,9 +62,16 @@ const MCP_URL =
   (process.env.E2E_API_URL ??
     `http://localhost:${process.env.E2E_SERVER_PORT ?? 8090}`) + "/mcp";
 
-/** A block that rides the verbose footer in `build` — the tripwire protocol.
- *  Chosen because it is long, stable, and unambiguous in the response text. */
-const STATIC_MARKER = "classify-and-consult";
+/** A phrase that rides the verbose `build` footer and is suppressed under EVERY
+ *  option dec-12 is weighing, so this journey survives that decision unchanged
+ *  (PR #740 round-6).
+ *
+ *  It was the classify-and-consult tripwire — long, stable, unambiguous, and
+ *  exactly the wrong choice: every dec-12 option keeps the tripwire in FULL, so
+ *  asserting its disappearance pinned the opposite of what the Spec is about to
+ *  promise. This phrase lives only in the phase-summary / intent / discipline
+ *  blocks, all suppressed either way, and in none of the dynamic half. */
+const STATIC_MARKER = "Tasks are first-class";
 /** The 84-char replacement (CADENCE_POINTER in scaffold-data.ts). */
 const POINTER = "guidance shown earlier this session";
 

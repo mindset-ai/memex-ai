@@ -670,7 +670,16 @@ describe("phase handoff full-vs-essence delivery (spec-203 Layer 2, ac-10)", () 
   // essence plus dynamic state and never had toNudge prose in it (spec-219
   // Phase 2b). So the cadence's reach is verbose reads, and these tests say so
   // by construction.
-  const STATIC_MARKER = "classify-and-consult"; // the tripwire block, a toNudge block
+  // A marker suppressed under EVERY option dec-12 is weighing, so this test does
+  // not need rewriting when that decision lands (PR #740 round-6).
+  //
+  // It was the classify-and-consult tripwire — long, stable, unambiguous, and
+  // exactly the wrong choice: every dec-12 option keeps the tripwire in FULL, so
+  // asserting its disappearance pinned the opposite of what the Spec is about to
+  // promise. This phrase lives only in phase-summary / phase-intent /
+  // phase-discipline-build, all suppressed either way, and in none of the
+  // never-suppressed dynamic half (checked against toHandoffEssence too).
+  const STATIC_MARKER = "Tasks are first-class";
   const POINTER = "guidance shown earlier this session";
 
   it("emits static guidance in full on first sight, a pointer thereafter (ac-9, ac-12)", async () => {
@@ -843,7 +852,7 @@ describe("phase handoff full-vs-essence delivery (spec-203 Layer 2, ac-10)", () 
 // would assert arithmetic, not behaviour.
 describe("spec-510 t-7 — cadence and handoff-storage flags are independent (ac-16, ac-21)", () => {
   const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-510/acs/ac-${n}`;
-  const STATIC_MARKER = "classify-and-consult";
+  const STATIC_MARKER = "Tasks are first-class"; // dec-12-proof — see the note above
   const POINTER = "guidance shown earlier this session";
 
   it("handoff store OFF + cadence ON — the retreat position still cadences (dec-9)", async () => {
