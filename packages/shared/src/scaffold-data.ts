@@ -2899,8 +2899,40 @@ export const BUILD_AC_NAG_PROSE = {
  * ONE line replaces the whole suppressed set, not one line per block: a dozen
  * pointers would cost more than the prose they stand in for.
  */
-export const CADENCE_POINTER =
-  "guidance shown earlier this session — get_information({ topic: 'phases' }) for depth";
+/** The slug of the generated recovery topic for `phase` — the ONE place the
+ *  naming lives, so the pointer, the loader and the guard cannot drift apart
+ *  (spec-510 t-13, dec-12 A). */
+export const guidanceRecoverySlug = (phase: string): string => `guidance-${phase}`;
+
+/**
+ * The one-line replacement for suppressed guidance.
+ *
+ * ⚠ IT NAMES A PHASE-SCOPED SLUG, and used to name `phases` — a hand-authored
+ * topic that contained NONE of what it stood in for. 39% of the suppressed
+ * volume, the tripwire included, had no retrieval path at all, while this line
+ * told the agent recovery was one call away (dec-12).
+ *
+ * What it names now is PROJECTED from the same blocks that were suppressed
+ * (`toGuidanceRecovery`), so the promise is true by derivation rather than by
+ * someone keeping two documents in step.
+ *
+ * Phase-scoped because the whole-Scaffold projection is 38,037 chars against the
+ * ~10,755 a build read suppresses — fetching it twice would cost more than the
+ * cadence saves. Per phase the ratio is ~1.2.
+ */
+export const cadencePointer = (phase: string): string =>
+  `guidance shown earlier this session — get_information({ topic: '${guidanceRecoverySlug(
+    phase,
+  )}' }) for depth`;
+
+/** Metadata prose for the generated recovery topics. Lives here rather than in
+ *  the loader because it is agent-facing copy [per std-15]; the BODY is
+ *  projected, never authored. */
+export const GUIDANCE_RECOVERY_TOPIC_PROSE = {
+  title: (phase: string): string => `Working guidance for the ${phase} phase`,
+  whenToRead:
+    'You saw a pointer saying guidance was shown earlier this session. This returns that guidance in full, for the phase you are in.',
+} as const;
 
 export const GET_PROMPT_PROSE = {
   /** dec-4: the one-line pointer that rides the handoff-essence footer sites

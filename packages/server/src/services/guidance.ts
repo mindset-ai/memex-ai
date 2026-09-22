@@ -22,6 +22,12 @@
 import { readFile, readdir } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  BASE_SCAFFOLD,
+  toGuidanceRecovery,
+  guidanceRecoverySlug,
+  GUIDANCE_RECOVERY_TOPIC_PROSE,
+} from "@memex/shared";
 import { NotFoundError, ValidationError } from "../types/errors.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -74,6 +80,38 @@ function isValidSlug(slug: string): boolean {
   return /^[a-z0-9][a-z0-9-]*$/.test(slug);
 }
 
+// ── Generated topics (spec-510 t-13, dec-12 A) ────────────────────────────
+//
+// ⚠ THIS FILE NOW HAS TWO NATURES, and the header above describes only one.
+// Everything else here is "drop a `<slug>.json` in the directory and it is
+// picked up — no parsing, no registry, no code change". These topics are not
+// files: their bodies are PROJECTED from `BASE_SCAFFOLD` at read time.
+//
+// They have to be, and that is the whole of dec-12. The cadence replaces
+// guidance with a pointer, and the pointer used to name a hand-written topic
+// that contained none of what it stood in for. A file would put the recovery
+// text one edit away from the blocks it recovers, and the two would drift — the
+// exact failure being fixed. Projected, a block added to the Scaffold is
+// recoverable with no other edit.
+//
+// ONE REGISTRY, READ BY BOTH `listTopics` AND `fetchTopic`. That is not tidiness:
+// a slug present in one and absent from the other resolves in the index and
+// 404s on fetch, which is indistinguishable from the defect dec-12 fixes. The
+// map below is the single source for both [per std-50].
+const GENERATED_TOPICS: ReadonlyMap<string, () => Topic> = new Map(
+  // Derived from the dataset's own phase list rather than a literal array — a
+  // phase added to the Scaffold gets a recovery topic without touching this file.
+  BASE_SCAFFOLD.phases.map((p) => [
+    guidanceRecoverySlug(p.phase),
+    () => ({
+      topic: guidanceRecoverySlug(p.phase),
+      title: GUIDANCE_RECOVERY_TOPIC_PROSE.title(p.phase),
+      whenToRead: GUIDANCE_RECOVERY_TOPIC_PROSE.whenToRead,
+      body: toGuidanceRecovery(BASE_SCAFFOLD, p.phase),
+    }),
+  ]),
+);
+
 /**
  * List available guidance topics. Each entry carries the slug (used as
  * the `topic` argument to fetchTopic), title, and a "when to read" hint.
@@ -94,6 +132,14 @@ export async function listTopics(): Promise<Array<Omit<Topic, "body">>> {
       whenToRead: topic.whenToRead,
     });
   }
+  // Generated topics, from the same registry `fetchTopic` reads. A file whose
+  // name collides with a generated slug would appear twice here and resolve to
+  // the generated one below; `guidance-topics.spec-510.test.ts` asserts no such
+  // collision exists rather than picking a winner silently.
+  for (const build of GENERATED_TOPICS.values()) {
+    const t = build();
+    out.push({ topic: t.topic, title: t.title, whenToRead: t.whenToRead });
+  }
   return out;
 }
 
@@ -105,6 +151,10 @@ export async function fetchTopic(topic: string): Promise<Topic> {
   if (!isValidSlug(topic)) {
     throw new NotFoundError(`Unknown guidance topic: "${topic}"`);
   }
+  // Generated first, from the SAME registry `listTopics` walks — so a slug the
+  // index advertises always resolves here (spec-510 t-13).
+  const generated = GENERATED_TOPICS.get(topic);
+  if (generated) return generated();
   const filename = `${topic}.json`;
   let raw: string;
   try {

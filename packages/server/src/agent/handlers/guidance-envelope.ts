@@ -527,6 +527,9 @@ export async function composeGuidanceEnvelope(
             channel: ctx.channel,
           }),
         ),
+        // spec-510 t-13: the pointer is phase-scoped, so the phase reaches the
+        // composer rather than being guessed inside it.
+        phase,
       );
       const nudge =
         ctx.toolName || orgBlocks || fullHandoff || cadenced

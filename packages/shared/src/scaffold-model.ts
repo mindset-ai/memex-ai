@@ -434,6 +434,64 @@ export function toPhaseGuidance(dataset: ScaffoldDataset, phase: Phase): string 
   return blocks.map((b) => b.text).join('\n\n');
 }
 
+/**
+ * spec-510 t-13 (dec-12 A) — the RECOVERY projection: every base guidance block
+ * a session in `phase` could have been shown, as one readable document.
+ *
+ * WHY THIS EXISTS. The cadence replaces guidance with a pointer, and dec-3's
+ * premise is that the pointer names a way back. It did not: the topic it named
+ * (`phases`) is hand-authored prose that happens to share a name with a block
+ * family, and covered none of the tripwire, the standards protocol or the
+ * code-grounding ask — 39% of the suppressed volume with no retrieval path at
+ * all. dec-12 chose to make the pointer true by DERIVING its target from the
+ * Scaffold rather than curating one alongside it.
+ *
+ * DERIVED IS THE WHOLE POINT [per ac-25]. A block added to `baseGuidance` is
+ * recoverable through this function with no other edit. A hand-written topic
+ * plus a maintained list of what it covers would pass the day it was written and
+ * drift silently after — which is precisely the failure this replaces.
+ *
+ * SCOPED BY PHASE, measured rather than assumed. Projecting ALL 52 blocks is
+ * 38,037 chars to recover the ~10,755 a build read suppresses — 3.5x, so an
+ * agent that fetched it twice would have spent more than the cadence ever saved.
+ * Per phase it is 12,795 for build against 10,755 suppressed (~1.19x): the
+ * blocks it lost, plus the ones another tool in the same phase would have shown.
+ * Proportionate is the property that matters here, not completeness.
+ *
+ * ACROSS TOOLS AND GROUNDING STATES, deliberately. A topic has no request
+ * context, and the agent asking cannot say which tool-scoped blocks it happened
+ * to lose. The union over every (tool x grounding) reachable in the phase is the
+ * smallest honest answer to "what was I shown here".
+ *
+ * BASE ONLY. Org additions are per-tenant and this loader is tenant-agnostic; an
+ * Org block cannot be projected into a topic served to everyone. Stated here so
+ * the absence reads as a decision, not an oversight [per std-50].
+ */
+export function toGuidanceRecovery(dataset: ScaffoldDataset, phase: Phase): string {
+  const tools: Array<string | undefined> = [undefined, ...dataset.tools.map((t) => t.name)];
+  const groundings: Array<GroundingState | undefined> = [
+    undefined,
+    'not_grounded',
+    'grounded',
+    'grounded_stale',
+  ];
+
+  // Union by id, so a block reachable through several (tool, grounding) pairs is
+  // carried once. Insertion order follows the first projection that yielded it,
+  // which is `filterAndSort`'s order — base-first by `order`, the same sequence
+  // the agent originally read them in.
+  const byId = new Map<string, GuidanceBlock>();
+  for (const tool of tools) {
+    for (const grounding of groundings) {
+      for (const block of toNudgeBlocks({ dataset, tool, phase, grounding })) {
+        if (!byId.has(block.id)) byId.set(block.id, block);
+      }
+    }
+  }
+
+  return [...byId.values()].map((b) => b.text).join('\n\n');
+}
+
 /** Returns the minimal tool-registration shape for a ToolNode. Strips
  *  `rationale` — never sent to the agent. */
 export function toToolDefinition(tool: ToolNode): ToolDefinition {

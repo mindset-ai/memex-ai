@@ -43,7 +43,7 @@
 // THE POINTER PROSE IS SCAFFOLD DATA (`CADENCE_POINTER`), never a literal here
 // [per std-15, spec-219 dec-5].
 
-import { CADENCE_POINTER, type GuidanceBlock } from "@memex/shared";
+import { cadencePointer, type GuidanceBlock } from "@memex/shared";
 import { claimOnce, recordGuidanceBytes } from "./session-claims.js";
 
 /** Per-domain debug log [per std-14], same shape as activity-log / comms-log. */
@@ -118,6 +118,11 @@ export interface CadencedGuidance {
 export async function composeCadencedGuidance(
   cadenceKey: string | undefined,
   blocks: readonly GuidanceBlock[],
+  // spec-510 t-13 (dec-12 A): the pointer names a PHASE-SCOPED recovery topic,
+  // so the phase has to reach here. It is not optional — a pointer that guessed
+  // a phase would send the agent to the wrong document, which is a quieter
+  // version of the defect dec-12 exists to fix.
+  phase: string,
 ): Promise<CadencedGuidance | undefined> {
   if (!guidanceCadenceEnabled()) return undefined;
   if (!cadenceKey) return undefined;
@@ -155,7 +160,7 @@ export async function composeCadencedGuidance(
       else suppressed++;
     }
 
-    if (suppressed > 0) shown.push(CADENCE_POINTER);
+    if (suppressed > 0) shown.push(cadencePointer(phase));
     return { text: shown.join("\n\n"), suppressed };
   } catch (err) {
     // The ERROR OBJECT, never a stringified message — a silent degrade is

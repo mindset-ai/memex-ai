@@ -87,7 +87,7 @@ describe("spec-510 — the cadence degrades to FULL guidance when its store cann
     tagAc(AC_9);
     claimOnce.mockRejectedValue(new Error("pool timeout"));
 
-    const result = await composeCadencedGuidance("nf-key", BLOCKS);
+    const result = await composeCadencedGuidance("nf-key", BLOCKS, "build");
 
     // undefined is the established "cadence does not apply" signal — the caller
     // then projects exactly as it did before this Spec. Reusing it means the
@@ -105,7 +105,7 @@ describe("spec-510 — the cadence degrades to FULL guidance when its store cann
     const cause = new Error("pool timeout");
     claimOnce.mockRejectedValue(cause);
 
-    await composeCadencedGuidance("nf-key", BLOCKS);
+    await composeCadencedGuidance("nf-key", BLOCKS, "build");
 
     expect(errorSpy).toHaveBeenCalled();
     const loggedTheObject = (errorSpy.mock.calls as unknown[][]).some((args) =>
@@ -128,7 +128,7 @@ describe("spec-510 — the cadence degrades to FULL guidance when its store cann
       .mockResolvedValueOnce(true)
       .mockRejectedValueOnce(new Error("pool timeout"));
 
-    const result = await composeCadencedGuidance("nf-key", BLOCKS);
+    const result = await composeCadencedGuidance("nf-key", BLOCKS, "build");
     expect(result).toBeUndefined();
   });
 
@@ -138,13 +138,13 @@ describe("spec-510 — the cadence degrades to FULL guidance when its store cann
     // come through, and with them refused the pointer does. Without this, a
     // `return undefined` at the top of the function would pass everything above.
     claimOnce.mockResolvedValue(true);
-    const all = await composeCadencedGuidance("nf-key", BLOCKS);
+    const all = await composeCadencedGuidance("nf-key", BLOCKS, "build");
     expect(all?.text).toContain("ALPHA BODY");
     expect(all?.text).toContain("BETA BODY");
     expect(all?.suppressed).toBe(0);
 
     claimOnce.mockResolvedValue(false);
-    const none = await composeCadencedGuidance("nf-key", BLOCKS);
+    const none = await composeCadencedGuidance("nf-key", BLOCKS, "build");
     expect(none?.text).not.toContain("ALPHA BODY");
     expect(none?.suppressed).toBe(2);
   });

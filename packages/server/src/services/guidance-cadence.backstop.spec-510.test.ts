@@ -80,12 +80,12 @@ describe("spec-510 — a suppressed block returns once enough guidance has flowe
     tagAc(AC_12);
 
     // 1. First sight — full.
-    const first = await composeCadencedGuidance(key, [ALPHA]);
+    const first = await composeCadencedGuidance(key, [ALPHA], "build");
     expect(first?.text).toContain("ALPHA GUIDANCE BODY");
     expect(first?.suppressed).toBe(0);
 
     // 2. Immediately after — suppressed, as the cadence intends.
-    const second = await composeCadencedGuidance(key, [ALPHA]);
+    const second = await composeCadencedGuidance(key, [ALPHA], "build");
     expect(second?.text).not.toContain("ALPHA GUIDANCE BODY");
     expect(second?.text).toContain(POINTER_FRAGMENT);
 
@@ -94,7 +94,7 @@ describe("spec-510 — a suppressed block returns once enough guidance has flowe
     //    every call would pass step 4 just as happily, and the cadence would be
     //    saving nothing at all while looking correct.
     await recordCadenceBytes(key, CADENCE_REFRESH_BYTES - 1_000);
-    const underThreshold = await composeCadencedGuidance(key, [ALPHA]);
+    const underThreshold = await composeCadencedGuidance(key, [ALPHA], "build");
     expect(
       underThreshold?.text,
       "The block came back before the threshold was reached — the backstop is " +
@@ -103,7 +103,7 @@ describe("spec-510 — a suppressed block returns once enough guidance has flowe
 
     // 4. PAST the threshold — the agent gets its guidance back.
     await recordCadenceBytes(key, 2_000);
-    const refreshed = await composeCadencedGuidance(key, [ALPHA]);
+    const refreshed = await composeCadencedGuidance(key, [ALPHA], "build");
     expect(
       refreshed?.text,
       "The block did NOT come back after the threshold. An agent whose context " +
@@ -120,16 +120,16 @@ describe("spec-510 — a suppressed block returns once enough guidance has flowe
     // of them aged out, which is the behaviour this asserts against.
 
     // ALPHA is claimed at 0 bytes.
-    await composeCadencedGuidance(key, [ALPHA]);
+    await composeCadencedGuidance(key, [ALPHA], "build");
     // A large volume flows, then BETA is seen for the first time. BETA's marker
     // is stamped at the CURRENT total, not at zero.
     await recordCadenceBytes(key, CADENCE_REFRESH_BYTES - 500);
-    const betaFirst = await composeCadencedGuidance(key, [ALPHA, BETA]);
+    const betaFirst = await composeCadencedGuidance(key, [ALPHA, BETA], "build");
     expect(betaFirst?.text).toContain("BETA GUIDANCE BODY");
 
     // Now push past ALPHA's threshold but not past BETA's.
     await recordCadenceBytes(key, 1_000);
-    const mixed = await composeCadencedGuidance(key, [ALPHA, BETA]);
+    const mixed = await composeCadencedGuidance(key, [ALPHA, BETA], "build");
     expect(
       mixed?.text,
       "ALPHA aged out and should be back in full.",
@@ -149,12 +149,12 @@ describe("spec-510 — a suppressed block returns once enough guidance has flowe
     // ac-12 is explicit: "driven by bytes rather than elapsed time or call count:
     // a session of many tiny calls does not trigger a re-emit". Many composures
     // that record nothing must leave the block suppressed.
-    await composeCadencedGuidance(key, [ALPHA]);
+    await composeCadencedGuidance(key, [ALPHA], "build");
     for (let i = 0; i < 25; i++) {
-      await composeCadencedGuidance(key, [ALPHA]);
+      await composeCadencedGuidance(key, [ALPHA], "build");
       await recordCadenceBytes(key, 10); // tiny responses
     }
-    const stillSuppressed = await composeCadencedGuidance(key, [ALPHA]);
+    const stillSuppressed = await composeCadencedGuidance(key, [ALPHA], "build");
     expect(
       stillSuppressed?.text,
       "26 calls refreshed the block, so the backstop is counting CALLS. A chatty " +
