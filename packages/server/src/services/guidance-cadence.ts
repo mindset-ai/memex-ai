@@ -4,8 +4,28 @@
 // THE PROBLEM. `toNudge` re-emits the same blocks on every verbose response.
 // Measured on this Scaffold: 10,748 chars in build, 13,058 in specify. The agent
 // needs them once; receiving them repeatedly fills the context it was going to
-// use for the work, and since spec-538 that guidance is also RESERVED out of the
-// response budget — so it crowds out the document the agent actually asked for.
+// use for the work.
+//
+// ⚠ WHAT THIS DOES *NOT* FIX, stated here because an earlier version of this
+// comment claimed it did (PR #740 round-7, M-6). Since spec-538 the guidance is
+// also RESERVED out of the response budget, and that reservation does NOT shrink
+// when the cadence suppresses. `estimateEnvelopeChars` measures the FULL
+// `toNudge` projection and `allocateResponseBudget` takes it off the top as a
+// fixed cost, so on a suppressed build read roughly 10,700 chars are still
+// reserved for a footer that emits 84.
+//
+// It cannot currently be otherwise: the choke point runs the handler — which
+// renders the body AND calls `allocateResponseBudget` — at
+// `spec-traffic.ts:205`, and only reaches `composeGuidanceEnvelope` at :237. The
+// body is budgeted before the suppression decision exists, so the estimator has
+// nothing to read. Closing it means either hoisting the cadence above the body
+// render (reordering the choke point) or adding a read to the hot path; both are
+// decisions, not tidy-ups.
+//
+// So the saving here is REAL for wire bytes and for the agent's context, which
+// is most of the value — and it frees no payload headroom. The Spec should not
+// be read as claiming otherwise. Quantified on the Spec; the same fact is the
+// substance of issue-7's answer about spec-538's ceilings.
 //
 // WHERE THIS SITS, AND WHY NOT IN `packages/shared`. Suppressing a block is
 // *deciding not to send it*, not *composing text* (dec-1). The decision needs a
