@@ -134,8 +134,14 @@ export async function listTopics(): Promise<Array<Omit<Topic, "body">>> {
   }
   // Generated topics, from the same registry `fetchTopic` reads. A file whose
   // name collides with a generated slug would appear twice here and resolve to
-  // the generated one below; `guidance-topics.spec-510.test.ts` asserts no such
-  // collision exists rather than picking a winner silently.
+  // the generated one below; `guidance-recovery.spec-510.test.ts` ("no generated
+  // slug collides with a hand-authored topic file") asserts no such collision
+  // exists rather than picking a winner silently.
+  //
+  // That citation named a file that does not exist until PR #740 round-10 —
+  // `guidance-topics.spec-510.test.ts`, a name the guard never had. The guard
+  // itself was real and is proven to bite: dropping a
+  // `guidance/guidance-build.json` into the tree reds it, naming the slug.
   for (const build of GENERATED_TOPICS.values()) {
     const t = build();
     out.push({ topic: t.topic, title: t.title, whenToRead: t.whenToRead });
