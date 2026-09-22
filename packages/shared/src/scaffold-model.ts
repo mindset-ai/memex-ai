@@ -507,8 +507,8 @@ export function toGuidanceRecovery(dataset: ScaffoldDataset, phase: Phase): stri
  * would hand an MCP agent prose written because the web UI has an affordance it
  * does not, which is what dec-4 exists to prevent; excluding it silently is the
  * defect above. Neither is acceptable, so while the dimension has no users the
- * guard `scaffold-data.channel-recovery.spec-510.test.ts` FAILS THE BUILD on the
- * first base block that carries one, naming this function. Serving it means
+ * guard `scaffold-model.recovery-completeness.spec-510.test.ts` FAILS THE BUILD
+ * on the first base block that carries one, naming this function. Serving it means
  * scoping the topic by (phase, channel) and threading `ctx.channel` from the
  * `get_information` handler — real work, and work that should be done when
  * something needs it rather than guessed at now.
@@ -517,6 +517,21 @@ function reachableInPhase(block: GuidanceBlock, phase: Phase): boolean {
   if (block.target.transition !== undefined) return false;
   if (block.target.button !== undefined) return false;
   if (block.target.phase !== undefined && block.target.phase !== phase) return false;
+  // ⚠ `channel` IS NOT CHECKED, and this predicate is only correct BECAUSE
+  // something outside this package refuses the dimension (PR #740 round-9/10).
+  //
+  // Read on its own the omission looks deliberate and harmless — it is neither.
+  // A channel-targeted block reaching here is INCLUDED, so an in-app agent
+  // fetching the phase topic would read prose written because an MCP agent lacks
+  // an affordance, or the reverse. `scaffold-model.recovery-completeness.spec-510
+  // .test.ts` fails the build on the first base block that carries one, which is
+  // the only reason this line is safe to leave as it stands.
+  //
+  // Note the direction changed when the axis enumeration was removed: the old
+  // loop made such a block ABSENT from recovery (silent), this makes it
+  // OVER-INCLUDED (visible to whoever reads the topic). Over-inclusion is the
+  // failure worth living with while the dimension has no users; neither is
+  // correct, and the guard's message names the work that would be.
   return true;
 }
 

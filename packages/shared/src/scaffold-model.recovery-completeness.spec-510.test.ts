@@ -67,10 +67,15 @@ describe('spec-510 — no base block carries a channel target (the loud hole)', 
       offenders,
       'A base guidance block now carries a `channel` target:\n  ' +
         offenders.join('\n  ') +
-        '\n\nThat block is SUPPRESSIBLE (the seat passes ctx.channel into the ' +
-        'projection the cadence claims against) and NOT RECOVERABLE: ' +
-        '`toGuidanceRecovery` scopes the topic by phase alone, so an agent that ' +
-        'loses it reads a pointer to a document that does not contain it.\n\n' +
+        '\n\nThe recovery topic is scoped by PHASE ALONE, and `reachableInPhase` ' +
+        'does not model `channel` — so that block IS included in every ' +
+        "channel's recovery body. The failure is a LEAK: an in-app agent " +
+        'fetching the topic reads prose written because an MCP agent lacks an ' +
+        'affordance, or the reverse. That is what dec-4 exists to prevent.\n\n' +
+        '(Before PR #740 round-9 the failure was the opposite — the block was ' +
+        'suppressible and ABSENT from recovery. Removing the axis enumeration ' +
+        'flipped the direction: over-inclusion rather than silence. Both are ' +
+        'wrong; this one is at least visible to whoever reads the topic.)\n\n' +
         'Serving it means scoping the recovery topic by (phase, channel) and ' +
         'threading ctx.channel from the get_information handler, which today ' +
         'takes no ctx. Do that — do not delete this guard.',
