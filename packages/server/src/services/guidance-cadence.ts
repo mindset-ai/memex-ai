@@ -104,7 +104,7 @@ export async function composeCadencedGuidance(
   if (blocks.length === 0) return { text: "", suppressed: 0 };
 
   // A STORE THAT CANNOT ANSWER IS "the cadence does not apply" (PR #740 review,
-  // M-3). This is fourteen round trips on a verbose build read, and the seat's
+  // M-3). This is fifteen round trips on a verbose build read, and the seat's
   // own catch is not a safety net for them: it returns a footer with no
   // guidance, no handoff, no AC nag, no activity and no state line. So one pool
   // timeout on one upsert would turn a response that should carry guidance IN
@@ -170,9 +170,21 @@ export async function recordCadenceBytes(
   if (!cadenceKey || bytes <= 0) return;
   try {
     await recordGuidanceBytes(cadenceKey, bytes);
-  } catch {
-    // Swallowed deliberately: the cadence is advisory. The cost is a threshold
-    // that fires slightly late, and the alternative is a guidance-bookkeeping
-    // failure taking down a tool response.
+  } catch (err) {
+    // Swallowed deliberately — a guidance-bookkeeping failure must not take down
+    // a tool response — but NEVER silently.
+    //
+    // ⚠ THE COST IS NOT "a threshold that fires slightly late", which is what
+    // this comment used to say (PR #740 round-2, M-12). One miss is late. A
+    // PERSISTENT failure means `guidance_bytes` never grows, so the backstop's
+    // `guidance_bytes - marker > CADENCE_REFRESH_BYTES` can never become true:
+    // suppression turns permanent for every session on this instance, and an
+    // agent whose context has been trimmed never gets its guidance back.
+    //
+    // Nothing else can report that. The claim upserts keep succeeding, the tool
+    // call succeeds, the response looks correct. This log line is the only
+    // evidence the safety net has stopped advancing — so it carries the error
+    // OBJECT [per std-53, std-50, std-14], exactly as the claim path above does.
+    log("byte record failed — the volume backstop will run stale:", err);
   }
 }

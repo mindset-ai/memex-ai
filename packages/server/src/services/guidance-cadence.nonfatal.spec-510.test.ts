@@ -3,12 +3,12 @@
 //
 // ─────────────────────────────────────────────────────────────────────────────
 // THE DEFECT THIS PINS. `composeCadencedGuidance` awaits `claimOnce` once per
-// block — fourteen round trips on a verbose build read — and threw on failure.
+// block — fifteen round trips on a verbose build read — and threw on failure.
 // The seat's own try/catch is not a safety net for it: that catch returns
 // `compose(withLead(undefined), undefined)`, i.e. a footer with NO guidance, NO
 // handoff, NO acceptance-criteria nag, NO activity block and NO state line.
 //
-// So one pool timeout on one of fourteen upserts turned a response that should
+// So one pool timeout on one of fifteen upserts turned a response that should
 // have carried guidance IN FULL into one carrying none at all — the exact
 // inverse of the documented fallback, and strictly worse than the behaviour
 // before this Spec. Nothing would have surfaced it: the tool call still
@@ -109,7 +109,7 @@ describe("spec-510 — the cadence degrades to FULL guidance when its store cann
     expect(
       loggedTheObject,
       "The original Error object must reach the log, not a stringified message " +
-        "— the stack is the only thing that says WHICH of fourteen claims failed.",
+        "— the stack is the only thing that says WHICH of fifteen claims failed.",
     ).toBe(true);
   });
 
@@ -144,12 +144,32 @@ describe("spec-510 — the cadence degrades to FULL guidance when its store cann
     expect(none?.suppressed).toBe(2);
   });
 
-  it("recordCadenceBytes was already non-fatal and stays that way", async () => {
+  it("recordCadenceBytes is non-fatal AND loud — both halves, not just the first", async () => {
     tagAc(AC_9);
-    // Asserted here so the two halves of the contract sit together: the byte
-    // record was documented "never throws" from the start, and a future edit
-    // that makes the claim path loud must not quietly make this one loud too.
-    recordGuidanceBytes.mockRejectedValue(new Error("pool timeout"));
+    // ⚠ THIS TEST USED TO ASSERT ONLY `resolves`, under a comment claiming "the
+    // two halves of the contract sit together". It pinned one half and made the
+    // gap look deliberate (PR #740 round-2, M-12).
+    //
+    // The half it missed is not cosmetic. If `recordGuidanceBytes` fails
+    // PERSISTENTLY — the same pool the guard above assumes can fail —
+    // `guidance_bytes` never grows, so the backstop's
+    // `guidance_bytes - marker > CADENCE_REFRESH_BYTES` can never become true.
+    // Suppression then becomes permanent for every session on that instance and
+    // an agent whose context was trimmed never gets its guidance back. Silently,
+    // because the catch here bound nothing and logged nothing.
+    const cause = new Error("pool timeout");
+    recordGuidanceBytes.mockRejectedValue(cause);
+
     await expect(recordCadenceBytes("nf-key", 1_234)).resolves.toBeUndefined();
+
+    const loggedTheObject = (errorSpy.mock.calls as unknown[][]).some((args) =>
+      args.some((a) => a === cause),
+    );
+    expect(
+      loggedTheObject,
+      "A failed byte record must reach the log with its Error OBJECT. It is the " +
+        "only signal that the volume backstop has stopped advancing — the tool " +
+        "call still succeeds and the response still looks correct.",
+    ).toBe(true);
   });
 });

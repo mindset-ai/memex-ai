@@ -137,9 +137,22 @@ describe("spec-510 — a cadence key that throws must not empty the footer", () 
           "unresolvable key means 'no key', and no key means emit IN FULL.",
       ).toBeTruthy();
 
-      // Not merely non-empty: the DEGRADE must land on the documented fallback,
-      // which is the same footer a session with no key would have received.
-      expect(broken.footer).toBe(control.footer);
+      // Not merely non-empty: the degrade must land on the DOCUMENTED fallback —
+      // guidance emitted in full, exactly as a session with no key receives it.
+      //
+      // Asserted on the guidance marker rather than `toBe(control.footer)`. Strict
+      // equality reads better and is a latent flake: the footer can carry the
+      // activity block, whose relative-time label flips at the 30-second boundary,
+      // so two calls milliseconds apart differ on a tiny fraction of runs. That
+      // failure would look like a real regression and be chased as one. The marker
+      // is what the claim is actually about (PR #740 round-2, watch item).
+      const STATIC_MARKER = "classify-and-consult";
+      expect(control.footer).toContain(STATIC_MARKER);
+      expect(
+        broken.footer,
+        "The footer survived but without its guidance — the degrade landed " +
+          "somewhere other than the documented 'emit in full' fallback.",
+      ).toContain(STATIC_MARKER);
     } finally {
       if (previous === undefined) delete process.env[GUIDANCE_CADENCE_FLAG];
       else process.env[GUIDANCE_CADENCE_FLAG] = previous;
