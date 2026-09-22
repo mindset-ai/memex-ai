@@ -138,21 +138,37 @@ describe("spec-510 — a cadence key that throws must not empty the footer", () 
       ).toBeTruthy();
 
       // Not merely non-empty: the degrade must land on the DOCUMENTED fallback —
-      // guidance emitted in full, exactly as a session with no key receives it.
+      // byte-for-byte what a session with no key receives.
       //
-      // Asserted on the guidance marker rather than `toBe(control.footer)`. Strict
-      // equality reads better and is a latent flake: the footer can carry the
-      // activity block, whose relative-time label flips at the 30-second boundary,
-      // so two calls milliseconds apart differ on a tiny fraction of runs. That
-      // failure would look like a real regression and be chased as one. The marker
-      // is what the claim is actually about (PR #740 round-2, watch item).
+      // ⚠ THE SUBSTRING VERSION OF THIS WAS TOO WEAK, and I wrote it (PR #740
+      // round-2 → round-3, M-14). This file's header describes the defect as a
+      // footer missing FIVE things — guidance, handoff, AC nag, activity block,
+      // state line. Equality against the healthy control checks all five; a
+      // substring on one guidance block checks one, and this test is the only
+      // guard for that half of M-3. A regression that kept the guidance but
+      // dropped the handoff would have passed.
+      //
+      // The flake it was trading against is real but tiny: the activity block
+      // carries a relative-time label (`agoLabel` — "just now", "Nm ago", "Nh
+      // ago", "Nd ago") that flips once a minute has passed, so two calls
+      // milliseconds apart can differ on a fraction of a percent of runs.
+      // Normalising that ONE volatile segment keeps the full reach and removes
+      // the window, which is better than choosing between them.
       const STATIC_MARKER = "classify-and-consult";
+      const stable = (s: string | undefined): string =>
+        (s ?? "").replace(/just now|\d+[mhd] ago/g, "<t>");
+
+      // Kept from the substring version, which was a genuine improvement over
+      // `toBeTruthy()`: this proves the fixture composes GUIDANCE, not merely
+      // some footer, so the equality below is comparing something meaningful.
       expect(control.footer).toContain(STATIC_MARKER);
       expect(
-        broken.footer,
-        "The footer survived but without its guidance — the degrade landed " +
-          "somewhere other than the documented 'emit in full' fallback.",
-      ).toContain(STATIC_MARKER);
+        stable(broken.footer),
+        "The degrade landed somewhere other than the documented 'emit in full' " +
+          "fallback. Compared against the healthy control so this covers every " +
+          "part of the footer — guidance, handoff, AC nag, activity, state line " +
+          "— not just the guidance block.",
+      ).toBe(stable(control.footer));
     } finally {
       if (previous === undefined) delete process.env[GUIDANCE_CADENCE_FLAG];
       else process.env[GUIDANCE_CADENCE_FLAG] = previous;
