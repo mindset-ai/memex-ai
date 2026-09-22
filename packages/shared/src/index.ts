@@ -41,6 +41,8 @@ export {
   toPhaseGuidance,
   toToolDefinition,
   toNudge,
+  // spec-510 t-2: the addressable sibling the server seat claims against.
+  toNudgeBlocks,
   toRubric,
   toInitPromptRef,
   toButtonPrompt,
@@ -96,6 +98,8 @@ export {
   // is present in the built dist/index.d.ts.
   CODE_GROUNDING_HEADER_PROSE,
   GET_PROMPT_PROSE,
+  // spec-510 t-3: the one-line stand-in for guidance already shown this session.
+  CADENCE_POINTER,
   // spec-464 dec-24: the phase-gating teaching catalog (prose home, std-15).
   PHASE_GATING_CATALOG,
 } from './scaffold-data.js';

@@ -188,13 +188,34 @@ describe("spec-542 — BOTH toNudge call sites receive the state (ac-13)", () =>
     // it was wired. A state passed at only one site would silently mis-size the
     // envelope for every Spec read — the exact "measure one thing, emit
     // another" defect std-50 cl-1 names.
-    const calls = formattersCode.match(/toNudge\(\{[\s\S]*?\}\)/g) ?? [];
-    expect(calls.length, "expected both toNudge call sites").toBe(2);
-    for (const call of calls) {
-      expect(call, `a toNudge call site does not pass grounding:\n${call}`).toMatch(
-        /grounding[,:]/,
-      );
-    }
+    //
+    // ⚠ REPOINTED, NOT RELAXED (spec-510 t-3). This used to match inline
+    // `toNudge({ … })` objects and require `grounding` in each. The call sites no
+    // longer build their input inline: all of them go through `nudgeInputFor`,
+    // one exported constructor, because the SEAT needs the same input to decide
+    // which blocks to suppress and two hand-built objects were two chances to
+    // disagree. That is STRICTLY STRONGER than the old rule — a call site cannot
+    // omit `grounding` because it no longer builds the object at all — so the
+    // guard asserts the stronger shape. The invariant it protects is unchanged:
+    // every projection of the phase footer carries the grounding state.
+    const inline = formattersCode.match(/toNudge\(\{[\s\S]*?\}\)/g) ?? [];
+    expect(
+      inline,
+      "a toNudge call builds its input INLINE. Use nudgeInputFor — an inline " +
+        "object is a second place grounding can be forgotten, which is what this " +
+        "guard exists to prevent.",
+    ).toEqual([]);
+
+    const routed = formattersCode.match(/toNudge\(nudgeInputFor\(/g) ?? [];
+    expect(routed.length, "expected both toNudge call sites to route through nudgeInputFor").toBe(
+      2,
+    );
+
+    const ctor = formattersCode.match(/export function nudgeInputFor\([\s\S]*?\n\}/)?.[0] ?? "";
+    expect(ctor.length, "nudgeInputFor must exist — the single input constructor").toBeGreaterThan(
+      0,
+    );
+    expect(ctor, "nudgeInputFor does not pass grounding").toMatch(/grounding:/);
   });
 
   it("the state is derived by ONE helper, not re-derived per call site", () => {

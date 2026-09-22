@@ -29,6 +29,9 @@ import { stripUuids, containsUuid } from "../../services/shared/identifiers.js";
 import { listPresent } from "../../services/presence.js";
 import {
   formatSpecGuidanceBody,
+  // spec-510 t-3: the single constructor for a phase-footer toNudge input, so
+  // the seat's cadence claims cannot drift from what the renderer emits.
+  nudgeInputFor,
 } from "../../formatting/formatters.js";
 import { buildSketchBlock } from "../../mcp/ac-test-sketch.js";
 import {
@@ -36,6 +39,8 @@ import {
   HANDOFF_BUTTON_BY_PHASE,
   toButtonPrompt,
   toHandoffEssence,
+  // spec-510 t-2/t-3: the addressable projection the cadence claims against.
+  toNudgeBlocks,
   GET_PROMPT_PROSE,
   // spec-566 dec-2 — the superseded count's wording + the live-set rule, one
   // decision shared with all eight React coverage surfaces.
@@ -44,6 +49,10 @@ import {
   type Phase,
 } from "@memex/shared";
 import { claimFullHandoffDelivery } from "../../services/handoff-delivery.js";
+import {
+  composeCadencedGuidance,
+  recordCadenceBytes,
+} from "../../services/guidance-cadence.js";
 import type { ToolCtx, FooterSignal } from "./tool-contract.js";
 import { fullDocState, type FullDocState } from "./doc-state.js";
 import { relatedIssuesNudge } from "./related-issues.js";
@@ -466,9 +475,26 @@ export async function composeGuidanceEnvelope(
             }) ?? undefined;
         }
       }
+      // spec-510 t-3 (dec-1, dec-3): apply the guidance cadence HERE, at the
+      // seat, because the decision needs a session and the renderer has none.
+      // The projector stays pure; we hand the renderer a composed string exactly
+      // as spec-203 does for `fullHandoff` one field along.
+      //
+      // The input is built by the SAME constructor the renderer uses, so the
+      // blocks we claim against cannot drift from the blocks it would emit.
+      //
+      // `cadenceKey` is undefined on a stateless MCP path, an unbound chat, or
+      // the first call of a conversation (t-10). `composeCadencedGuidance` then
+      // returns undefined and the renderer projects as it always has — the
+      // fallback is today's behaviour, not an error.
+      const cadenceKey = await ctx.cadenceKey?.();
+      const cadenced = await composeCadencedGuidance(
+        cadenceKey,
+        toNudgeBlocks(nudgeInputFor(state.doc, phase, { tool: ctx.toolName, orgBlocks })),
+      );
       const nudge =
-        ctx.toolName || orgBlocks || fullHandoff
-          ? { tool: ctx.toolName, orgBlocks, fullHandoff }
+        ctx.toolName || orgBlocks || fullHandoff || cadenced
+          ? { tool: ctx.toolName, orgBlocks, fullHandoff, guidance: cadenced?.text }
           : undefined;
       let acVerifications: AcWithVerification[] | undefined;
       if (phase === "build") {
@@ -486,6 +512,12 @@ export async function composeGuidanceEnvelope(
         nudge,
         acVerifications,
       );
+      // spec-510 t-3 (dec-3): record what this response actually emitted, so the
+      // per-block byte thresholds measure real volume. AFTER the claims above,
+      // never before — a claim granted on this response marks the total as it
+      // stood BEFORE it, which is what "bytes since you were last shown this"
+      // means. Recording first would push every threshold one response late.
+      await recordCadenceBytes(cadenceKey, footer?.length ?? 0);
       // spec-219 ac-10 / dec-4: the AC-coverage HEADER is composed HERE (the one
       // seat), not in the get_doc handler. It is the get_doc-verbose-only surface
       // — emitted only when this is a `get_doc` call (the coverage summary above

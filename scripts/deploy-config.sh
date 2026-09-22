@@ -231,6 +231,19 @@ fi
 if [ -n "${HANDOFF_SHARED_STORE_ENABLED+set}" ]; then
   export HANDOFF_SHARED_STORE_ENABLED
 fi
+# GUIDANCE_CADENCE_ENABLED — spec-510 t-3 (dec-6): the guidance cadence. ON = a
+# static guidance block is emitted in full on first sight and replaced by a one-line
+# pointer thereafter; OFF/unset = today's behaviour, the full prose on every verbose
+# response. Default OFF, read live, so flipping it is an instant kill switch.
+#
+# Same set-vs-unset semantics as ACTIVATION_EMAILS_ENABLED, and INDEPENDENT of
+# HANDOFF_SHARED_STORE_ENABLED above by design (dec-6): both halves land in the same
+# function on a global multi-tenant deploy, so a production symptom must be
+# bisectable in seconds without deploying. One flag would make a cadence problem and
+# a priming problem indistinguishable.
+if [ -n "${GUIDANCE_CADENCE_ENABLED+set}" ]; then
+  export GUIDANCE_CADENCE_ENABLED
+fi
 
 # OTEL_EXPORTER_OTLP_ENDPOINT — turns on database observability and chooses
 # where the metrics go. Unset (the default) means telemetry is off with zero

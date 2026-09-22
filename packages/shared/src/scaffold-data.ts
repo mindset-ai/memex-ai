@@ -2880,6 +2880,28 @@ export const BUILD_AC_NAG_PROSE = {
 // const consumed by server code" shape as BUILD_AC_NAG_PROSE). The tool itself
 // composes the actual handoff via `toButtonPrompt` + `HANDOFF_BUTTON_BY_PHASE`
 // — no prompt text is duplicated here, only the wrapper prose around it.
+/**
+ * spec-510 t-3 (dec-1): the one line that stands in for guidance this session
+ * has already been shown in full.
+ *
+ * It lives here, not in the seat, because agent-facing prose has one home
+ * [per std-15] and because the seat is forbidden from authoring footer text
+ * (spec-219 dec-5, guarded by footer-one-seat / guidance-authoring-confined).
+ *
+ * THE WORDING IS LOAD-BEARING, and the Design & UX lens says why. It must:
+ *   - NAME the retrieval tool, so recovery is explicit rather than inferred by
+ *     an agent that has to guess the guidance still exists somewhere;
+ *   - read like a FOOTNOTE, not a fault — no warning glyph, no "omitted", no
+ *     "truncated". An agent that reads this as an error behaves differently
+ *     from one that reads it as a reference, and the difference is invisible
+ *     from the server side.
+ *
+ * ONE line replaces the whole suppressed set, not one line per block: a dozen
+ * pointers would cost more than the prose they stand in for.
+ */
+export const CADENCE_POINTER =
+  "guidance shown earlier this session — get_information({ topic: 'phases' }) for depth";
+
 export const GET_PROMPT_PROSE = {
   /** dec-4: the one-line pointer that rides the handoff-essence footer sites
    *  (get_doc essence line, assess_spec phase-mode footer, update_doc
