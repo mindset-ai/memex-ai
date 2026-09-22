@@ -144,6 +144,39 @@ describe("spec-510 — a suppressed block returns once enough guidance has flowe
     expect(mixed?.text.match(new RegExp(POINTER_FRAGMENT, "g"))).toHaveLength(1);
   });
 
+  it("a claim stamps the total as it stood BEFORE its own response (the ordering)", async () => {
+    tagAc(AC_12);
+    // ⚠ THREE DOCSTRINGS CALL THIS ORDERING SILENT-IF-WRONG AND NOTHING PINNED IT
+    // (PR #740 L-9). Claim FIRST, record AFTER: a claim granted during a response
+    // marks the byte total as it stood BEFORE that response, which is what
+    // "bytes since you were last shown this" means. Record first and every
+    // marker includes the response that carried the block, pushing every
+    // threshold one response late — invisibly, since nothing errors and the
+    // cadence still looks correct for a long time.
+    //
+    // Asserted on the STORED MARKER rather than on downstream behaviour, because
+    // the drift is one response wide and a behavioural test would need to walk
+    // the whole threshold to see it.
+    await recordCadenceBytes(key, 5_000); // volume from earlier responses
+    await composeCadencedGuidance(key, [ALPHA], "build"); // first sight — claims
+    await recordCadenceBytes(key, 7_000); // what THIS response cost
+
+    const rows = (await db.execute(
+      sql`SELECT (claims -> ${"block:" + ALPHA.id} ->> 'bytes')::bigint AS marker,
+                 guidance_bytes::bigint AS total
+          FROM agent_session_claims WHERE session_id = ${key}`,
+    )) as unknown as Array<{ marker: string | number; total: string | number }>;
+
+    expect(rows.length).toBe(1);
+    expect(
+      Number(rows[0].marker),
+      "The claim's marker should be the total BEFORE the response that carried " +
+        "the block (5,000). Seeing 12,000 means the record ran before the claim " +
+        "and every threshold will fire one response late.",
+    ).toBe(5_000);
+    expect(Number(rows[0].total)).toBe(12_000);
+  });
+
   it("is driven by BYTES, not by call count", async () => {
     tagAc(AC_12);
     // ac-12 is explicit: "driven by bytes rather than elapsed time or call count:

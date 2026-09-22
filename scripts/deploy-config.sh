@@ -228,6 +228,18 @@ fi
 # priming there is no error, no red test and no log line, only agents less well primed.
 # A deploy from a checkout that never set it must not flip the storage source in either
 # direction, or the switch is "armed and is not" at the one moment it is needed.
+#
+# ⚠ HOW YOU ACTUALLY FLIP IT (spec-510, PR #740 L-11). Unlike
+# ACTIVATION_EMAILS_ENABLED there is NO GitHub-variable route for this one —
+# deploy.yml does not name it, so `vars.` will not reach it. Two ways in:
+#
+#   instant, no deploy   gcloud run services update <service> --region <r> \
+#                          --update-env-vars HANDOFF_SHARED_STORE_ENABLED=1
+#   durable, next deploy  edit the canonical memex-<env>-deploy-env secret
+#
+# The kill-switch promise — "off takes effect on the next call, without a
+# deploy" — is the FIRST of those. Editing the secret alone changes nothing
+# until something redeploys, which is the opposite of what a kill switch is for.
 if [ -n "${HANDOFF_SHARED_STORE_ENABLED+set}" ]; then
   export HANDOFF_SHARED_STORE_ENABLED
 fi
@@ -241,6 +253,11 @@ fi
 # function on a global multi-tenant deploy, so a production symptom must be
 # bisectable in seconds without deploying. One flag would make a cadence problem and
 # a priming problem indistinguishable.
+#
+# ⚠ Same flip mechanics as HANDOFF_SHARED_STORE_ENABLED above: no
+# GitHub-variable route, so the instant switch is
+# `gcloud run services update … --update-env-vars GUIDANCE_CADENCE_ENABLED=1`
+# and the canonical secret is the durable-but-needs-a-deploy path.
 if [ -n "${GUIDANCE_CADENCE_ENABLED+set}" ]; then
   export GUIDANCE_CADENCE_ENABLED
 fi

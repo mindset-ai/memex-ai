@@ -741,7 +741,12 @@ describe("phase handoff full-vs-essence delivery (spec-203 Layer 2, ac-10)", () 
     }
   });
 
-  it("with the flag OFF the second response is byte-identical to the first (the retreat path)", async () => {
+  // Titled for what it asserts, not for what an earlier draft claimed (PR #740
+  // L-10): the two responses are NOT byte-identical — call one carries the full
+  // phase handoff and call two its essence, which is spec-203 and predates this
+  // Spec. What the retreat path guarantees is that the STATIC guidance survives
+  // both, and the comment inside already said so while the title did not.
+  it("with the flag OFF the static guidance survives both responses (the retreat path)", async () => {
     tagAc(`mindset-prod/memex-building-itself/specs/spec-510/acs/ac-9`);
     // ac-7 (scope): "switching it off restores the previous emission behaviour
     // EXACTLY". This is the test that says what "exactly" means; the other half
@@ -848,7 +853,7 @@ describe("phase handoff full-vs-essence delivery (spec-203 Layer 2, ac-10)", () 
 //     the cadence stays on. The position an incident actually reaches for.
 //   - (both ON)                 — the target state after rollout.
 //   - (both OFF)                — today's behaviour, already covered above by the
-//     "byte-identical to the first" retreat-path test.
+//     "the static guidance survives both responses" retreat-path test.
 // The rest are permutations of the same two independent axes and testing them
 // would assert arithmetic, not behaviour.
 describe("spec-510 t-7 — cadence and handoff-storage flags are independent (ac-16, ac-21)", () => {
