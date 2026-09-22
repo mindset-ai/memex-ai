@@ -162,6 +162,50 @@ describe("spec-510 — the recovery topic is DERIVED, not curated (ac-25)", () =
     expect(dupes, `these slugs exist as BOTH a file and a generated topic: ${dupes}`).toEqual([]);
   });
 
+  it("the recovery surface is UNGATED — it ships on merge, with both flags off", async () => {
+    tagAc(AC_25);
+    // ⚠ THIS IS THE ONE THING SPEC-510 CHANGES FOR EVERYONE ON MERGE DAY, and
+    // the PR originally claimed the opposite: "both flags default OFF, so
+    // merging changes nothing in production" (PR #740 round-13, N-21).
+    //
+    // `GENERATED_TOPICS` references no flag. With the cadence off and the shared
+    // store off, every agent's `get_information` index still gains five entries
+    // — measured at 1,034 characters — and `get_information({topic:
+    // 'guidance-build'})` returns a 12,829-char body that did not exist before.
+    //
+    // THAT IS DELIBERATE, not an oversight. Gating the topics would ship a
+    // pointer whose target is switched off, which is strictly worse: the agent
+    // would be told where to look and find nothing, which is the defect dec-12
+    // was raised to fix. The flags gate SUPPRESSION; the recovery surface is
+    // inert until something points at it.
+    //
+    // Asserted rather than described, because "the flags make this a zero-risk
+    // merge" is the sentence a reviewer decides on, and it is now false in a
+    // specific and measurable way.
+    const previousCadence = process.env.GUIDANCE_CADENCE_ENABLED;
+    const previousStore = process.env.HANDOFF_SHARED_STORE_ENABLED;
+    delete process.env.GUIDANCE_CADENCE_ENABLED;
+    delete process.env.HANDOFF_SHARED_STORE_ENABLED;
+    try {
+      const listed = (await listTopics()).map((t) => t.topic);
+      for (const phase of PHASES) {
+        const slug = guidanceRecoverySlug(phase);
+        expect(
+          listed,
+          `'${slug}' vanished when the flags went off. The recovery surface must ` +
+            `NOT be gated — a pointer whose target is switched off sends an agent ` +
+            `somewhere empty, which is the defect dec-12 exists to fix.`,
+        ).toContain(slug);
+        await expect(fetchTopic(slug)).resolves.toMatchObject({ topic: slug });
+      }
+    } finally {
+      if (previousCadence === undefined) delete process.env.GUIDANCE_CADENCE_ENABLED;
+      else process.env.GUIDANCE_CADENCE_ENABLED = previousCadence;
+      if (previousStore === undefined) delete process.env.HANDOFF_SHARED_STORE_ENABLED;
+      else process.env.HANDOFF_SHARED_STORE_ENABLED = previousStore;
+    }
+  });
+
   it("the pointer names a slug the loader actually serves (L-8)", async () => {
     tagAc(AC_26);
     // Kept deliberately LAST and called out as the weak one: this is the
