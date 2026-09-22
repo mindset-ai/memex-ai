@@ -138,9 +138,9 @@ export async function listTopics(): Promise<Array<Omit<Topic, "body">>> {
   // slug collides with a hand-authored topic file") asserts no such collision
   // exists rather than picking a winner silently.
   //
-  // That citation named a file that does not exist until PR #740 round-10 —
-  // `guidance-topics.spec-510.test.ts`, a name the guard never had. The guard
-  // itself was real and is proven to bite: dropping a
+  // Until PR #740 round-11 this comment cited `guidance-topics.spec-510.test.ts`
+  // — a name the guard has never had, and a file that has never existed. The
+  // guard itself was real throughout, and is proven to bite: dropping a
   // `guidance/guidance-build.json` into the tree reds it, naming the slug.
   for (const build of GENERATED_TOPICS.values()) {
     const t = build();
