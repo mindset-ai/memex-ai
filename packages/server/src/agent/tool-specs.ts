@@ -56,6 +56,11 @@ import type {
 // and dec-3 already declined the same shape of concession for re-export lines.
 export {
   buildNudgeOrgBlocksGetter,
+  // spec-510 t-10: the MCP surface's cadence-key builder, re-exported for the
+  // same reason as its sibling above — mcp/tools.ts imports the ctx surface
+  // through this barrel, not from handlers/ directly.
+  mcpCadenceKey,
+  memoisedCadenceKey,
   // spec-366: re-exported because tool-specs.audit.integration.test.ts imports
   // VERBOSE_FIELD from here to assert the shared-instance identity contract.
   VERBOSE_FIELD,

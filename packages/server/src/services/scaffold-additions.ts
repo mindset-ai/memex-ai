@@ -16,10 +16,15 @@
 //     `target_button` (spec-103 D-7) attaches a block to a Prompt Button id.
 //   - `kind` is hard-coded to `'guidance_block'`; `source` is hard-coded to
 //     `'org'`. Neither lives in the DB.
-//   - The DB primary key surfaces as a `.id` field on the returned view so
-//     the HTTP route in t-10 has a stable handle to PATCH/DELETE against. The
-//     shared `GuidanceBlock` shape doesn't carry `id` because base blocks
-//     have no persisted identity — they live in code.
+//   - The DB primary key surfaces as the `.id` field the shared
+//     `GuidanceBlock` shape now requires (spec-510 dec-8 / t-11). It was
+//     previously projected onto this view alone, because base blocks had no
+//     identity at all; they do now, so the field is first-class on both
+//     populations and the HTTP route in t-10 keeps the same stable handle to
+//     PATCH/DELETE against. The two id populations cannot collide: base ids
+//     are hand-authored kebab slugs from `scaffold-data.ts`, Org ids are
+//     these row uuids — which is what makes Org additions suppressible by
+//     spec-510's cadence on the same `block:{id}` claim key, with no new API.
 //
 // std-8 wiring:
 //   - entity: `org_scaffold_addition`
@@ -50,13 +55,13 @@ import type {
 } from "@memex/shared";
 
 // ──────────────────────────────────────────────────────────────────────────
-// Output view: GuidanceBlock + the persisted `id` so the HTTP layer (t-10)
-// can address the row for PATCH/DELETE. Base GuidanceBlocks have no `id`
-// because they live in code; Org rows do, so we project it onto the view.
+// Output view: GuidanceBlock (whose `id` the row's primary key fills) plus the
+// personal-ownership field the HTTP guard needs. `id` is NOT redeclared here —
+// spec-510 t-11 made it a required field of `GuidanceBlock` itself, so
+// redeclaring would only restate what the parent already guarantees.
 // ──────────────────────────────────────────────────────────────────────────
 
 export interface OrgScaffoldAdditionView extends GuidanceBlock {
-  id: string;
   // spec-360 follow-up: the personal-namespace owner of this row, when it is
   // personally owned (org_id NULL). Present only on personal-owned rows; org
   // rows leave it absent and carry `orgId` instead. The HTTP cross-tenant guard

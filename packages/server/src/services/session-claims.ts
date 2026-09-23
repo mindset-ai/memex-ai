@@ -1,0 +1,261 @@
+// spec-510 t-1 (dec-2, dec-3, dec-7): the cross-instance session-claim store.
+//
+// Answers one question — "has this session already been sent this guidance?" —
+// durably enough that the answer survives a change of serving process. Schema
+// and the full rationale: migration 0152, and `agentSessionClaims` in db/schema.ts.
+//
+// This module is deliberately SHALLOW in surface and does all its thinking in
+// SQL [per std-51 — depth at the interface, not line count]. Three functions:
+//
+//   recordGuidanceBytes — the seat reports what a response actually emitted
+//   claimOnce           — a pure decision: may I send this, yes or no
+//   readSessionClaims   — diagnostics and tests
+//
+// WHY THE TWO ARE SEPARATE, and this is a real fork rather than a detail. t-3
+// calls `claimOnce` once per suppressible block on a response. If `claimOnce`
+// also folded in the response's byte count, a response carrying six blocks would
+// count its bytes six times and the dec-3 threshold would fire six times too
+// early. The seat is where the response's size is actually known, so the seat
+// records it ONCE and `claimOnce` only ever reads it.
+//
+// EVERY WRITE IS ONE STATEMENT [per std-39 — the write pattern is the
+// load-bearing choice, not the schema], mirroring services/auth-rate-limit.ts.
+// Concurrent instances serialise on the row lock rather than racing, so the
+// failure that matters cannot happen: two instances each reading "not yet
+// claimed" and each emitting the full block.
+//
+// CALL ORDER IS PART OF THE CONTRACT, and getting it wrong is silent. A granted
+// claim stamps the session's byte total AS IT STANDS WHEN THE CLAIM IS MADE, so
+// for one response:
+//
+//   claimOnce(...) first, then recordGuidanceBytes(...)
+//     → the marker EXCLUDES the response that carried the block. "Bytes since
+//       you were last shown this" then counts from just before that response,
+//       which is what dec-3 describes.
+//
+//   recordGuidanceBytes(...) first, then claimOnce(...)
+//     → the marker INCLUDES it, so every threshold effectively fires one
+//       response's worth of bytes later.
+//
+// Neither is wrong in itself, but they differ, and nothing here can detect which
+// the caller meant. t-3 should claim first and record after, and say so where
+// the seat calls this.
+
+// NOT A std-8 MUTATION, deliberately, and on the same footing as
+// services/auth-rate-limit.ts. std-8 routes DOMAIN mutations through `mutate()`
+// so they emit on the unified bus and live SSE subscribers refetch. A session
+// claim is per-request infrastructure state: no surface renders it, no one
+// subscribes to it, and an event per claim would put bus traffic on the hot path
+// of every tool response for nothing. Neither function here returns
+// `Promise<Mutated<T>>`, so the std-8 type brand and the `mutate-coverage`
+// guards do not reach them — by construction, not by exemption.
+
+import { randomUUID } from "node:crypto";
+import { sql } from "drizzle-orm";
+import { db } from "../db/connection.js";
+
+/**
+ * When a granted claim becomes grantable again. Omit both fields for
+ * "grant once per session, never again".
+ *
+ * The two mechanisms sharing this store need different backstops, which is why
+ * this is a shape rather than a single number:
+ *   - the full phase handoff re-primes on an idle interval (`ttlMs`), the
+ *     behaviour spec-203 shipped and dec-7 preserves;
+ *   - a static guidance block re-appears on VOLUME (`bytes`), because dec-3's
+ *     safety net guards against context compaction, which is driven by how much
+ *     text accumulated — not by elapsed time and not by call count.
+ *
+ * Passing both is legal; whichever condition is met first re-grants.
+ */
+export interface ClaimBackstop {
+  /** Re-grant once this many milliseconds have elapsed since the last grant. */
+  ttlMs?: number;
+  /**
+   * Re-grant once this many guidance bytes have been emitted to the session
+   * SINCE THIS CLAIM was last granted — measured per claim, not globally, so a
+   * block first seen mid-session is not instantly due.
+   */
+  bytes?: number;
+}
+
+export interface SessionClaimsView {
+  guidanceBytes: number;
+  claims: Record<string, { at: string; bytes: number; n: string }>;
+}
+
+/**
+ * Record the guidance bytes one response emitted to a session, and return the
+ * session's new running total. Called ONCE per response by the seat.
+ *
+ * Creates the session row if this is its first sighting.
+ */
+export async function recordGuidanceBytes(
+  sessionId: string,
+  bytes: number,
+): Promise<number> {
+  const rows = (await db.execute(sql`
+    INSERT INTO agent_session_claims (session_id, guidance_bytes, updated_at)
+    VALUES (${sessionId}, ${bytes}, now())
+    ON CONFLICT (session_id) DO UPDATE SET
+      guidance_bytes = agent_session_claims.guidance_bytes + ${bytes},
+      updated_at = now()
+    RETURNING guidance_bytes AS total
+  `)) as unknown as Array<{ total: number | string }>;
+  return Number(rows[0]?.total ?? 0);
+}
+
+/**
+ * ─── THE RULE FOR A CLAIM KEY'S SHAPE (spec-510 dec-14) ────────────────────
+ *
+ * This row is shared, and `sessionId` is NOT an identity: on the MCP surface it
+ * is an unvalidated client-supplied header (ac-22), so two users can present the
+ * same string — by accident or otherwise.
+ *
+ * So every claim key answers one question, and the answer is not the same for
+ * all of them:
+ *
+ *   **A claim whose loss is UNRECOVERABLE carries the user.
+ *    A claim whose loss is RECOVERABLE does not.**
+ *
+ * ⚠ RECOVERABILITY IS THE AXIS, not cost. An earlier wording paired "expensive
+ * AND unrecoverable" against "cheap AND recoverable" — two cells of a 2x2, which
+ * says nothing about the other two (PR #740 round-15). A third claim kind could
+ * be expensive-but-recoverable or cheap-but-unrecoverable, and the rule owed an
+ * answer.
+ *
+ * Unrecoverable dominates, because the two costs are different in kind:
+ * recoverable loss is bounded by the recovery — some number of tool calls, paid
+ * once, by someone who can see they need to pay it. Unrecoverable loss is
+ * unbounded and SILENT: the reader does not know what they did not receive.
+ * Expense only re-enters at the extreme, where recovery is so costly that nobody
+ * will pay it — that is unrecoverable wearing a different word, and it should be
+ * called so out loud rather than scored on a second axis.
+ *
+ * The two that exist:
+ *
+ *   `handoff:${userId}:${specId}:${phase}` — carries it. Losing this to a
+ *       collision withholds a whole phase prompt from someone who has never read
+ *       it, with no other route to it.
+ *   `block:${blockId}`                     — does not. The worst case is a
+ *       pointer instead of the prose, and since dec-12 that pointer names a
+ *       projection that genuinely returns it: one `get_information` call deep.
+ *
+ * ⚠ THE RULE HAS A DEPENDENCY, AND IT EXPIRES WITH IT. The block key is only
+ * defensible because block loss is recoverable. When t-3 wrote it that was NOT
+ * true — the pointer named a topic containing none of what it replaced (H-1),
+ * and under those conditions the user belonged in the key. dec-12 changed the
+ * fact, not the reasoning. **If the recovery path ever stops working, this rule
+ * stops holding and `block:` must take the user.**
+ *
+ * A third claim kind is measured against the rule, not against these two
+ * examples. Getting it wrong is silent in both directions: an over-scoped key
+ * wastes a claim, an under-scoped one withholds something from someone who never
+ * saw it.
+ * ───────────────────────────────────────────────────────────────────────────
+ *
+ * Claim the right to send `claimKey` to this session. Returns true exactly once
+ * per session per claim — or again, once the backstop says the claim has gone
+ * stale.
+ *
+ * ONE statement, so concurrent callers across instances cannot both win.
+ *
+ * How it reports the decision: `RETURNING` in an upsert can only see the NEW
+ * row, so it cannot compare before-and-after. Each call therefore writes a
+ * nonce with the claim and asks whether the stored nonce is its own — true only
+ * if THIS call is the one that wrote it. That is unambiguous in a way that
+ * comparing timestamps or byte markers is not (two calls in the same
+ * millisecond, or a session with zero bytes recorded, both defeat those).
+ */
+export async function claimOnce(
+  sessionId: string,
+  claimKey: string,
+  backstop: ClaimBackstop = {},
+): Promise<boolean> {
+  const nonce = randomUUID();
+  const ttlMs = backstop.ttlMs ?? null;
+  const bytes = backstop.bytes ?? null;
+
+  const rows = (await db.execute(sql`
+    INSERT INTO agent_session_claims (session_id, guidance_bytes, claims, updated_at)
+    VALUES (
+      ${sessionId},
+      0,
+      jsonb_build_object(
+        ${claimKey}::text,
+        jsonb_build_object('at', now(), 'bytes', 0, 'n', ${nonce}::text)
+      ),
+      now()
+    )
+    ON CONFLICT (session_id) DO UPDATE SET
+      claims = CASE
+        -- Never claimed in this session.
+        WHEN agent_session_claims.claims -> ${claimKey}::text IS NULL
+        -- Idle backstop: long enough since the last grant.
+        OR (
+          ${ttlMs}::bigint IS NOT NULL
+          AND (agent_session_claims.claims -> ${claimKey}::text ->> 'at')::timestamptz
+              <= now() - (${ttlMs}::bigint * INTERVAL '1 millisecond')
+        )
+        -- Volume backstop: enough guidance emitted since THIS claim was granted.
+        OR (
+          ${bytes}::bigint IS NOT NULL
+          AND agent_session_claims.guidance_bytes
+              - (agent_session_claims.claims -> ${claimKey}::text ->> 'bytes')::bigint
+              > ${bytes}::bigint
+        )
+        -- The || operator MERGES one key into the existing object. Assigning the
+        -- whole object instead would serialise correctly and still silently drop
+        -- every concurrent sibling claim, which stays invisible until many
+        -- blocks are in flight on one response.
+        THEN agent_session_claims.claims || jsonb_build_object(
+          ${claimKey}::text,
+          jsonb_build_object(
+            'at', now(),
+            'bytes', agent_session_claims.guidance_bytes,
+            'n', ${nonce}::text
+          )
+        )
+        ELSE agent_session_claims.claims
+      END,
+      updated_at = now()
+    RETURNING (claims -> ${claimKey}::text ->> 'n') = ${nonce}::text AS granted
+  `)) as unknown as Array<{ granted: boolean }>;
+
+  // A RETURNING upsert always yields exactly one row. If the driver ever hands
+  // back nothing the write did not happen, and the safe reading is "not granted"
+  // — the cost is re-sending guidance the agent may already have, which is what
+  // the system did before this Spec. The opposite default would silently
+  // suppress guidance on an infra blip.
+  return rows[0]?.granted === true;
+}
+
+/** Read a session's row. Diagnostics and tests; production reads via claimOnce. */
+export async function readSessionClaims(
+  sessionId: string,
+): Promise<SessionClaimsView> {
+  const rows = (await db.execute(sql`
+    SELECT guidance_bytes AS total, claims
+    FROM agent_session_claims
+    WHERE session_id = ${sessionId}
+  `)) as unknown as Array<{ total: number | string; claims: SessionClaimsView["claims"] }>;
+  const row = rows[0];
+  return {
+    guidanceBytes: Number(row?.total ?? 0),
+    claims: row?.claims ?? {},
+  };
+}
+
+// REMOVED: `_resetSessionClaims()`, a TRUNCATE-the-table test hook (PR #740
+// round-4, L-15). It had ZERO callers — the only mentions in the tree were its
+// own definition and a docstring recommending it — so std-51's deletion test
+// answers this on its own: nothing outside the module used it.
+//
+// It was also the wrong shape to leave lying around. Test files sharing one
+// worker share that worker's database clone, so a TRUNCATE here wipes claims a
+// neighbouring file is mid-way through relying on, and the failure surfaces
+// somewhere else as "the claim I just made says not-granted".
+//
+// The pattern that IS safe is a targeted delete of the keys a test made — see
+// `guidance-cadence.backstop.spec-510.test.ts`, which pairs a worker-unique key
+// with `DELETE ... WHERE session_id = <key>` in its afterEach [per std-37].

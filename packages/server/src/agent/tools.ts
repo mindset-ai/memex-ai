@@ -32,6 +32,7 @@ import { formatArchivedDocStub } from "../services/archived-docs.js";
 import {
   toolSpecs,
   buildNudgeOrgBlocksGetter,
+  memoisedCadenceKey,
   type ResolvedRef,
   type ToolCtx,
   type ToolSpec,
@@ -41,7 +42,7 @@ import { toolManifest } from "@memex/shared";
 import { parseRef } from "../services/refs.js";
 import { listMemberships } from "../services/users.js";
 import { resolveRef as resolveCanonicalRef } from "../services/resolver.js";
-import { emitInAppAgentActivity } from "../services/conversations.js";
+import { emitInAppAgentActivity, conversationCadenceKey } from "../services/conversations.js";
 import { runToolWithSpecTraffic } from "../services/spec-traffic.js";
 import { deriveActivity } from "./derive-activity.js";
 
@@ -773,6 +774,17 @@ function buildAgentCtx(
     // any handler that derives a mutate() channel from ctx (update_doc's tag
     // writes) so Pulse attributes agent-driven activity correctly.
     channel: "in_app_agent",
+    // spec-510 t-10 (ac-22): this surface's cadence key. `sessionId` above is
+    // deliberately still unset — it is the MCP dispatch layer's id and this is
+    // not that surface. The thread identity here is the conversation, resolved
+    // LAZILY: it is a DB read, and most in-app tool calls never reach a Spec
+    // footer. Undefined for an unbound chat or before the conversation row
+    // exists (the first call of every conversation), which the seat reads as
+    // "emit guidance in full".
+    // MEMOISED (spec-510 t-13): the key is resolved twice per response — at the
+    // seat to decide suppression, at the choke point to record what the response
+    // cost — and on this surface resolving means a database read.
+    cadenceKey: memoisedCadenceKey(() => conversationCadenceKey(currentDocId, userId)),
     // Validates the resolved entity actually belongs to the bound memex.
     // Throws NotFoundError on a miss or a cross-tenant reference — looks
     // identical to the entity not existing, which is the right answer for

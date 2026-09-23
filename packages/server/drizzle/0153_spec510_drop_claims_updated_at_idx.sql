@@ -1,0 +1,73 @@
+-- spec-510 t-14 (ac-28) — drop `agent_session_claims_updated_at_idx`.
+--
+-- 0152 created this index one migration ago, for a sweeper that does not exist.
+-- Measured on int 2026-09-23 (revision memex-api-00718-rt5), the index costs a
+-- write amplification on EVERY claim, and nothing reads it.
+--
+-- WHY IT COSTS. A Postgres UPDATE never edits in place: it writes a new tuple and
+-- leaves the old one dead. The HOT optimisation keeps that new tuple on the same
+-- page AND skips the index entries — but ONLY when no indexed column changed.
+-- Both statements in services/session-claims.ts write `updated_at = now()`, and
+-- `updated_at` was indexed, so HOT was structurally impossible. Not unlikely:
+-- impossible. Measured: 83 updates, 0 HOT, 18 dead tuples, one autovacuum already
+-- triggered — from ~20 minutes of ONE person's testing on 5 rows.
+--
+-- The cost lands on suppressed blocks too, which is the part that makes it matter
+-- for this Spec specifically. `claimOnce`'s upsert reads:
+--
+--     ON CONFLICT (session_id) DO UPDATE SET
+--       claims = CASE WHEN <grant> THEN <merge> ELSE agent_session_claims.claims END,
+--       updated_at = now()
+--
+-- The ELSE branch assigns `claims` to itself — still a row version — and
+-- `updated_at` changes either way. So a block the cadence SUPPRESSES costs exactly
+-- what an emitted one costs. The footer shrinks 79.5%; the write cost does not
+-- move. That is the trade ac-28 exists to make visible, and it was invisible until
+-- someone read pg_stat_user_tables.
+--
+-- WHAT IT BOUGHT. Nothing yet. 0152's own header is explicit: "`updated_at` carries
+-- an index so a future sweep is a cheap ranged delete rather than a full scan …
+-- THE SWEEPER IS NOT BUILT HERE: it is spec-510 issue-5". No code reads
+-- `updated_at` — swept packages/server/src at the time of writing.
+--
+-- 0152 also argued "the index is the part that is awkward to add later under load;
+-- the delete is easy". That reasoning does not survive the measurement, and it is
+-- worth saying why rather than just reversing it: the table is order 150k rows a
+-- year (0152's own estimate), so CREATE INDEX CONCURRENTLY on it is seconds of
+-- background work, paid ONCE, when the sweeper lands. Keeping the index is paid on
+-- every write, forever, by everyone. The asymmetry runs the other way from how it
+-- was written down.
+--
+-- ⚠ THIS IS NOT A THROUGHPUT FIX, and reading it as one would misrepresent the
+-- measurement. `session_id` is the primary key, so two sessions touch two rows and
+-- an agent is sequential — there is no shared hot row and contention is expected to
+-- be low (0 deadlocks, 0 lock waits observed, though that pass had no load to speak
+-- of). What this removes is write amplification and bloat: dead tuples, index
+-- bloat, and autovacuum load on a table whose rows nothing reaps [per std-39].
+--
+-- IN-BAND, DELIBERATELY, although a plain DROP INDEX takes an ACCESS EXCLUSIVE lock
+-- on the table. The CONCURRENTLY variant cannot run here — apply-hand-migrations.mjs
+-- wraps each file in one transaction — which leaves out-of-band/ as the alternative,
+-- and out-of-band/ is wrong for this one on two counts. It is applied BY HAND and
+-- has a record of not being (0138 sat unapplied on prod for a week behind a green
+-- AC). And the runner's readdirSync is non-recursive, so no fresh database — no
+-- per-worker test DB, no e2e cold template, no new dev machine — would ever drop it,
+-- while schema.ts below says it is gone: a schema drift manufactured on purpose.
+--
+-- The lock is acceptable because the table is small and every writer holds it for a
+-- single sub-millisecond upsert. `lock_timeout` makes the pathological case fail
+-- FAST AND LOUDLY rather than queue behind a long reader and block every write
+-- behind it in turn — a failed migration is recoverable, a stalled deploy under a
+-- lock queue is the thing worth avoiding.
+--
+-- RE-ADDING IT IS PART OF BUILDING THE SWEEPER (issue-5), not a separate decision.
+-- Deliberately NOT guarded by a check: the mistake it would guard against is
+-- re-creating this index without the sweeper, and a guard that encodes "no index on
+-- a column every statement writes" would be a rule about Postgres, not about this
+-- codebase [per std-41 — hooks and guards are not for correctness someone else's
+-- tooling already owns]. The reasoning lives here and in issue-5 instead.
+
+SET LOCAL lock_timeout = '5s';
+--> statement-breakpoint
+
+DROP INDEX IF EXISTS agent_session_claims_updated_at_idx;

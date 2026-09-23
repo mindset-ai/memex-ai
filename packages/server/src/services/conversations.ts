@@ -233,9 +233,58 @@ async function conversationIdFor(
       columns: { id: true },
     });
     return row?.id ?? null;
-  } catch {
+  } catch (err) {
+    // Swallowed, but NEVER silently (PR #740 round-5, M-16).
+    //
+    // This catch was written for ONE consumer — `emitInAppAgentActivity`, which
+    // is explicitly advisory and detached, so losing an activity row costs
+    // nothing worth a log line. spec-510 gave it a SECOND consumer with quite
+    // different needs (`conversationCadenceKey`, the in-app cadence key) and
+    // nothing was re-examined at that join.
+    //
+    // For the second consumer a persistent failure here is not advisory: null
+    // reads as "this surface has no cadence key", the in-app cadence never
+    // applies, and ac-4's "both surfaces" is dead in production with no error,
+    // no red test and no log line. The same shape as the byte-record swallow in
+    // guidance-cadence.ts, and the same standards answer it — the error OBJECT
+    // reaches the log [per std-53, std-50, std-14].
+    //
+    // Still returns null rather than throwing: the advisory consumer must keep
+    // working, and the cadence's documented fallback for "no key" is to emit
+    // guidance in full, which is safe.
+    // eslint-disable-next-line no-console
+    console.error("[conversations] conversation lookup failed — callers will read 'no conversation':", err);
     return null;
   }
+}
+
+/**
+ * spec-510 t-10 (ac-22): the in-app agent's CADENCE KEY — the identifier
+ * spec-510's per-session guidance suppression keys on for this surface.
+ *
+ * The MCP surface has `Mcp-Session-Id`; the React agent has no equivalent, so it
+ * uses its conversation (thread) id. Resolved LAZILY through `ctx.cadenceKey`,
+ * because this is a DB read and most in-app tool calls never reach a Spec footer
+ * — the same reasoning `getOrgBlocksForNudge` carries.
+ *
+ * ⚠ THE TWO SURFACES DO NOT MEAN THE SAME THING BY "SESSION". An MCP session
+ * spans every Spec an agent touches; a conversation is per (doc, user). So
+ * "shown once per session" is once across all of an agent's work over MCP, and
+ * once PER SPEC in the web app. ac-4 committed to "each keyed to its own session
+ * or thread", so that is within scope — but the suppression rates differ, which
+ * matters when reading t-9's dogfood numbers per surface.
+ *
+ * Returns undefined — never a fabricated key — when the chat is not bound to a
+ * document, when the conversation row does not exist yet (the first call of
+ * every conversation), or when the lookup fails. The caller's documented
+ * fallback is to emit guidance in full, which is the pre-spec-510 behaviour.
+ */
+export async function conversationCadenceKey(
+  docId: string | undefined,
+  userId: string,
+): Promise<string | undefined> {
+  if (!docId) return undefined;
+  return (await conversationIdFor(docId, userId)) ?? undefined;
 }
 
 /**

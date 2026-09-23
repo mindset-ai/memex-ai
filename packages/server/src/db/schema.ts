@@ -1,4 +1,4 @@
-import { pgTable, text, uuid, timestamp, integer, unique, uniqueIndex, check, primaryKey, foreignKey, jsonb, boolean, index, customType, doublePrecision, date, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, text, uuid, timestamp, integer, bigint, unique, uniqueIndex, check, primaryKey, foreignKey, jsonb, boolean, index, customType, doublePrecision, date, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { relations, type InferSelectModel, type InferInsertModel, sql } from "drizzle-orm";
 import type { CommentAction, CommentAudience } from "../types/roles.js";
 
@@ -4202,6 +4202,59 @@ export const rateLimitCounters = pgTable(
 
 export type RateLimitCounter = InferSelectModel<typeof rateLimitCounters>;
 export type RateLimitCounterInsert = InferInsertModel<typeof rateLimitCounters>;
+
+// ══════════════════════════════════════
+// Agent session claims (spec-510 dec-2 / dec-3 / dec-7) — "has this session
+// already been sent this guidance?", shared across Cloud Run instances
+// ══════════════════════════════════════
+//
+// Sibling of rate_limit_counters above, and for the same reason: spec-349 exists
+// because a process-local Map multiplied every limit by the instance count and
+// reset on cold start. dec-7 measured that identical defect in this Spec's own
+// antecedent — handoff-delivery.ts delivers the full phase handoff 2.672x against
+// a contract of 1 — so the state lives in Postgres, not memory.
+//
+// ONE ROW PER SESSION, claims NAMESPACED inside it so two mechanisms share one
+// store without colliding: `handoff:{spec}:{phase}` (backstop = idle TTL) and
+// `block:{blockId}` (backstop = byte threshold, dec-3). That separation is what
+// lets `phase` stay in the handoff key, where spec-203 put it deliberately, and
+// out of the block key, where dec-3 excluded it deliberately.
+//
+// `claims` shape — claimKey → { at: ISO timestamp, bytes: number, n: nonce }:
+//   - `at`    is what the handoff backstop reads (idle TTL)
+//   - `bytes` is the session's running guidance-byte total when the claim was
+//     granted; the block backstop reads `guidance_bytes - bytes` (dec-3: bytes,
+//     because context compaction is driven by transcript volume, not by elapsed
+//     time or call count — one measured get_doc carried 92,070 chars)
+//   - `n`     is a per-call nonce, which is how the single atomic upsert reports
+//     whether it granted: RETURNING compares the stored nonce to this call's.
+//
+// NO RLS, deliberately [per std-36]: a session id is not tenant data, there is no
+// memex_id on the row, and nothing user-authored is stored. Recorded in migration
+// 0152 alongside the reasoning, exactly as 0105 recorded rate_limit_counters'.
+//
+// Writes go through services/session-claims.ts as ONE atomic
+// `INSERT … ON CONFLICT DO UPDATE … RETURNING` [per std-39 — the write pattern is
+// the load-bearing choice], mirroring services/auth-rate-limit.ts.
+export const agentSessionClaims = pgTable(
+  "agent_session_claims",
+  {
+    sessionId: text("session_id").primaryKey(),
+    guidanceBytes: bigint("guidance_bytes", { mode: "number" }).notNull().default(0),
+    claims: jsonb("claims").notNull().default({}),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  }
+  // NO INDEX ON `updated_at`, and the absence is load-bearing rather than an
+  // oversight (spec-510 t-14, migration 0153). 0152 created one for a sweeper that
+  // was never built (issue-5). Because every statement in services/session-claims.ts
+  // writes `updated_at = now()`, an index on it makes HOT updates structurally
+  // impossible — measured on int, 83 updates and 0 HOT — so each claim wrote a heap
+  // tuple AND an index entry AND left both dead, including for the blocks the cadence
+  // SUPPRESSED. Re-add it as part of building the sweeper, not before.
+);
+
+export type AgentSessionClaim = InferSelectModel<typeof agentSessionClaims>;
+export type AgentSessionClaimInsert = InferInsertModel<typeof agentSessionClaims>;
 
 // ══════════════════════════════════════
 // Spec lifecycle journal (spec-566 dec-3) — the durable record of acts that

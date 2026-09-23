@@ -266,6 +266,33 @@ export interface ToolCtx {
    */
   getOrgBlocksForNudge?: () => Promise<readonly GuidanceBlock[]>;
   /**
+   * spec-510 t-10 (ac-22): the key spec-510's guidance cadence claims against —
+   * ONE resolver, both surfaces, so the seat has a single thing to call and no
+   * branching on channel.
+   *
+   *   MCP     → the `Mcp-Session-Id` (see `mcpCadenceKey`)
+   *   in-app  → the React agent's conversation/thread id
+   *             (`conversationCadenceKey`)
+   *
+   * LAZY for the same reason `getOrgBlocksForNudge` is: the in-app half is a DB
+   * read, and most tool calls never reach a Spec footer. Resolving it eagerly in
+   * `buildAgentCtx` would put a query on the hot path of every in-app call.
+   *
+   * WHY NOT REUSE `sessionId`: that field is a plain string, so the in-app
+   * surface would have to resolve eagerly to populate it. WHY NOT A SECOND PLAIN
+   * FIELD: every consumer would then have to know which of the two to read. One
+   * thunk avoids both.
+   *
+   * Resolves to undefined where the surface genuinely has no key — a stateless
+   * MCP path, a chat not bound to a document, or a conversation whose row does
+   * not exist yet. The documented fallback is to emit guidance IN FULL, i.e. the
+   * pre-spec-510 behaviour; never fabricate a key.
+   *
+   * NOT the same as `sessionId`, which stays MCP-only and keeps its existing
+   * consumers (the spec-203 handoff claim, checkout's `thread`).
+   */
+  cadenceKey?: () => Promise<string | undefined>;
+  /**
    * spec-219 dec-3 (t-3): the stable slot a handler parks its dynamic footer
    * nugget in — the result-reporting / steering text it used to inject as a
    * `{ zone: "footer" }` block on its own `formatState` call. The single seat
@@ -323,6 +350,45 @@ export function reqCtx(ctx: ToolCtx): RequestCtx {
  * lets us bind the getter into the ctx up-front without depending on the
  * resolution order.
  */
+/**
+ * spec-510 t-10 (ac-22): the MCP surface's `cadenceKey`. Trivial by design — the
+ * dispatch layer already threaded the session id in, so there is nothing to
+ * resolve. It exists as a named builder rather than an inline arrow so both
+ * surfaces read the same way at their construction sites, and so the
+ * "no session → no key → emit in full" branch has one place to be tested.
+ */
+export function mcpCadenceKey(
+  sessionId: string | undefined,
+): () => Promise<string | undefined> {
+  return async () => sessionId;
+}
+
+/**
+ * spec-510 t-13 (ac-27): the in-app surface's `cadenceKey`, MEMOISED.
+ *
+ * Why it moved here from an inline arrow at the construction site. The cadence
+ * key is now resolved TWICE per response — once at the seat, to decide
+ * suppression, and once at the choke point, to record what the response cost.
+ * On this surface the resolver reads the database, so an un-memoised thunk would
+ * put a second query on the hot path of every in-app tool call [per std-39] to
+ * answer a question it already answered.
+ *
+ * Memoised on the THUNK, not on the underlying function: the thunk is built once
+ * per request ctx, so the cache lives exactly as long as the request and cannot
+ * leak a conversation id across users or turns. A module-level cache on
+ * `conversationCadenceKey` would have to be keyed and invalidated, which is the
+ * kind of correctness someone eventually gets wrong.
+ *
+ * The promise is cached, not the value — two callers in the same tick share one
+ * in-flight read rather than starting two.
+ */
+export function memoisedCadenceKey(
+  resolve: () => Promise<string | undefined>,
+): () => Promise<string | undefined> {
+  let pending: Promise<string | undefined> | undefined;
+  return () => (pending ??= resolve());
+}
+
 export function buildNudgeOrgBlocksGetter(
   getMemexId: () => string | undefined,
 ): () => Promise<readonly GuidanceBlock[]> {
