@@ -1,11 +1,12 @@
-// spec-510 dec-14 (ac-29) — a third claim kind cannot be added without meeting
+// spec-510 dec-14 (ac-30) — a third claim kind cannot be added without meeting
 // the rule.
 //
 // ─────────────────────────────────────────────────────────────────────────────
-// WHY THIS EXISTS, AND WHY I FIRST ARGUED IT COULD NOT. ac-29 originally said it
-// was "verified by reading, not by a test, and deliberately so" — a test
-// asserting the two current key shapes would pin the EXAMPLES rather than the
-// principle, which is the s-14 mistake this Spec has already made once.
+// WHY THIS EXISTS, AND WHY I FIRST ARGUED IT COULD NOT. ac-29 — superseded by
+// ac-30 once this file existed — said it was "verified by reading, not by a
+// test, and deliberately so": a test asserting the two current key shapes would
+// pin the EXAMPLES rather than the principle, which is the s-14 mistake this
+// Spec has already made once.
 //
 // That reasoning was right about the wrong test. Asserting `handoff:` carries a
 // user and `block:` does not pins the examples. Asserting the INVENTORY does
@@ -30,7 +31,11 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tagAc } from "@memex-ai-ac/vitest";
 
-const AC_29 = "mindset-prod/memex-building-itself/specs/spec-510/acs/ac-29";
+// ac-30, not ac-29. ac-29 stated a criterion the code no longer uses (the 2×2)
+// and claimed it was "verified by reading, deliberately" — which this very file
+// falsified. A VERIFIED criterion is not a free edit, so it was superseded
+// (c-18) and replaced rather than rewritten under its own passing test.
+const AC_30 = "mindset-prod/memex-building-itself/specs/spec-510/acs/ac-30";
 
 /**
  * The claim-key prefixes written into `agent_session_claims`, and the ONLY
@@ -49,9 +54,9 @@ const WRITERS = [
   "guidance-cadence.ts",
 ];
 
-describe("spec-510 dec-14 — the claim-key inventory is fixed until someone reads the rule (ac-29)", () => {
+describe("spec-510 dec-14 — the claim-key inventory is fixed until someone reads the rule (ac-30)", () => {
   it("only the two known claim kinds are written into the session row", () => {
-    tagAc(AC_29);
+    tagAc(AC_30);
     // Scanned from the writers rather than from a list of strings, so a kind
     // added in either file is caught whatever it is called.
     const found = new Set<string>();
@@ -93,7 +98,7 @@ describe("spec-510 dec-14 — the claim-key inventory is fixed until someone rea
   });
 
   it("the rule the failure message quotes is the rule that is written down", () => {
-    tagAc(AC_29);
+    tagAc(AC_30);
     // The message above restates the rule. If the rule moves and the message
     // does not, the next author reads a stale one from a failing test — the
     // dangling-citation shape this PR hit twice (round-10, round-11).
