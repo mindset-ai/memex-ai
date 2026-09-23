@@ -115,8 +115,22 @@ export async function recordGuidanceBytes(
  * So every claim key answers one question, and the answer is not the same for
  * all of them:
  *
- *   **A claim whose loss is EXPENSIVE and UNRECOVERABLE carries the user.
- *    A claim whose loss is CHEAP and RECOVERABLE does not.**
+ *   **A claim whose loss is UNRECOVERABLE carries the user.
+ *    A claim whose loss is RECOVERABLE does not.**
+ *
+ * ⚠ RECOVERABILITY IS THE AXIS, not cost. An earlier wording paired "expensive
+ * AND unrecoverable" against "cheap AND recoverable" — two cells of a 2x2, which
+ * says nothing about the other two (PR #740 round-15). A third claim kind could
+ * be expensive-but-recoverable or cheap-but-unrecoverable, and the rule owed an
+ * answer.
+ *
+ * Unrecoverable dominates, because the two costs are different in kind:
+ * recoverable loss is bounded by the recovery — some number of tool calls, paid
+ * once, by someone who can see they need to pay it. Unrecoverable loss is
+ * unbounded and SILENT: the reader does not know what they did not receive.
+ * Expense only re-enters at the extreme, where recovery is so costly that nobody
+ * will pay it — that is unrecoverable wearing a different word, and it should be
+ * called so out loud rather than scored on a second axis.
  *
  * The two that exist:
  *
