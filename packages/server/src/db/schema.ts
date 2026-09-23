@@ -4243,8 +4243,14 @@ export const agentSessionClaims = pgTable(
     guidanceBytes: bigint("guidance_bytes", { mode: "number" }).notNull().default(0),
     claims: jsonb("claims").notNull().default({}),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [index("agent_session_claims_updated_at_idx").on(table.updatedAt)]
+  }
+  // NO INDEX ON `updated_at`, and the absence is load-bearing rather than an
+  // oversight (spec-510 t-14, migration 0153). 0152 created one for a sweeper that
+  // was never built (issue-5). Because every statement in services/session-claims.ts
+  // writes `updated_at = now()`, an index on it makes HOT updates structurally
+  // impossible — measured on int, 83 updates and 0 HOT — so each claim wrote a heap
+  // tuple AND an index entry AND left both dead, including for the blocks the cadence
+  // SUPPRESSED. Re-add it as part of building the sweeper, not before.
 );
 
 export type AgentSessionClaim = InferSelectModel<typeof agentSessionClaims>;
