@@ -35,6 +35,7 @@ import {
   toolSpecs,
   AGENT_ONLY_SERVER_TOOLS,
   buildNudgeOrgBlocksGetter,
+  mcpCadenceKey,
   type ToolCtx,
   type ResolvedRef,
 } from "../agent/tool-specs.js";
@@ -489,6 +490,12 @@ export function createMcpServer(
           // stateless/test paths (createMcpServer's sessionId param), which is
           // exactly when the footer falls back to the compressed essence.
           sessionId,
+          // spec-510 t-10 (ac-22): the same cadence key the in-app surface
+          // exposes, so the seat calls one thing and branches on nothing. Here
+          // it is just the session id above — the dispatch layer already
+          // resolved it, so there is nothing to look up. Undefined on the
+          // stateless/test paths, which the seat reads as "emit in full".
+          cadenceKey: mcpCadenceKey(sessionId),
           // spec-156 ac-19: this is the MCP surface. Handlers that derive a
           // mutate() channel from ctx (update_doc's tag writes) read this so
           // Pulse attributes MCP-driven activity to the `mcp` channel.

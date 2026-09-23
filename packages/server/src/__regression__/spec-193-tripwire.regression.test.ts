@@ -327,6 +327,8 @@ describe("ac-21 — no product starter standards, no agent-authored gap-filling 
 describe("ac-19 — org_scaffold_additions per-memex scope merges account-wide + this memex", () => {
   const accountWide: GuidanceBlock = {
     kind: "guidance_block",
+    // spec-510 t-11: Org blocks carry their org_scaffold_additions row id.
+    id: "org-fixture-account-wide",
     source: "org",
     target: { phase: "build" },
     text: "ACCOUNT-WIDE house style",
@@ -334,8 +336,24 @@ describe("ac-19 — org_scaffold_additions per-memex scope merges account-wide +
     enabled: true,
     order: 0,
   };
-  const m1: GuidanceBlock = { ...accountWide, text: "M1 only", memexId: "m1" };
-  const m2: GuidanceBlock = { ...accountWide, text: "M2 only", memexId: "m2" };
+  // Distinct ids, not inherited ones (PR #740 round-6, L-17). Spreading
+  // `accountWide` gave all three the same id, which is harmless to the
+  // assertions here — they read `text` — but spec-510 made `id` the cadence's
+  // CLAIM IDENTITY, so three blocks sharing one id now means one claim and two
+  // silent disappearances if these fixtures ever meet `composeCadencedGuidance`.
+  // Cheaper to make them distinct than to rely on nobody reusing them.
+  const m1: GuidanceBlock = {
+    ...accountWide,
+    id: "org-fixture-m1",
+    text: "M1 only",
+    memexId: "m1",
+  };
+  const m2: GuidanceBlock = {
+    ...accountWide,
+    id: "org-fixture-m2",
+    text: "M2 only",
+    memexId: "m2",
+  };
   const all = [accountWide, m1, m2];
 
   it("a NULL memexId row applies account-wide (existing behaviour preserved)", () => {
@@ -376,6 +394,7 @@ describe("ac-7 / ac-20 — tenant extension flows through org_scaffold_additions
     tagAc(AC(7));
     const orgBlock: GuidanceBlock = {
       kind: "guidance_block",
+      id: "org-fixture-per-memex",
       source: "org",
       target: { phase: "build" },
       text: "TENANT EXTRA tripwire: licensing",

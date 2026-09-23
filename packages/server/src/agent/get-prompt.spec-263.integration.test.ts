@@ -206,6 +206,8 @@ describe("get_prompt — no-handoff phases explain themselves (ac-7, ac-4)", () 
 // ──────────────────────────────────────────────────────────────────────────
 const orgBlock = (buttonId: string, text: string): GuidanceBlock => ({
   kind: "guidance_block",
+  // spec-510 t-11: Org blocks carry their persisted row id.
+  id: `org-fixture-${buttonId}`,
   source: "org",
   target: { button: buttonId },
   text,

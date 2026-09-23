@@ -146,6 +146,39 @@ export interface TransitionRubric extends BaseNodeShape {
  *  attaches; an absent dimension matches every value of that dimension. */
 export interface GuidanceBlock extends BaseNodeShape {
   kind: 'guidance_block';
+  /**
+   * Stable identity for this block (spec-510 dec-8, t-11).
+   *
+   * REQUIRED, and on `GuidanceBlock` rather than `BaseNodeShape`: only this
+   * node type needs to be addressable, and widening the base shape would make
+   * `id` a concern of five node types to serve one consumer [per std-51].
+   * `PromptButtonNode` and `PromptBlockNode` already carry their own `id`, so
+   * this aligns the model with its siblings rather than adding a new concept.
+   *
+   * What reads it: spec-510's per-session cadence keys its seen-set on
+   * `block:{id}`. `order` cannot serve — it is not unique (the four
+   * classify-and-consult blocks all carry `order: 30`), and a content hash
+   * cannot either, because editing a block's copy would silently reset the
+   * suppression state of every live session (dec-8).
+   *
+   * Two populations, one field, and they cannot collide:
+   *   - `source: 'base'` — a hand-authored kebab-case slug from
+   *     `scaffold-data.ts` (`tripwire-protocol-build`). Human-readable on
+   *     purpose: this string is what a suppression bug is diagnosed by, read
+   *     straight out of a claim key in the database.
+   *   - `source: 'org'`  — the `org_scaffold_additions` row's primary key,
+   *     already projected onto `OrgScaffoldAdditionView`. Org additions are
+   *     therefore suppressible on the same mechanism, with no new API.
+   *
+   * Required, not optional, so a construction site cannot omit one in silence
+   * — an unsuppressible block would otherwise be indistinguishable from a
+   * deliberate choice (t-11 ac-20).
+   *
+   * STABLE, like a database key: ids are persisted in live sessions' claim
+   * keys, so renaming one orphans the suppression state of every session that
+   * has already seen it.
+   */
+  id: string;
   source: GuidanceSource;
   target: GuidanceTarget;
   text: string;
@@ -197,14 +230,48 @@ export interface GuidanceTarget {
   /**
    * Fire only when the Spec is in this grounding state (spec-542 dec-1).
    *
-   * BASE-only today: the org-addition API surface (`routes/scaffold.ts`,
-   * `routes/personal-scaffold.ts`, `services/scaffold-additions.ts`) validates
-   * the other four dimensions and does not accept this one, so an Org cannot
-   * scope an addition by grounding. That is deliberate, not an oversight —
-   * widening it means deciding what an Org may assert about grounding.
+   * BASE-only today, so an Org cannot scope an addition by grounding. That is
+   * deliberate, not an oversight — widening it means deciding what an Org may
+   * assert about grounding.
+   *
+   * ⚠ MECHANISM CORRECTED (spec-510 t-5, by mutation probe). This comment used
+   * to say the org-addition API "does not accept" the dimension. It accepts it
+   * and DROPS it: `parseTarget` builds a fresh target from four known keys, so
+   * an unknown one vanishes and the caller gets a 201 (spec-510 issue-8). What
+   * actually holds the line is the STORAGE — `org_scaffold_additions` has
+   * exactly four target columns and `services/scaffold-additions.ts` rebuilds
+   * every target from them, so no extra dimension survives a round-trip.
+   * Measured, not reasoned: opening `parseTarget`'s allow-list changes nothing
+   * observable; adding a `target_channel` column is what reds the guard. Guard
+   * the columns, not the parser.
    */
   grounding?: GroundingState;
+  /**
+   * Fire only on this agent surface (spec-510 dec-4).
+   *
+   * Exists because some guidance names an affordance one surface cannot reach —
+   * "the same text the web UI's copy-prompt button produces" is tokens spent
+   * describing a world an MCP coding agent does not inhabit. The mirror of
+   * [per std-34]'s honest-CTA rule. Per-channel prose is authored as TWO BLOCKS
+   * OF DATA [per std-15], never a branch in a projector.
+   *
+   * Absent — which every block shipped before spec-510 is — matches BOTH
+   * surfaces, exactly as before. That is what makes the dimension additive.
+   *
+   * BASE-only, like `grounding` above and for the reason spec-510 dec-10
+   * recorded: the org-addition surface persists a target as four columns
+   * (`target_phase` / `target_tool` / `target_transition` / `target_button`), so
+   * an Org block cannot carry this even if an API accepted it. Widening that is
+   * a decision about what an Org may assert about the agent surface, and nobody
+   * has asked for it.
+   */
+  channel?: GuidanceChannel;
 }
+
+/** The two agent surfaces a guidance block can be aimed at. Mirrors
+ *  `ToolCtx.channel` on the server (spec-156 ac-19) — one vocabulary, so the
+ *  seat can pass what it already holds straight through. */
+export type GuidanceChannel = 'mcp' | 'in_app_agent';
 
 export type ScaffoldNode =
   | PhaseNode
@@ -281,6 +348,12 @@ export interface ToNudgeInput {
    *  at all. Passing `not_grounded` here to stand in for "unknown" would
    *  reinstate the defect. */
   grounding?: GroundingState;
+  /** The agent surface this response is for (spec-510 dec-4). Undefined where
+   *  the caller does not know it, which matches only channel-agnostic blocks —
+   *  the same shape as `grounding` above, and correct for the same reason: a
+   *  caller that does not know must assert nothing rather than pick a default
+   *  and silently emit the wrong surface's prose. */
+  channel?: GuidanceChannel;
   /** Org additions already filtered to `source: 'org'` + the principal's Org. */
   orgBlocks?: readonly GuidanceBlock[];
 }
@@ -361,6 +434,107 @@ export function toPhaseGuidance(dataset: ScaffoldDataset, phase: Phase): string 
   return blocks.map((b) => b.text).join('\n\n');
 }
 
+/**
+ * spec-510 t-13 (dec-12 A) — the RECOVERY projection: every base guidance block
+ * a session in `phase` could have been shown, as one readable document.
+ *
+ * WHY THIS EXISTS. The cadence replaces guidance with a pointer, and dec-3's
+ * premise is that the pointer names a way back. It did not: the topic it named
+ * (`phases`) is hand-authored prose that happens to share a name with a block
+ * family, and covered none of the tripwire, the standards protocol or the
+ * code-grounding ask — 39% of the suppressed volume with no retrieval path at
+ * all. dec-12 chose to make the pointer true by DERIVING its target from the
+ * Scaffold rather than curating one alongside it.
+ *
+ * DERIVED IS THE WHOLE POINT [per ac-25]. A block added to `baseGuidance` is
+ * recoverable through this function with no other edit. A hand-written topic
+ * plus a maintained list of what it covers would pass the day it was written and
+ * drift silently after — which is precisely the failure this replaces.
+ *
+ * SCOPED BY PHASE, measured rather than assumed. Projecting ALL 52 blocks is
+ * 38,037 chars to recover the ~10,755 a build read suppresses — 3.5x, so an
+ * agent that fetched it twice would have spent more than the cadence ever saved.
+ * Per phase it is 12,795 for build against 10,755 suppressed (~1.19x): the
+ * blocks it lost, plus the ones another tool in the same phase would have shown.
+ * Proportionate is the property that matters here, not completeness.
+ *
+ * ACROSS TOOLS AND GROUNDING STATES, deliberately. A topic has no request
+ * context, and the agent asking cannot say which tool-scoped blocks it happened
+ * to lose. The union over every (tool x grounding) reachable in the phase is the
+ * smallest honest answer to "what was I shown here".
+ *
+ * BASE ONLY. Org additions are per-tenant and this loader is tenant-agnostic; an
+ * Org block cannot be projected into a topic served to everyone. Stated here so
+ * the absence reads as a decision, not an oversight [per std-50].
+ */
+export function toGuidanceRecovery(dataset: ScaffoldDataset, phase: Phase): string {
+  return filterAndSort(dataset.baseGuidance, (b) => b.source === 'base' && reachableInPhase(b, phase))
+    .map((b) => b.text)
+    .join('\n\n');
+}
+
+/**
+ * Is `block` reachable as a nudge in `phase` — by ANY caller, on any tool, in any
+ * grounding state?
+ *
+ * ⚠ THIS DOES NOT ENUMERATE, AND THAT IS THE POINT (PR #740 round-9, H-18).
+ *
+ * The first version of `toGuidanceRecovery` looped over (tool x grounding) and
+ * unioned the results. `matchesNudgeTarget` selects on FOUR dimensions — tool,
+ * phase, grounding and `channel`, the last added by this same Spec's t-5 — so a
+ * channel-targeted block was suppressible (the seat passes `ctx.channel`) and
+ * could never enter the union (the projection passed `channel: undefined`, and
+ * the matcher rejects a channel-targeted block when the context's is unset).
+ * Suppressible and permanently unrecoverable: H-1 recreated inside the fix for
+ * H-1. Latent only because no shipped block uses the dimension yet.
+ *
+ * The guard could not see it either, because it built its expected set from the
+ * same two axes — both sides derived, both from the same blind spot. That is
+ * s-14's "generate, don't curate" caveat landing on itself: a completeness check
+ * answerable to the enumeration rather than to the source.
+ *
+ * SO THE ENUMERATION IS GONE. Reachability is decided from the matcher's SHAPE
+ * instead, which is provable rather than maintained: every narrowing clause
+ * there reads `target.X !== undefined && target.X !== context.X`, and any such
+ * clause is satisfiable by a caller whose `context.X` equals `target.X`. Only
+ * the two UNCONDITIONAL rejections — `transition` and `button` — can never be
+ * satisfied. So "reachable at all" is exactly "carries neither", and a fifth
+ * narrowing dimension added tomorrow is included automatically, with nothing to
+ * keep in step.
+ *
+ * ⚠ `channel` IS NOT HANDLED HERE, DELIBERATELY AND LOUDLY. A recovery document
+ * scoped only by phase cannot honour it: including a channel-targeted block
+ * would hand an MCP agent prose written because the web UI has an affordance it
+ * does not, which is what dec-4 exists to prevent; excluding it silently is the
+ * defect above. Neither is acceptable, so while the dimension has no users the
+ * guard `scaffold-model.recovery-completeness.spec-510.test.ts` FAILS THE BUILD
+ * on the first base block that carries one, naming this function. Serving it means
+ * scoping the topic by (phase, channel) and threading `ctx.channel` from the
+ * `get_information` handler — real work, and work that should be done when
+ * something needs it rather than guessed at now.
+ */
+function reachableInPhase(block: GuidanceBlock, phase: Phase): boolean {
+  if (block.target.transition !== undefined) return false;
+  if (block.target.button !== undefined) return false;
+  if (block.target.phase !== undefined && block.target.phase !== phase) return false;
+  // ⚠ `channel` IS NOT CHECKED, and this predicate is only correct BECAUSE
+  // something outside this package refuses the dimension (PR #740 round-9/10).
+  //
+  // Read on its own the omission looks deliberate and harmless — it is neither.
+  // A channel-targeted block reaching here is INCLUDED, so an in-app agent
+  // fetching the phase topic would read prose written because an MCP agent lacks
+  // an affordance, or the reverse. `scaffold-model.recovery-completeness.spec-510
+  // .test.ts` fails the build on the first base block that carries one, which is
+  // the only reason this line is safe to leave as it stands.
+  //
+  // Note the direction changed when the axis enumeration was removed: the old
+  // loop made such a block ABSENT from recovery (silent), this makes it
+  // OVER-INCLUDED (visible to whoever reads the topic). Over-inclusion is the
+  // failure worth living with while the dimension has no users; neither is
+  // correct, and the guard's message names the work that would be.
+  return true;
+}
+
 /** Returns the minimal tool-registration shape for a ToolNode. Strips
  *  `rationale` — never sent to the agent. */
 export function toToolDefinition(tool: ToolNode): ToolDefinition {
@@ -377,14 +551,39 @@ export function toToolDefinition(tool: ToolNode): ToolDefinition {
  *  `order`. `target.transition !== undefined` blocks are excluded — those
  *  ride `toRubric`. */
 export function toNudge(input: ToNudgeInput): string {
-  const { dataset, tool, phase, grounding, orgBlocks } = input;
+  return toNudgeBlocks(input).map((b) => b.text).join('\n\n');
+}
+
+/** The same projection as `toNudge`, returning the matched blocks STILL
+ *  ADDRESSABLE instead of one joined string (spec-510 t-2, dec-1).
+ *
+ *  WHY IT EXISTS. spec-510's cadence emits a static block in full on first
+ *  sight and a one-line pointer thereafter. Deciding that per block requires
+ *  seeing them as blocks — `toNudge` joins them, and by the time the seat has
+ *  the string they are gone. Each block carries the `id` (spec-510 dec-8) the
+ *  per-session claim key is built from.
+ *
+ *  ADDITIVE ON PURPOSE. `toNudge` is unchanged in signature and output — it now
+ *  delegates here and joins, so there is ONE matching rule rather than two that
+ *  can drift. If these two ever disagreed, the seat would suppress against one
+ *  view of the guidance while the agent received another, with nothing to
+ *  notice; the spec-510 t-2 suite pins their equivalence across every
+ *  (tool × phase × grounding) combination.
+ *
+ *  STILL PURE, and that is dec-1's whole point: suppression is *deciding not to
+ *  send*, which belongs to the seat, not to the projector. `packages/shared`
+ *  stays free of request scope so it can serialize across the server↔React
+ *  boundary [per std-15] — a session argument here would drag that scope in and
+ *  break the React path, which has no session at all. */
+export function toNudgeBlocks(input: ToNudgeInput): readonly GuidanceBlock[] {
+  const { dataset, tool, phase, grounding, channel, orgBlocks } = input;
   const matches = (block: GuidanceBlock): boolean =>
-    matchesNudgeTarget(block.target, { tool, phase, grounding });
+    matchesNudgeTarget(block.target, { tool, phase, grounding, channel });
 
   const base = filterAndSort(dataset.baseGuidance, (b) => b.source === 'base' && matches(b));
   const org = filterAndSort(orgBlocks ?? [], (b) => b.source === 'org' && b.enabled && matches(b));
 
-  return [...base, ...org].map((b) => b.text).join('\n\n');
+  return [...base, ...org];
 }
 
 /** Returns the composed gate rubric the agent walks at a forward transition.
@@ -506,7 +705,7 @@ export function toInitPromptRef(tool: ToolNode): InitPromptRefEntry {
  */
 function matchesNudgeTarget(
   target: GuidanceTarget,
-  context: { tool?: string; phase?: Phase; grounding?: GroundingState },
+  context: { tool?: string; phase?: Phase; grounding?: GroundingState; channel?: GuidanceChannel },
 ): boolean {
   if (target.transition !== undefined) return false;
   if (target.button !== undefined) return false;
@@ -520,6 +719,12 @@ function matchesNudgeTarget(
   // `return false` and never become an early `return true`: as a positive match
   // it would let grounding override a phase or tool mismatch.
   if (target.grounding !== undefined && target.grounding !== context.grounding) return false;
+  // spec-510 dec-4: same shape again, and the same trap — this must stay an
+  // early `return false`. As a positive match, a channel hit would override a
+  // phase or tool mismatch and send an agent prose meant for a different
+  // context. Absent channel still matches every surface, which is what keeps
+  // every pre-spec-510 block reaching both.
+  if (target.channel !== undefined && target.channel !== context.channel) return false;
   return true;
 }
 

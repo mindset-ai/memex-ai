@@ -10,8 +10,9 @@
 // Spec lifecycle verbs (assess_spec / publish_spec).
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { db } from "../db/connection.js";
+import { FOOTER_DELIMITER } from "./footer-delimiter.js";
 import {
   memexes,
   namespaces,
@@ -658,4 +659,357 @@ describe("phase handoff full-vs-essence delivery (spec-203 Layer 2, ac-10)", () 
     });
     expect(fresh.content[0].text).toContain(FULL_MARKER);
   });
+
+  // ── spec-510 t-3: the cadence itself ──────────────────────────────────────
+  //
+  // Driven through a REAL tool call rather than a unit test on the helper: the
+  // claim this task makes is about what an agent RECEIVES, and a helper test
+  // would pass just as well with the seat never wired to it.
+  //
+  // `callToolWithSession` sends `verbose: true`, which is the path that carries
+  // the static guidance at all — the terse build-loop footer is the handoff
+  // essence plus dynamic state and never had toNudge prose in it (spec-219
+  // Phase 2b). So the cadence's reach is verbose reads, and these tests say so
+  // by construction.
+  // A marker suppressed under EVERY option dec-12 is weighing, so this test does
+  // not need rewriting when that decision lands (PR #740 round-6).
+  //
+  // It was the classify-and-consult tripwire — long, stable, unambiguous, and
+  // exactly the wrong choice: every dec-12 option keeps the tripwire in FULL, so
+  // asserting its disappearance pinned the opposite of what the Spec is about to
+  // promise. This phrase lives only in phase-summary / phase-intent /
+  // phase-discipline-build, all suppressed either way, and in none of the
+  // never-suppressed dynamic half (checked against toHandoffEssence too).
+  const STATIC_MARKER = "Tasks are first-class";
+  const POINTER = "guidance shown earlier this session";
+
+  it("emits static guidance in full on first sight, a pointer thereafter (ac-9, ac-12)", async () => {
+    tagAc(`mindset-prod/memex-building-itself/specs/spec-510/acs/ac-9`);
+    tagAc(`mindset-prod/memex-building-itself/specs/spec-510/acs/ac-12`);
+    process.env.GUIDANCE_CADENCE_ENABLED = "true";
+    const sessionId = "cadence-sess-A";
+    try {
+      await db.insert(mcpSessions).values([{ sessionId, userId: actor.user.id }]).onConflictDoNothing();
+
+      const first = await callToolWithSession(actor.user.id, sessionId, "get_doc", {
+        ref: buildSpecRef,
+      });
+      const firstText = first.content[0].text;
+      expect(firstText).toContain(STATIC_MARKER);
+      expect(firstText).not.toContain(POINTER);
+
+      const second = await callToolWithSession(actor.user.id, sessionId, "get_doc", {
+        ref: buildSpecRef,
+      });
+      const secondText = second.content[0].text;
+      // The prose the agent already read is gone…
+      expect(secondText).not.toContain(STATIC_MARKER);
+      // …replaced by ONE line that NAMES the way back. The Design & UX lens is
+      // explicit that this must read as a reference, not a fault.
+      expect(secondText).toContain(POINTER);
+      expect(secondText).not.toMatch(/⚠|omitted|truncated/);
+
+      // The point of the whole Spec: the second response is materially smaller.
+      expect(secondText.length).toBeLessThan(firstText.length);
+    } finally {
+      delete process.env.GUIDANCE_CADENCE_ENABLED;
+    }
+  });
+
+  it("NEVER suppresses the dynamic state line (ac-2)", async () => {
+    tagAc(`mindset-prod/memex-building-itself/specs/spec-510/acs/ac-9`);
+    process.env.GUIDANCE_CADENCE_ENABLED = "true";
+    const sessionId = "cadence-sess-B";
+    try {
+      await db.insert(mcpSessions).values([{ sessionId, userId: actor.user.id }]).onConflictDoNothing();
+      const a = await callToolWithSession(actor.user.id, sessionId, "get_doc", { ref: buildSpecRef });
+      const b = await callToolWithSession(actor.user.id, sessionId, "get_doc", { ref: buildSpecRef });
+      // The dynamic half is composed separately from the suppressed blocks and
+      // must survive on EVERY response — it is the part that changes per call
+      // and actually steers. Note it takes its two legitimate FORMS here: the
+      // full handoff on the group's first response (spec-203), the compressed
+      // essence thereafter. Asserting one marker on both would be wrong, and
+      // getting that wrong is how this test first failed.
+      expect(a.content[0].text).toContain(FULL_MARKER);
+      expect(b.content[0].text).toContain(ESSENCE_MARKER);
+      // …and the suppression applies to the STATIC half only.
+      expect(a.content[0].text).toContain(STATIC_MARKER);
+      expect(b.content[0].text).not.toContain(STATIC_MARKER);
+      expect(b.content[0].text).toContain(POINTER);
+    } finally {
+      delete process.env.GUIDANCE_CADENCE_ENABLED;
+    }
+  });
+
+  // Titled for what it asserts, not for what an earlier draft claimed (PR #740
+  // L-10): the two responses are NOT byte-identical — call one carries the full
+  // phase handoff and call two its essence, which is spec-203 and predates this
+  // Spec. What the retreat path guarantees is that the STATIC guidance survives
+  // both, and the comment inside already said so while the title did not.
+  it("with the flag OFF the static guidance survives both responses (the retreat path)", async () => {
+    tagAc(`mindset-prod/memex-building-itself/specs/spec-510/acs/ac-9`);
+    // ac-7 (scope): "switching it off restores the previous emission behaviour
+    // EXACTLY". This is the test that says what "exactly" means; the other half
+    // of ac-7 — that switching off needs no deploy — is the flag being read live
+    // plus it actually reaching the service, which t-7's passthrough guard pins.
+    tagAc(`mindset-prod/memex-building-itself/specs/spec-510/acs/ac-7`);
+    delete process.env.GUIDANCE_CADENCE_ENABLED;
+    const sessionId = "cadence-sess-off";
+    await db.insert(mcpSessions).values([{ sessionId, userId: actor.user.id }]).onConflictDoNothing();
+    const a = await callToolWithSession(actor.user.id, sessionId, "get_doc", { ref: buildSpecRef });
+    const b = await callToolWithSession(actor.user.id, sessionId, "get_doc", { ref: buildSpecRef });
+    // The STATIC half must be the same on both calls — that is what makes the
+    // kill switch a real retreat rather than a different behaviour.
+    expect(b.content[0].text).toContain(STATIC_MARKER);
+    expect(b.content[0].text).not.toContain(POINTER);
+
+    // ⚠ THE WHOLE RESPONSE IS NOT BYTE-IDENTICAL, AND MUST NOT BE ASSERTED SO.
+    // An earlier version of this comment said "the guidance half must be the
+    // SAME BYTES", which reads as a claim about the response; tightening the
+    // assertion to `b === a` reds it. The difference is spec-203 Layer 2 and
+    // predates this Spec entirely: call one carries the FULL phase handoff,
+    // call two its essence. So the two responses legitimately differ in the
+    // dynamic half whatever the cadence flag says.
+    //
+    // What ac-7 actually promises is that flipping the flag off restores the
+    // behaviour that existed BEFORE spec-510 — asserted as the static guidance
+    // surviving both calls, above. Comparing the two calls to each other tests
+    // spec-203, not this flag.
+    expect(a.content[0].text).toContain(STATIC_MARKER);
+    expect(a.content[0].text).not.toContain(POINTER);
+  });
+
+  it("a session with no cadence key gets full guidance every time (the no-key fallback)", async () => {
+    tagAc(`mindset-prod/memex-building-itself/specs/spec-510/acs/ac-9`);
+    process.env.GUIDANCE_CADENCE_ENABLED = "true";
+    try {
+      // Two DIFFERENT sessions stand in for the stateless path: no shared key,
+      // so nothing can be suppressed. This is also the first call of every real
+      // conversation, which must never be degraded.
+      const one = await callToolWithSession(actor.user.id, "handoff-sess-A", "get_doc", {
+        ref: buildSpecRef,
+      });
+      const two = await callToolWithSession(actor.user.id, "handoff-sess-B", "get_doc", {
+        ref: buildSpecRef,
+      });
+      expect(one.content[0].text).toContain(STATIC_MARKER);
+      expect(two.content[0].text).toContain(STATIC_MARKER);
+    } finally {
+      delete process.env.GUIDANCE_CADENCE_ENABLED;
+    }
+  });
+
+  // spec-510 t-4 — the claim became ASYNC, and the one way to get that wrong is
+  // to await it OUTSIDE the `&&` chain that guards it. Nothing else in the suite
+  // would notice: the response is identical either way.
+  it("does NOT consume a claim on a phase that has no handoff at all", async () => {
+    tagAc(`mindset-prod/memex-building-itself/specs/spec-510/acs/ac-19`);
+    process.env.HANDOFF_SHARED_STORE_ENABLED = "true";
+    const sessionId = "handoff-sess-draft";
+    try {
+      await db
+        .insert(mcpSessions)
+        .values([{ sessionId, userId: actor.user.id }])
+        .onConflictDoNothing();
+      // `HANDOFF_BUTTON_BY_PHASE` is a Partial — draft and done are not in it, so
+      // a verbose read here delivers no handoff and must therefore claim nothing.
+      const draft = await createDocDraft(actor.account.id, "No-Handoff Spec", "P", "spec");
+      created.docs.push(draft.id);
+
+      await callToolWithSession(actor.user.id, sessionId, "get_doc", {
+        ref: `${actor.account.slug}/main/specs/${draft.handle}`,
+      });
+
+      const rows = (await db.execute(
+        sql`SELECT count(*)::int AS n FROM agent_session_claims WHERE session_id = ${sessionId}`,
+      )) as unknown as Array<{ n: number }>;
+      // Awaiting the claim above the guard would write a row here — burning a
+      // claim for a key that can never deliver, on every verbose draft read.
+      expect(rows[0]?.n ?? 0).toBe(0);
+    } finally {
+      delete process.env.HANDOFF_SHARED_STORE_ENABLED;
+    }
+  });
+
+// ── spec-510 t-7 (dec-6, dec-9) — the flags in COMBINATION ───────────────────
+//
+// NESTED inside this describe deliberately: it reuses the fixtures declared
+// above (`actor`, `buildSpecRef`, `callToolWithSession`). Lifting it out would
+// mean a second set of fixtures for the same Spec in the same phase — more code
+// asserting less, and a second thing to keep in step.
+//
+// Each flag's own behaviour is covered above. This block covers what the tests
+// above cannot see: that the two are genuinely independent when set together.
+//
+// WHY IT IS WORTH TESTING AT ALL. Both halves land in the SAME function on a
+// global multi-tenant rollout. dec-6 split them into two switches precisely so a
+// production symptom can be bisected in seconds without a deploy — but that
+// promise is only worth something if the intermediate positions actually work.
+// A switch you have never operated in the position you will reach for in an
+// incident is not a switch.
+//
+// ONLY THE COMBINATIONS THAT CARRY MEANING. Eight exist; three are asserted:
+//   - (handoff OFF, cadence ON) — dec-9's retreat: the shared store is suspected,
+//     the cadence stays on. The position an incident actually reaches for.
+//   - (both ON)                 — the target state after rollout.
+//   - (both OFF)                — today's behaviour, already covered above by the
+//     "the static guidance survives both responses" retreat-path test.
+// The rest are permutations of the same two independent axes and testing them
+// would assert arithmetic, not behaviour.
+describe("spec-510 t-7 — cadence and handoff-storage flags are independent (ac-16, ac-21)", () => {
+  const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-510/acs/ac-${n}`;
+  const STATIC_MARKER = "Tasks are first-class"; // dec-12-proof — see the note above
+  const POINTER = "guidance shown earlier this session";
+
+  it("handoff store OFF + cadence ON — the retreat position still cadences (dec-9)", async () => {
+    tagAc(AC(16));
+    tagAc(AC(21));
+    delete process.env.HANDOFF_SHARED_STORE_ENABLED; // the Map, dec-9's retreat
+    process.env.GUIDANCE_CADENCE_ENABLED = "true";
+    const sessionId = "combo-sess-handoff-off";
+    try {
+      await db
+        .insert(mcpSessions)
+        .values([{ sessionId, userId: actor.user.id }])
+        .onConflictDoNothing();
+
+      const first = await callToolWithSession(actor.user.id, sessionId, "get_doc", {
+        ref: buildSpecRef,
+      });
+      const second = await callToolWithSession(actor.user.id, sessionId, "get_doc", {
+        ref: buildSpecRef,
+      });
+
+      // The cadence does not depend on where the HANDOFF claim is stored: it has
+      // its own store and its own key. If rolling the handoff back also silenced
+      // the cadence, the two switches would not be independent and dec-6's whole
+      // reason for having two would be false.
+      expect(first.content[0].text).toContain(STATIC_MARKER);
+      expect(second.content[0].text).toContain(POINTER);
+      expect(second.content[0].text).not.toContain(STATIC_MARKER);
+
+      // …and with the store off, no HANDOFF claim was written to the shared
+      // table. This is what makes the test a real combination rather than the
+      // cadence test with an extra line: it pins BOTH axes in one run.
+      //
+      // ⚠ PREFIX MATCH, NOT `claims ? 'handoff'`. The key is
+      // `handoff:<userId>:<specId>:<phase>` (handoffClaimKey), so an equality
+      // test against the bare word is false for every row ever written and the
+      // assertion would pass without observing anything. Caught here only
+      // because the sibling test below asserts the same key is PRESENT and went
+      // red on it.
+      const rows = (await db.execute(
+        sql`SELECT count(*)::int AS n FROM agent_session_claims
+            WHERE session_id = ${sessionId}
+              AND EXISTS (
+                SELECT 1 FROM jsonb_object_keys(claims) k WHERE k LIKE 'handoff:%'
+              )`,
+      )) as unknown as Array<{ n: number }>;
+      expect(rows[0]?.n ?? 0).toBe(0);
+    } finally {
+      delete process.env.GUIDANCE_CADENCE_ENABLED;
+    }
+  });
+
+  it("the byte record measures the WHOLE response, not the footer (ac-27)", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-510/acs/ac-27");
+    // The backstop guards against context compaction, and what fills a context
+    // is the PAYLOAD. The record used to run at the seat on `footer.length`,
+    // which after suppression is 84 chars — so the counter slowed by an order of
+    // magnitude exactly when suppression began, while the 90k `get_doc` that
+    // actually consumed the window went uncounted.
+    //
+    // Driven through a real tool call because the claim is about WHERE the record
+    // happens: it moved to the choke point, which is the first place the whole
+    // response exists. A unit test on `recordCadenceBytes` would pass with the
+    // call site still at the seat.
+    process.env.GUIDANCE_CADENCE_ENABLED = "true";
+    // ⚠ UNIQUE PER RUN [per std-37], and this test proved why. With a fixed id
+    // the row survives between runs and `guidance_bytes` ACCUMULATES — so a
+    // mutation that broke the record (back to `footer.length`) still passed,
+    // carried over the line by the correct total the previous run had left
+    // behind. The assertion was reading history, not this call.
+    const sessionId = `bytes-whole-response-${process.pid}-${Date.now()}`;
+    try {
+      await db
+        .insert(mcpSessions)
+        .values([{ sessionId, userId: actor.user.id }])
+        .onConflictDoNothing();
+
+      const res = await callToolWithSession(actor.user.id, sessionId, "get_doc", {
+        ref: buildSpecRef,
+      });
+      const responseLength = res.content[0].text.length;
+
+      const rows = (await db.execute(
+        sql`SELECT guidance_bytes::int AS bytes FROM agent_session_claims
+            WHERE session_id = ${sessionId}`,
+      )) as unknown as Array<{ bytes: number }>;
+      const recorded = rows[0]?.bytes ?? 0;
+
+      // ⚠ COMPARE AGAINST THE FOOTER, not against a fraction of the response.
+      // A first version asserted `recorded > responseLength * 0.8` and stayed
+      // GREEN under the mutation it was written to catch: on a freshly seeded
+      // Spec the body is small and the FOOTER is most of the response, so 80%
+      // of the whole and the footer alone are barely distinguishable. The test
+      // has to discriminate against the exact quantity it is rejecting.
+      const delimiterAt = res.content[0].text.indexOf(FOOTER_DELIMITER);
+      expect(delimiterAt, "no footer in this response — fixture is wrong").toBeGreaterThan(0);
+      const footerLength = responseLength - delimiterAt;
+
+      expect(responseLength).toBeGreaterThan(2_000);
+      expect(
+        recorded,
+        `Recorded ${recorded} bytes. The footer alone is ${footerLength} and the whole ` +
+          `response is ${responseLength} — a record at or below the footer means it is ` +
+          `still measuring the one part of the response the cadence shrank.`,
+      ).toBeGreaterThan(footerLength);
+      expect(recorded).toBe(responseLength);
+    } finally {
+      delete process.env.GUIDANCE_CADENCE_ENABLED;
+    }
+  });
+
+  it("both ON — the target state delivers the cadence and the shared claim together", async () => {
+    tagAc(AC(16));
+    tagAc(AC(21));
+    process.env.HANDOFF_SHARED_STORE_ENABLED = "true";
+    process.env.GUIDANCE_CADENCE_ENABLED = "true";
+    const sessionId = "combo-sess-all-on";
+    try {
+      await db
+        .insert(mcpSessions)
+        .values([{ sessionId, userId: actor.user.id }])
+        .onConflictDoNothing();
+
+      const first = await callToolWithSession(actor.user.id, sessionId, "get_doc", {
+        ref: buildSpecRef,
+      });
+      const second = await callToolWithSession(actor.user.id, sessionId, "get_doc", {
+        ref: buildSpecRef,
+      });
+
+      expect(first.content[0].text).toContain(STATIC_MARKER);
+      expect(second.content[0].text).toContain(POINTER);
+      expect(second.content[0].text.length).toBeLessThan(first.content[0].text.length);
+
+      // Both mechanisms wrote to the same row without treading on each other —
+      // the cadence records bytes, the handoff records its claim. Asserting the
+      // row alone would not show that; asserting both keys does.
+      const rows = (await db.execute(
+        sql`SELECT guidance_bytes::int AS bytes,
+                   EXISTS (
+                     SELECT 1 FROM jsonb_object_keys(claims) k WHERE k LIKE 'handoff:%'
+                   ) AS claimed
+            FROM agent_session_claims WHERE session_id = ${sessionId}`,
+      )) as unknown as Array<{ bytes: number; claimed: boolean }>;
+      expect(rows.length).toBe(1);
+      expect(rows[0].claimed).toBe(true);
+      expect(rows[0].bytes).toBeGreaterThan(0);
+    } finally {
+      delete process.env.HANDOFF_SHARED_STORE_ENABLED;
+      delete process.env.GUIDANCE_CADENCE_ENABLED;
+    }
+  });
+});
 });

@@ -35,8 +35,11 @@ import {
   type GuidanceBlock,
   type PhaseNode,
   type SpecPhase,
+  type ToNudgeInput,
   // spec-542: the grounding dimension the Scaffold selects on.
   type GroundingState,
+  // spec-510 dec-4: the agent-surface dimension.
+  type GuidanceChannel,
 } from "@memex/shared";
 import type { AcWithVerification } from "../services/acs.js";
 
@@ -129,6 +132,34 @@ interface AcceptanceCriterion {
  * `orgBlocks` carries the principal's Org's enabled `org_scaffold_additions`
  * rows, already filtered server-side per b-68 dec-1.
  */
+/**
+ * spec-510 t-3: the ONE place a `toNudge` input is built for the phase footer.
+ *
+ * Both the renderer below AND the seat need this input — the renderer to
+ * project the text, the seat to project the BLOCKS it applies the cadence to.
+ * Two hand-built inputs would be two chances to disagree on `grounding`, `tool`
+ * or `orgBlocks`, and disagreement here is not cosmetic: the seat would suppress
+ * against one block set while the agent received another, with nothing to
+ * notice. One constructor removes the possibility rather than testing for it.
+ */
+export function nudgeInputFor(
+  doc: Doc & { groundedStale?: boolean },
+  phase: SpecPhase,
+  nudge?: NudgeContext,
+): ToNudgeInput {
+  return {
+    dataset: BASE_SCAFFOLD,
+    tool: nudge?.tool,
+    phase,
+    // spec-542: the grounding claim is state-keyed in the Scaffold, so the
+    // caller has to say WHICH state. Passing nothing emits no claim, which is
+    // correct for a read that does not know (ac-7) and wrong as a default.
+    grounding: groundingStateOf(doc),
+    channel: nudge?.channel,
+    orgBlocks: nudge?.orgBlocks,
+  };
+}
+
 export interface NudgeContext {
   tool?: string;
   orgBlocks?: readonly GuidanceBlock[];
@@ -137,6 +168,18 @@ export interface NudgeContext {
   // essence. The delivery decision + interpolation happen up in the centralized
   // formatState machine; the renderer stays dumb and emits whatever it's handed.
   fullHandoff?: string;
+  // spec-510 t-3 (dec-1): when set, the footer emits this pre-composed phase
+  // guidance in place of calling `toNudge` itself. Exactly the `fullHandoff`
+  // contract one field up, for the same reason: the CADENCE decision needs a
+  // session, the renderer has none, and the seat does. Undefined — the flag off,
+  // or a surface with no cadence key — falls through to the unchanged `toNudge`
+  // call below, which is what makes "flag off" byte-identical to today.
+  guidance?: string;
+  // spec-510 t-5 (dec-4): the agent surface this response is for. The seat holds
+  // it on `ctx.channel` and until now never read it — s-3's claim that the seat
+  // "already holds both the channel and the session id" was half true. Undefined
+  // asserts nothing, so no channel-targeted block fires.
+  channel?: GuidanceChannel;
 }
 
 // spec-203 dec-3 (t-3): a piece of platform-injected guidance a tool reports for
@@ -231,15 +274,10 @@ function estimateEnvelopeChars(
   let guidance = 0;
   let handoff = 0;
   try {
-    guidance = toNudge({
-      dataset: BASE_SCAFFOLD,
-      tool: nudge?.tool,
-      phase,
-      // spec-542 ac-13: the SAME state the seat will emit with. Measuring
-      // without it would size the envelope from a string never emitted.
-      grounding: groundingStateOf(doc),
-      orgBlocks: nudge?.orgBlocks,
-    }).length;
+    // spec-542 ac-13 + spec-510 t-3: the SAME input the renderer and the seat
+    // use. Measuring from a separately-built input would size the envelope from
+    // a string never emitted.
+    guidance = toNudge(nudgeInputFor(doc, phase, nudge)).length;
     handoff =
       nudge?.fullHandoff?.length ??
       (toHandoffEssence(BASE_SCAFFOLD, phase) ?? "").length;
@@ -1705,16 +1743,11 @@ function renderSpecPhaseGuidance(
   // order:0, allowance at order:1, mcp-footer at order:2, behavioural blocks
   // at order:10-13). Phase-targeted Org additions (b-68 t-3) interleave
   // automatically because they share `target: { phase }` shape.
-  const nudgeText = toNudge({
-    dataset: BASE_SCAFFOLD,
-    tool: nudge?.tool,
-    phase,
-    // spec-542: the grounding claim is now state-keyed in the Scaffold, so the
-    // seat has to say WHICH state. Passing nothing emits no claim, which is
-    // correct for a read that does not know (ac-7) and wrong as a default.
-    grounding: groundingStateOf(doc),
-    orgBlocks: nudge?.orgBlocks,
-  });
+  // spec-510 t-3: `nudge.guidance` is the seat's CADENCED composition — the
+  // same blocks, with ones this session has already seen replaced by a single
+  // pointer. Undefined (flag off, or no cadence key) falls through to the
+  // unchanged projection, so "flag off" is byte-identical to pre-spec-510.
+  const nudgeText = nudge?.guidance ?? toNudge(nudgeInputFor(doc, phase, nudge));
   if (nudgeText.length > 0) {
     lines.push(nudgeText);
   }

@@ -41,6 +41,11 @@ export {
   toPhaseGuidance,
   toToolDefinition,
   toNudge,
+  // spec-510 t-2: the addressable sibling the server seat claims against.
+  toNudgeBlocks,
+  // spec-510 t-13 (dec-12 A): the recovery projection the cadence pointer names.
+  toGuidanceRecovery,
+  type GuidanceChannel,
   toRubric,
   toInitPromptRef,
   toButtonPrompt,
@@ -96,6 +101,10 @@ export {
   // is present in the built dist/index.d.ts.
   CODE_GROUNDING_HEADER_PROSE,
   GET_PROMPT_PROSE,
+  // spec-510 t-3: the one-line stand-in for guidance already shown this session.
+  cadencePointer,
+  guidanceRecoverySlug,
+  GUIDANCE_RECOVERY_TOPIC_PROSE,
   // spec-464 dec-24: the phase-gating teaching catalog (prose home, std-15).
   PHASE_GATING_CATALOG,
 } from './scaffold-data.js';

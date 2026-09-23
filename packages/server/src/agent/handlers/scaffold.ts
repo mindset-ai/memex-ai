@@ -183,9 +183,12 @@ export const scaffoldTools: ToolSpec[] = [
       if (!blockId) {
         return `A ${operation} needs the id of the existing org block to change — the ids are listed in your scaffold context.`;
       }
-      const block = orgBlocks.find(
-        (b) => (b as GuidanceBlock & { id?: string }).id === blockId,
-      );
+      // spec-510 t-11 (dec-8): `id` is now a first-class field on
+      // `GuidanceBlock`, so the structural cast this line used to carry
+      // — `(b as GuidanceBlock & { id?: string })` — is gone. The workaround
+      // existed only because the shared shape lacked the field every Org row
+      // already had.
+      const block = orgBlocks.find((b) => b.id === blockId);
       if (!block) {
         return `There is no org guidance block with id "${blockId}" in this workspace. Check the ids in your scaffold context.`;
       }

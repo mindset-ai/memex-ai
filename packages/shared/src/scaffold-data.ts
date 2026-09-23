@@ -1467,6 +1467,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   // ── Global (cross-phase) shared-nudge guidance ─────────────────────────
   {
     kind: 'guidance_block',
+    id: 'about-spec',
     source: 'base',
     target: {},
     text: BASE_ABOUT_BRIEF.text,
@@ -1477,6 +1478,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'doc-manipulation',
     source: 'base',
     target: {},
     text: BASE_MUTATION_PROTOCOL.text,
@@ -1487,6 +1489,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'code-grounding-ask',
     source: 'base',
     target: {},
     text: BASE_CODE_GROUNDING.text,
@@ -1507,6 +1510,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   // was rendered as 'known to be ungrounded' on every read, of every Spec.
   {
     kind: 'guidance_block',
+    id: 'code-grounding-not-grounded',
     source: 'base',
     target: { grounding: 'not_grounded' },
     text: BASE_CODE_GROUNDING_NOT_GROUNDED.text,
@@ -1517,6 +1521,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'code-grounding-grounded',
     source: 'base',
     target: { grounding: 'grounded' },
     text: BASE_CODE_GROUNDING_GROUNDED.text,
@@ -1527,6 +1532,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'code-grounding-stale',
     source: 'base',
     target: { grounding: 'grounded_stale' },
     text: BASE_CODE_GROUNDING_STALE.text,
@@ -1537,6 +1543,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'standards-protocol',
     source: 'base',
     target: {},
     text: BASE_STANDARDS_PROTOCOL.text,
@@ -1549,6 +1556,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   // ── Per-phase intent (mirrors phaseIntentLine in formatters.ts) ────────
   {
     kind: 'guidance_block',
+    id: 'phase-label-draft',
     source: 'base',
     target: { phase: 'draft' },
     text: '**Phase:** draft — private authoring; sketching purpose and shape.',
@@ -1559,6 +1567,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'phase-label-specify',
     source: 'base',
     target: { phase: 'specify' },
     text: '**Phase:** specify — surface and resolve decisions; no tasks yet.',
@@ -1569,6 +1578,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'phase-label-build',
     source: 'base',
     target: { phase: 'build' },
     text:
@@ -1580,6 +1590,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'phase-label-verify',
     source: 'base',
     target: { phase: 'verify' },
     text:
@@ -1591,6 +1602,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'phase-label-done',
     source: 'base',
     target: { phase: 'done' },
     text: '**Phase:** done — read-only retrospective.',
@@ -1603,6 +1615,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   // ── Per-phase allowance (mirrors phaseAllowanceLine in formatters.ts) ──
   {
     kind: 'guidance_block',
+    id: 'allowance-draft',
     source: 'base',
     target: { phase: 'draft' },
     text:
@@ -1614,6 +1627,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'allowance-specify',
     source: 'base',
     target: { phase: 'specify' },
     text:
@@ -1625,6 +1639,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'allowance-build',
     source: 'base',
     target: { phase: 'build' },
     text:
@@ -1636,6 +1651,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'allowance-verify',
     source: 'base',
     target: { phase: 'verify' },
     text:
@@ -1647,6 +1663,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'allowance-done',
     source: 'base',
     target: { phase: 'done' },
     text: 'Read-only. Spec is closed.',
@@ -1660,6 +1677,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   //    tool responses). Mirrors `phases/<phase>/mcp-footer.md`. ────────────
   {
     kind: 'guidance_block',
+    id: 'phase-summary-draft',
     source: 'base',
     target: { phase: 'draft' },
     text:
@@ -1671,6 +1689,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'phase-summary-specify',
     source: 'base',
     target: { phase: 'specify' },
     text:
@@ -1682,6 +1701,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'phase-summary-build',
     source: 'base',
     target: { phase: 'build' },
     text:
@@ -1693,6 +1713,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'phase-summary-verify',
     source: 'base',
     target: { phase: 'verify' },
     text:
@@ -1704,6 +1725,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'phase-summary-done',
     source: 'base',
     target: { phase: 'done' },
     text: 'This Spec is closed. Treat it as read-only context for downstream work.',
@@ -1718,6 +1740,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   //    per phase to keep the projection contract consistent. ──────────────
   {
     kind: 'guidance_block',
+    id: 'tool-overrides-specify',
     source: 'base',
     target: { phase: 'specify' },
     text:
@@ -1729,6 +1752,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'tool-overrides-build',
     source: 'base',
     target: { phase: 'build' },
     text:
@@ -1740,6 +1764,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'tool-overrides-verify',
     source: 'base',
     target: { phase: 'verify' },
     text:
@@ -1751,6 +1776,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'tool-overrides-done',
     source: 'base',
     target: { phase: 'done' },
     text:
@@ -1766,6 +1792,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   //    too, just via the nudge channel, not the system prompt). ───────────
   {
     kind: 'guidance_block',
+    id: 'phase-intent-specify',
     source: 'base',
     target: { phase: 'specify' },
     text: PHASE_PLAN_INTENT.text,
@@ -1776,6 +1803,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'phase-discipline-specify',
     source: 'base',
     target: { phase: 'specify' },
     text: PHASE_PLAN_DISCIPLINE.text,
@@ -1786,6 +1814,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'phase-doc-manipulation-specify',
     source: 'base',
     target: { phase: 'specify' },
     text: PHASE_PLAN_DOC_MANIPULATION.text,
@@ -1796,6 +1825,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'phase-search-specify',
     source: 'base',
     target: { phase: 'specify' },
     text: PHASE_PLAN_SEARCH.text,
@@ -1807,6 +1837,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   // Draft mirrors specify (one prompt, two statuses).
   {
     kind: 'guidance_block',
+    id: 'phase-intent-draft',
     source: 'base',
     target: { phase: 'draft' },
     text: PHASE_PLAN_INTENT.text,
@@ -1817,6 +1848,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'phase-discipline-draft',
     source: 'base',
     target: { phase: 'draft' },
     text: PHASE_PLAN_DISCIPLINE.text,
@@ -1827,6 +1859,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'phase-doc-manipulation-draft',
     source: 'base',
     target: { phase: 'draft' },
     text: PHASE_PLAN_DOC_MANIPULATION.text,
@@ -1837,6 +1870,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'phase-search-draft',
     source: 'base',
     target: { phase: 'draft' },
     text: PHASE_PLAN_SEARCH.text,
@@ -1847,6 +1881,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'phase-intent-build',
     source: 'base',
     target: { phase: 'build' },
     text: PHASE_BUILD_INTENT.text,
@@ -1857,6 +1892,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'phase-discipline-build',
     source: 'base',
     target: { phase: 'build' },
     text: PHASE_BUILD_DISCIPLINE.text,
@@ -1867,6 +1903,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'phase-doc-manipulation-build',
     source: 'base',
     target: { phase: 'build' },
     text: PHASE_BUILD_DOC_MANIPULATION.text,
@@ -1877,6 +1914,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'phase-search-build',
     source: 'base',
     target: { phase: 'build' },
     text: PHASE_BUILD_SEARCH.text,
@@ -1887,6 +1925,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'phase-issue-tdd-build',
     source: 'base',
     target: { phase: 'build' },
     text: PHASE_BUILD_ISSUE_TDD.text,
@@ -1897,6 +1936,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'phase-intent-verify',
     source: 'base',
     target: { phase: 'verify' },
     text: PHASE_VERIFY_INTENT.text,
@@ -1907,6 +1947,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'phase-discipline-verify',
     source: 'base',
     target: { phase: 'verify' },
     text: PHASE_VERIFY_DISCIPLINE.text,
@@ -1917,6 +1958,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'phase-doc-manipulation-verify',
     source: 'base',
     target: { phase: 'verify' },
     text: PHASE_VERIFY_DOC_MANIPULATION.text,
@@ -1927,6 +1969,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'phase-search-verify',
     source: 'base',
     target: { phase: 'verify' },
     text: PHASE_VERIFY_SEARCH.text,
@@ -1937,6 +1980,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'phase-intent-done',
     source: 'base',
     target: { phase: 'done' },
     text: PHASE_DONE_INTENT.text,
@@ -1947,6 +1991,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'phase-discipline-done',
     source: 'base',
     target: { phase: 'done' },
     text: PHASE_DONE_DISCIPLINE.text,
@@ -1957,6 +2002,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'phase-using-as-context-done',
     source: 'base',
     target: { phase: 'done' },
     text: PHASE_DONE_USING_AS_CONTEXT.text,
@@ -1975,6 +2021,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   //    the floor while the Spec is being shaped. ──────────────────────────
   {
     kind: 'guidance_block',
+    id: 'spec-shape-lenses-create-doc',
     source: 'base',
     target: { tool: 'create_doc' },
     text: SPEC_SHAPE_LENSES.text,
@@ -1985,6 +2032,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'spec-shape-lenses-specify',
     source: 'base',
     target: { phase: 'specify' },
     text: SPEC_SHAPE_LENSES.text,
@@ -2005,6 +2053,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   //    through the footer (renderSpecPhaseGuidance → toNudge) — spec-193 ac-11.
   {
     kind: 'guidance_block',
+    id: 'tripwire-protocol-specify',
     source: 'base',
     target: { phase: 'specify' },
     text: BASE_TRIPWIRE_PROTOCOL.text,
@@ -2015,6 +2064,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'tripwire-protocol-draft',
     source: 'base',
     target: { phase: 'draft' },
     text: BASE_TRIPWIRE_PROTOCOL.text,
@@ -2025,6 +2075,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'tripwire-protocol-build',
     source: 'base',
     target: { phase: 'build' },
     text: BASE_TRIPWIRE_PROTOCOL.text,
@@ -2035,6 +2086,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
   {
     kind: 'guidance_block',
+    id: 'tripwire-protocol-verify',
     source: 'base',
     target: { phase: 'verify' },
     text: BASE_TRIPWIRE_PROTOCOL.text,
@@ -2828,6 +2880,60 @@ export const BUILD_AC_NAG_PROSE = {
 // const consumed by server code" shape as BUILD_AC_NAG_PROSE). The tool itself
 // composes the actual handoff via `toButtonPrompt` + `HANDOFF_BUTTON_BY_PHASE`
 // — no prompt text is duplicated here, only the wrapper prose around it.
+/**
+ * spec-510 t-3 (dec-1): the one line that stands in for guidance this session
+ * has already been shown in full.
+ *
+ * It lives here, not in the seat, because agent-facing prose has one home
+ * [per std-15] and because the seat is forbidden from authoring footer text
+ * (spec-219 dec-5, guarded by footer-one-seat / guidance-authoring-confined).
+ *
+ * THE WORDING IS LOAD-BEARING, and the Design & UX lens says why. It must:
+ *   - NAME the retrieval tool, so recovery is explicit rather than inferred by
+ *     an agent that has to guess the guidance still exists somewhere;
+ *   - read like a FOOTNOTE, not a fault — no warning glyph, no "omitted", no
+ *     "truncated". An agent that reads this as an error behaves differently
+ *     from one that reads it as a reference, and the difference is invisible
+ *     from the server side.
+ *
+ * ONE line replaces the whole suppressed set, not one line per block: a dozen
+ * pointers would cost more than the prose they stand in for.
+ */
+/** The slug of the generated recovery topic for `phase` — the ONE place the
+ *  naming lives, so the pointer, the loader and the guard cannot drift apart
+ *  (spec-510 t-13, dec-12 A). */
+export const guidanceRecoverySlug = (phase: string): string => `guidance-${phase}`;
+
+/**
+ * The one-line replacement for suppressed guidance.
+ *
+ * ⚠ IT NAMES A PHASE-SCOPED SLUG, and used to name `phases` — a hand-authored
+ * topic that contained NONE of what it stood in for. 39% of the suppressed
+ * volume, the tripwire included, had no retrieval path at all, while this line
+ * told the agent recovery was one call away (dec-12).
+ *
+ * What it names now is PROJECTED from the same blocks that were suppressed
+ * (`toGuidanceRecovery`), so the promise is true by derivation rather than by
+ * someone keeping two documents in step.
+ *
+ * Phase-scoped because the whole-Scaffold projection is 38,037 chars against the
+ * ~10,755 a build read suppresses — fetching it twice would cost more than the
+ * cadence saves. Per phase the ratio is ~1.2.
+ */
+export const cadencePointer = (phase: string): string =>
+  `guidance shown earlier this session — get_information({ topic: '${guidanceRecoverySlug(
+    phase,
+  )}' }) for depth`;
+
+/** Metadata prose for the generated recovery topics. Lives here rather than in
+ *  the loader because it is agent-facing copy [per std-15]; the BODY is
+ *  projected, never authored. */
+export const GUIDANCE_RECOVERY_TOPIC_PROSE = {
+  title: (phase: string): string => `Working guidance for the ${phase} phase`,
+  whenToRead:
+    'You saw a pointer saying guidance was shown earlier this session. This returns that guidance in full, for the phase you are in.',
+} as const;
+
 export const GET_PROMPT_PROSE = {
   /** dec-4: the one-line pointer that rides the handoff-essence footer sites
    *  (get_doc essence line, assess_spec phase-mode footer, update_doc

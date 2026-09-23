@@ -29,6 +29,9 @@ import { stripUuids, containsUuid } from "../../services/shared/identifiers.js";
 import { listPresent } from "../../services/presence.js";
 import {
   formatSpecGuidanceBody,
+  // spec-510 t-3: the single constructor for a phase-footer toNudge input, so
+  // the seat's cadence claims cannot drift from what the renderer emits.
+  nudgeInputFor,
 } from "../../formatting/formatters.js";
 import { buildSketchBlock } from "../../mcp/ac-test-sketch.js";
 import {
@@ -36,6 +39,8 @@ import {
   HANDOFF_BUTTON_BY_PHASE,
   toButtonPrompt,
   toHandoffEssence,
+  // spec-510 t-2/t-3: the addressable projection the cadence claims against.
+  toNudgeBlocks,
   GET_PROMPT_PROSE,
   // spec-566 dec-2 — the superseded count's wording + the live-set rule, one
   // decision shared with all eight React coverage surfaces.
@@ -44,6 +49,7 @@ import {
   type Phase,
 } from "@memex/shared";
 import { claimFullHandoffDelivery } from "../../services/handoff-delivery.js";
+import { composeCadencedGuidance } from "../../services/guidance-cadence.js";
 import type { ToolCtx, FooterSignal } from "./tool-contract.js";
 import { fullDocState, type FullDocState } from "./doc-state.js";
 import { relatedIssuesNudge } from "./related-issues.js";
@@ -438,10 +444,21 @@ export async function composeGuidanceEnvelope(
         const handoffContext = handoffButtonId
           ? handoffInterpolationContext(baseUrl, state.doc)
           : undefined;
+        // spec-510 t-4: the claim is now async (it may hit the shared store).
+        // It MUST stay LAST in this chain — `&&` short-circuits, so the claim is
+        // made only when a handoff would actually be delivered. Awaiting it
+        // above the other two conditions would consume a claim on every verbose
+        // read of a Spec that has no handoff at all: HANDOFF_BUTTON_BY_PHASE is
+        // a Partial, and draft and done are not in it.
         if (
           handoffButtonId &&
           handoffContext &&
-          claimFullHandoffDelivery(ctx.userId, ctx.sessionId, state.doc.id, state.doc.status)
+          (await claimFullHandoffDelivery(
+            ctx.userId,
+            ctx.sessionId,
+            state.doc.id,
+            state.doc.status,
+          ))
         ) {
           // spec-263 dec-2 (ac-9): compose WITH the Org appends already fetched
           // above — the same composition the UI button and get_prompt use, so
@@ -455,9 +472,65 @@ export async function composeGuidanceEnvelope(
             }) ?? undefined;
         }
       }
+      // spec-510 t-3 (dec-1, dec-3): apply the guidance cadence HERE, at the
+      // seat, because the decision needs a session and the renderer has none.
+      // The projector stays pure; we hand the renderer a composed string exactly
+      // as spec-203 does for `fullHandoff` one field along.
+      //
+      // The input is built by the SAME constructor the renderer uses, so the
+      // blocks we claim against cannot drift from the blocks it would emit.
+      //
+      // `cadenceKey` is undefined on a stateless MCP path, an unbound chat, or
+      // the first call of a conversation (t-10). `composeCadencedGuidance` then
+      // returns undefined and the renderer projects as it always has — the
+      // fallback is today's behaviour, not an error.
+      // DEFENCE IN DEPTH — and the distinction is worth stating, because an
+      // earlier version of this comment claimed more (PR #740 round-2 → round-5,
+      // M-16). NEITHER shipped resolver can actually reject today:
+      // `mcpCadenceKey` is `async () => sessionId`, and `conversationCadenceKey`
+      // goes through `conversationIdFor`, which catches its own DB error and
+      // returns null. So the log below is unreachable in shipped code.
+      //
+      // Kept anyway, for two reasons. `ctx.cadenceKey` is typed as an arbitrary
+      // thunk, so a third surface — or a future rewrite of either resolver that
+      // stops swallowing — reintroduces the hazard silently. And what it guards
+      // against is severe out of proportion to its cost: an unguarded throw here
+      // reaches this function's catch, which returns a footer with no guidance,
+      // no handoff, no AC nag, no activity and no state line.
+      //
+      // The contract already says an unresolvable key yields undefined and the
+      // caller emits in full, so a lookup that FAILED folds into that same case
+      // rather than becoming a second kind of outcome.
+      //
+      // The claim loop below is the opposite case: `claimOnce` really can throw,
+      // and that guard fixes a live path.
+      let cadenceKey: string | undefined;
+      try {
+        cadenceKey = await ctx.cadenceKey?.();
+      } catch (err) {
+        // Error object, never a message [per std-53, std-14] — a silent degrade
+        // is the thing this whole guard exists to prevent.
+        // eslint-disable-next-line no-console
+        console.error("[guidance-envelope] cadence key unavailable — emitting guidance in full:", err);
+        cadenceKey = undefined;
+      }
+      const cadenced = await composeCadencedGuidance(
+        cadenceKey,
+        toNudgeBlocks(
+          nudgeInputFor(state.doc, phase, {
+            tool: ctx.toolName,
+            orgBlocks,
+            // spec-510 t-5: the seat reads ctx.channel for the first time here.
+            channel: ctx.channel,
+          }),
+        ),
+        // spec-510 t-13: the pointer is phase-scoped, so the phase reaches the
+        // composer rather than being guessed inside it.
+        phase,
+      );
       const nudge =
-        ctx.toolName || orgBlocks || fullHandoff
-          ? { tool: ctx.toolName, orgBlocks, fullHandoff }
+        ctx.toolName || orgBlocks || fullHandoff || cadenced
+          ? { tool: ctx.toolName, orgBlocks, fullHandoff, guidance: cadenced?.text, channel: ctx.channel }
           : undefined;
       let acVerifications: AcWithVerification[] | undefined;
       if (phase === "build") {
@@ -475,6 +548,18 @@ export async function composeGuidanceEnvelope(
         nudge,
         acVerifications,
       );
+      // ⚠ THE BYTE RECORD IS NOT HERE ANY MORE (spec-510 t-13, ac-27). It used
+      // to be `recordCadenceBytes(cadenceKey, footer?.length ?? 0)` on this
+      // line, and the footer is the wrong quantity: after suppression it drops
+      // from ~10,700 chars to 84, so the counter slowed by an order of magnitude
+      // exactly when suppression began — while what actually fills an agent's
+      // context is the PAYLOAD this seat never sees (one measured `get_doc`
+      // returned 92,070 chars).
+      //
+      // It now runs at the choke point, where body + envelope are assembled and
+      // the whole response exists. The claim-first/record-after ordering that
+      // this comment used to protect still holds: the claims happen here, the
+      // record happens strictly after, one frame up.
       // spec-219 ac-10 / dec-4: the AC-coverage HEADER is composed HERE (the one
       // seat), not in the get_doc handler. It is the get_doc-verbose-only surface
       // — emitted only when this is a `get_doc` call (the coverage summary above
