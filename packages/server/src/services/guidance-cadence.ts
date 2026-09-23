@@ -181,6 +181,15 @@ export async function composeCadencedGuidance(
       // CADENCE_REFRESH_BYTES" → emit in full. Otherwise it stays behind the
       // pointer. The claim is per block, so a block first seen mid-session is not
       // instantly due for a refresh.
+      // NO USER IN THE KEY, under the rule stated at `claimOnce` in
+      // session-claims.ts (dec-14): a claim whose loss is cheap and RECOVERABLE
+      // is scoped to the session alone. The worst case for two users sharing a
+      // session id is a pointer instead of the prose — and since dec-12 that
+      // pointer names a projection which genuinely returns it.
+      //
+      // ⚠ That is a dependency, not a preference. When this line was written the
+      // recovery path did not work, and the user belonged in the key. If it ever
+      // stops working again, this key takes the user back.
       const granted = await claimOnce(cadenceKey, `block:${block.id}`, {
         bytes: CADENCE_REFRESH_BYTES,
       });

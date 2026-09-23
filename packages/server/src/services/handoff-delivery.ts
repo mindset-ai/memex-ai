@@ -82,6 +82,13 @@ export function handoffSharedStoreEnabled(): boolean {
  * A narrower key is a behaviour change wearing a refactor's clothes.
  */
 export function handoffClaimKey(userId: string, specId: string, phase: string): string {
+  // CARRIES THE USER, under the rule stated at `claimOnce` in session-claims.ts
+  // (dec-14): a claim whose loss is expensive and unrecoverable is scoped to the
+  // user, because `sessionId` is an unvalidated client header and two users can
+  // present the same one. Losing this to a collision withholds a whole phase
+  // prompt from someone who has never read it. The sibling `block:` key
+  // deliberately does NOT carry it, and the rule is where that asymmetry is
+  // justified — read it there rather than inferring a convention from here.
   return `handoff:${userId}:${specId}:${phase}`;
 }
 

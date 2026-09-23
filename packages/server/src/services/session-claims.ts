@@ -106,6 +106,40 @@ export async function recordGuidanceBytes(
 }
 
 /**
+ * ─── THE RULE FOR A CLAIM KEY'S SHAPE (spec-510 dec-14) ────────────────────
+ *
+ * This row is shared, and `sessionId` is NOT an identity: on the MCP surface it
+ * is an unvalidated client-supplied header (ac-22), so two users can present the
+ * same string — by accident or otherwise.
+ *
+ * So every claim key answers one question, and the answer is not the same for
+ * all of them:
+ *
+ *   **A claim whose loss is EXPENSIVE and UNRECOVERABLE carries the user.
+ *    A claim whose loss is CHEAP and RECOVERABLE does not.**
+ *
+ * The two that exist:
+ *
+ *   `handoff:${userId}:${specId}:${phase}` — carries it. Losing this to a
+ *       collision withholds a whole phase prompt from someone who has never read
+ *       it, with no other route to it.
+ *   `block:${blockId}`                     — does not. The worst case is a
+ *       pointer instead of the prose, and since dec-12 that pointer names a
+ *       projection that genuinely returns it: one `get_information` call deep.
+ *
+ * ⚠ THE RULE HAS A DEPENDENCY, AND IT EXPIRES WITH IT. The block key is only
+ * defensible because block loss is recoverable. When t-3 wrote it that was NOT
+ * true — the pointer named a topic containing none of what it replaced (H-1),
+ * and under those conditions the user belonged in the key. dec-12 changed the
+ * fact, not the reasoning. **If the recovery path ever stops working, this rule
+ * stops holding and `block:` must take the user.**
+ *
+ * A third claim kind is measured against the rule, not against these two
+ * examples. Getting it wrong is silent in both directions: an over-scoped key
+ * wastes a claim, an under-scoped one withholds something from someone who never
+ * saw it.
+ * ───────────────────────────────────────────────────────────────────────────
+ *
  * Claim the right to send `claimKey` to this session. Returns true exactly once
  * per session per claim — or again, once the backstop says the claim has gone
  * stale.
