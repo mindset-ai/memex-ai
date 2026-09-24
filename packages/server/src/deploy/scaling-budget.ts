@@ -35,8 +35,6 @@
 // configuration.** A guard that checks steady state passes on exactly the configuration that
 // failed on 2026-08-11.
 
-import { DEFAULT_POOL_MAX } from "../db/pool-size.js";
-
 /**
  * The spec-156 bus-relay `LISTEN` connection: one persistent connection per Cloud Run instance,
  * opened with `{ max: 1 }` and no idle timeout, deliberately — a LISTEN socket must stay open to
@@ -54,27 +52,21 @@ export const RELAY_LISTEN_PER_INSTANCE = 1;
 export const CUTOVER_REVISION_FACTOR = 2;
 
 /**
- * What to assume for a service that sets no explicit pool cap and is NOT our image.
+ * What an UNDECLARED service is counted at: the postgres-js default of `max: 10`, whoever
+ * runs it — ours or anyone else's.
  *
- * postgres-js defaults to `max: 10`. Our own services default to {@link DEFAULT_POOL_MAX} (5),
- * imported rather than restated here. For anything else, assume the library default:
- * over-counting a foreign service costs headroom, under-counting it is the defect this guard
- * exists to catch — an unconfigured consumer contributing ZERO to the arithmetic while
- * consuming connections.
+ * Kept after phase B (spec-525 t-15) for one reason, stated so it is not mistaken for a
+ * stationary inference: an undeclared service is REFUSED, but the budget report still has
+ * to print a line for it, and the refusal message names the figure used. Over-counting is
+ * the safe direction for that line. It is only load-bearing for the deploy's verdict when
+ * the escape hatch (`REQUIRE_CONNECTION_DECLARATIONS=0`) is in use — then it is the
+ * fail-safe count for the hours the hatch is open.
  *
- * **This comment used to claim the imported default meant "the guard's number cannot drift
- * from what the pool really does". That was false** (spec-525 t-15). Importing the constant
- * only pins the DEFAULT; prod's pool is **4**, set by the env override, so the
- * `our-code-default` branch would say 5 where reality is 4. It has only ever been masked by
- * the `applied` branch winning on our own service. Both branches are inferences, and phase B
- * retires them together — removing `applied` alone would just promote `our-code-default` to
- * being the lying one.
- *
- * **All three inference branches are RAMP scaffolding, not steady state.** `foreign-default`
- * and `our-code-default` are the safe branches while the fleet is still adopting
- * {@link DECLARATION_VAR}; they are not permanent fallbacks. If either is kept as
- * defence-in-depth for a switched-off phase B, say so explicitly at that point — otherwise
- * the next reader takes an unreachable branch for a stationary one.
+ * Retired with phase B, and why both went together: `applied` read a per-POOL
+ * `DB_POOL_MAX` as a whole-instance footprint (backstage opens two pools sized by one
+ * variable, so it under-counted by up to 2x), and `our-code-default` read the pool DEFAULT
+ * where prod's pool is 4 by env override — masked only by `applied` winning. Removing one
+ * alone would have promoted the other to being the lying branch.
  */
 export const FOREIGN_SERVICE_DEFAULT_POOL = 10;
 
@@ -112,9 +104,10 @@ export const ADMIN_SESSION_RESERVE = 5;
  * standard somebody has to go and find.
  */
 export const UNBLOCK_HINT =
-  "TO UNBLOCK NOW: unset REQUIRE_CONNECTION_DECLARATIONS in the deploy workflow's " +
-  "environment and re-run. That returns the guard to over-counting undeclared services, " +
-  "which is the safe direction — then fix the declaration without a deploy blocked on it.";
+  "TO UNBLOCK NOW: set the GitHub environment variable REQUIRE_CONNECTION_DECLARATIONS=0 " +
+  "and re-run the deploy. That counts undeclared services at the foreign default instead " +
+  "of refusing them, which over-counts (the safe direction) — then restore the declaration " +
+  "and delete the variable, because while it is set nothing stops the next one going missing.";
 
 export const DECLARATION_VAR = "DB_CONNECTIONS_PER_INSTANCE";
 
@@ -166,7 +159,11 @@ export type ServiceObservation = {
   revision?: string;
   maxInstances: number;
   minInstances?: number;
-  /** `undefined` = the running revision carries no `DB_POOL_MAX`, so a default applies. */
+  /**
+   * The runtime pool knob, carried ONLY for the applied-vs-intended comparison. **The budget
+   * never reads it** (spec-525 t-15 phase B): it sizes one pool, and a service's footprint is
+   * whatever it declares — one name meaning two things was the defect.
+   */
   dbPoolMax?: number;
   /**
    * The service's own declaration of its COMPLETE per-instance footprint, from
@@ -175,15 +172,13 @@ export type ServiceObservation = {
    * nothing left for the guard to infer.
    */
   declaredPerInstance?: number;
-  /** `true` when this service runs OUR image, whose pool default is knowable from the code. */
-  ownCode?: boolean;
 };
 
 /**
- * Where a per-instance figure came from. `declared` is the only one that is a READING;
- * the other three are inferences of decreasing confidence, and phase B retires two of them.
+ * Where a per-instance figure came from. `declared` is a READING; `foreign-default` is the
+ * over-count printed for a service that declares nothing, which phase B refuses.
  */
-export type PoolSource = "declared" | "applied" | "our-code-default" | "foreign-default";
+export type PoolSource = "declared" | "foreign-default";
 
 export type ServiceTerm = {
   service: string;
@@ -210,16 +205,6 @@ export type ServiceTerm = {
   peak: number;
 };
 
-function resolvePool(obs: ServiceObservation): { poolMax: number; poolSource: PoolSource } {
-  const applied = obs.dbPoolMax;
-  if (applied !== undefined && Number.isFinite(applied) && applied >= 1) {
-    return { poolMax: Math.floor(applied), poolSource: "applied" };
-  }
-  return obs.ownCode
-    ? { poolMax: DEFAULT_POOL_MAX, poolSource: "our-code-default" }
-    : { poolMax: FOREIGN_SERVICE_DEFAULT_POOL, poolSource: "foreign-default" };
-}
-
 export function serviceTerm(obs: ServiceObservation): ServiceTerm {
   const declared = obs.declaredPerInstance;
   const hasDeclaration = declared !== undefined && Number.isFinite(declared) && declared >= 1;
@@ -234,7 +219,12 @@ export function serviceTerm(obs: ServiceObservation): ServiceTerm {
   // coherent relation differs per service — memex-api's total is pool + relay (5 = 4+1),
   // backstage's is 2 x pool — and the guard cannot know which form applies. A check would
   // be the guessing this removes, wearing an equals sign.
-  const inferred = hasDeclaration ? undefined : resolvePool(obs);
+  //
+  // An undeclared service gets the foreign default whatever DB_POOL_MAX says — reading it
+  // was the `applied` branch, retired in phase B.
+  const inferred = hasDeclaration
+    ? undefined
+    : { poolMax: FOREIGN_SERVICE_DEFAULT_POOL, poolSource: "foreign-default" as const };
   const perInstance = inferred
     ? inferred.poolMax + RELAY_LISTEN_PER_INSTANCE
     : Math.floor(declared as number);
@@ -255,12 +245,10 @@ export function serviceTerm(obs: ServiceObservation): ServiceTerm {
 }
 
 /**
- * Every service whose figure was INFERRED rather than read — phase A's warning.
+ * Every service that declares nothing — printed on every run, refused or not.
  *
- * Its value is not to the reader of one deploy; it is to whoever decides when phase B can
- * be switched on. **Flip it when this goes quiet**, rather than when someone remembers.
- * A switch that is off by default and gated on memory is a TODO, and phase B is the half
- * that prevents recurrence (`memex-backstage` spec-19 dec-2 §5).
+ * Phase A's warning, kept after the flip: with the escape hatch open it is the only line
+ * that still says what is being counted on a guess.
  */
 export function declarationWarnings(budget: Budget): string[] {
   return budget.terms
@@ -274,17 +262,19 @@ export function declarationWarnings(budget: Budget): string[] {
 }
 
 /**
- * PHASE B — the same list, as refusals rather than warnings. **Off by default.**
+ * PHASE B — the same list, as refusals. **On by default** since 2026-09-24.
  *
- * Every service is undeclared the day this lands, so an on-by-default refusal would abort
- * memex-api's own deploys: the guard working exactly as designed and stopping all work.
- * The switch is what lets phase B ship before the fleet is ready for it.
+ * It shipped off by default, because every service was undeclared the day it landed and a
+ * refusal would have aborted memex-api's own deploys. The flip was made on evidence, not
+ * memory: the guard run against prod printed every service `[declared]` and an empty
+ * warning list. `allowUndeclared` is the escape hatch for a service someone ELSE broke —
+ * never a steady state.
  */
 export function undeclaredServices(
   budget: Budget,
-  opts: { requireDeclarations?: boolean } = {},
+  opts: { allowUndeclared?: boolean } = {},
 ): string[] {
-  if (!opts.requireDeclarations) return [];
+  if (opts.allowUndeclared) return [];
   return budget.terms
     .filter((t) => t.poolSource !== "declared")
     .map(
@@ -295,6 +285,35 @@ export function undeclaredServices(
         `the instance opens, plus any long-lived connection outside one.` +
         `\n      ${UNBLOCK_HINT}`,
     );
+}
+
+/**
+ * Our own service as this deploy is ABOUT to run it — what `--mode=plan` must budget.
+ *
+ * Both figures come from the plan, never from the revision being replaced. Borrowing the
+ * live declaration was a real defect: the declaration wins in {@link serviceTerm}, so a
+ * deploy moving the pool was pre-flighted on the OLD footprint. An absent planned
+ * declaration stays absent [per std-50] — a plan that declares nothing is about to ship an
+ * undeclared revision, and it is refused like one. An absent `maxInstances` keeps the live
+ * value, because unset IS int's chosen posture (spec-518 t-4).
+ */
+export function plannedObservation(
+  live: ServiceObservation,
+  intended: { maxInstances?: string; declaredPerInstance?: string },
+): ServiceObservation {
+  const wantMax = Number(intended.maxInstances);
+  const wantDeclared = Number(intended.declaredPerInstance);
+  return {
+    ...live,
+    maxInstances:
+      intended.maxInstances !== undefined && intended.maxInstances !== "" && Number.isFinite(wantMax)
+        ? wantMax
+        : live.maxInstances,
+    declaredPerInstance:
+      intended.declaredPerInstance !== undefined && intended.declaredPerInstance !== "" && Number.isFinite(wantDeclared)
+        ? wantDeclared
+        : undefined,
+  };
 }
 
 // ── The budget ────────────────────────────────────────────────────────────────
@@ -619,9 +638,9 @@ export type RevisionScaling = {
   maxInstances?: number;
   /** Cloud Run omits the annotation entirely at 0, so absent reads as 0 here. */
   minInstances: number;
-  /** `undefined` = no `DB_POOL_MAX` on the revision, so a code default applies. */
+  /** `undefined` = no `DB_POOL_MAX` on the revision. Feeds the comparison only, never the budget. */
   dbPoolMax?: number;
-  /** `undefined` = the revision declares no {@link DECLARATION_VAR}, so a default branch applies. */
+  /** `undefined` = the revision declares no {@link DECLARATION_VAR}: refused by phase B. */
   declaredPerInstance?: number;
   cloudSqlInstances: string[];
 };
@@ -648,8 +667,8 @@ export function parseRevisionScaling(json: unknown): RevisionScaling {
   const first = Array.isArray(containers) ? asRecord(containers[0]) : {};
   const env = Array.isArray(first.env) ? first.env.map(asRecord) : [];
   const pool = env.find((e) => e.name === "DB_POOL_MAX");
-  // Read beside DB_POOL_MAX, not instead of it: a service may publish both, and the guard
-  // deliberately does not compare them (see serviceTerm).
+  // Read beside DB_POOL_MAX, not instead of it: DB_POOL_MAX still feeds the applied-vs-
+  // intended comparison, while only the declaration feeds the budget (see serviceTerm).
   const declared = env.find((e) => e.name === DECLARATION_VAR);
 
   return {

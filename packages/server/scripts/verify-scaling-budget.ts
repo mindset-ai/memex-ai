@@ -64,6 +64,7 @@ import {
   parseRevisionScaling,
   parseServingRevisions,
   planEmissions,
+  plannedObservation,
   usableConnections,
 } from "../src/deploy/scaling-budget.js";
 
@@ -258,10 +259,6 @@ function readLiveServices(): LiveService[] {
         // (spec-525 t-15). Read beside dbPoolMax and never compared to it: the coherent
         // relation differs per service, which is why declarations exist at all.
         declaredPerInstance: revision.declaredPerInstance,
-        // Only our own service's pool default is knowable from this codebase; anything else is
-        // counted at the postgres-js default, because over-counting fails safe. Retired with
-        // the inference branches when phase B flips.
-        ownCode: name === SERVICE,
       },
     });
   }
@@ -332,15 +329,13 @@ async function main(): Promise<void> {
   let budget;
   if (usable !== undefined && live.length > 0) {
     const services = live.map((s) => {
+      // This deploy is about to change our own numbers — budget the ones it will apply,
+      // including the DECLARATION it will apply (deploy.sh passes it), never the live one.
       if (mode === "plan" && s.observation.service === SERVICE) {
-        // This deploy is about to change our own numbers — budget the ones it will apply.
-        const wantMax = Number(intended.MAX_INSTANCES);
-        const wantPool = Number(intended.DB_POOL_MAX);
-        return {
-          ...s.observation,
-          maxInstances: Number.isFinite(wantMax) ? wantMax : s.observation.maxInstances,
-          dbPoolMax: Number.isFinite(wantPool) ? wantPool : undefined,
-        };
+        return plannedObservation(s.observation, {
+          maxInstances: intended.MAX_INSTANCES,
+          declaredPerInstance: process.env[DECLARATION_VAR],
+        });
       }
       return s.observation;
     });
@@ -348,22 +343,16 @@ async function main(): Promise<void> {
     console.log(`  budget (${mode === "plan" ? "values about to be applied" : "values in force"}):`);
     for (const line of formatBudgetReport(budget)) console.log(line);
 
-    // PHASE A (spec-525 t-15): name every service whose figure was INFERRED rather than
-    // read. Its audience is not this deploy's reader — it is whoever decides when phase B
-    // can be switched on: FLIP IT WHEN THIS GOES QUIET. Without it, that call rests on
-    // memory, and a near-miss on the contract string prints the pre-declaration line
-    // unchanged, which reads as success.
+    // Every service counted on a guess rather than a declaration (spec-525 t-15). Refused
+    // below unless the escape hatch is open — and printed either way, because with the
+    // hatch open this is the only line saying what is being guessed.
     const undeclared = declarationWarnings(budget);
+    console.log("");
     if (undeclared.length > 0) {
-      console.log("");
       console.log("  declarations (spec-525 t-15) — inferred, not read:");
       for (const line of undeclared) console.log(`  ${line}`);
     } else {
-      console.log("");
-      console.log(
-        `  ✓ every service declares ${DECLARATION_VAR} — phase B's switch ` +
-          `(REQUIRE_CONNECTION_DECLARATIONS=1) can be turned on`,
-      );
+      console.log(`  ✓ every service declares ${DECLARATION_VAR}`);
     }
   }
 
@@ -373,10 +362,10 @@ async function main(): Promise<void> {
   const failures = [...outcome.failures];
 
   const warnings = [...outcome.warnings];
-  // PHASE B — OFF BY DEFAULT, and that is not timidity. Every service is undeclared the day
-  // this lands, so an on-by-default refusal would abort memex-api's own deploys: the guard
-  // working exactly as designed and stopping all work. Turn it on when phase A's list above
-  // is empty.
+  // PHASE B — ON BY DEFAULT since 2026-09-24, flipped when a prod run showed every service
+  // declared. `REQUIRE_CONNECTION_DECLARATIONS=0` (a GitHub environment variable, wired in
+  // deploy.yml) is the escape hatch for a declaration someone ELSE dropped; any other value,
+  // including unset, enforces.
   //
   // TWO CONDITIONS on the refusal, both learned by asking what it would actually do:
   //
@@ -392,9 +381,14 @@ async function main(): Promise<void> {
   //    revision is created. The cost is that a missing declaration is discovered at prod's
   //    plan step rather than on int, and that is the trade dec-5 already made.
   if (budget) {
-    const refusals = undeclaredServices(budget, {
-      requireDeclarations: process.env.REQUIRE_CONNECTION_DECLARATIONS === "1",
-    });
+    const allowUndeclared = process.env.REQUIRE_CONNECTION_DECLARATIONS === "0";
+    if (allowUndeclared) {
+      warnings.push(
+        "REQUIRE_CONNECTION_DECLARATIONS=0 — undeclared services are counted, not refused. " +
+          "This is the escape hatch: delete the variable once the declaration is restored.",
+      );
+    }
+    const refusals = undeclaredServices(budget, { allowUndeclared });
     for (const refusal of refusals) {
       if (mode === "plan" && isProd(ENV)) failures.push(refusal);
       else warnings.push(`${refusal}\n      (non-fatal in mode=${mode} on ${ENV})`);

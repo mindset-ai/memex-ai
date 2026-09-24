@@ -28,11 +28,15 @@
 //       (singular) and the guard finds nothing, falls back, and prints the line it prints
 //       today. Phase A's warning is what makes the phase-B switch an EVIDENCED decision —
 //       flip it when the warning goes quiet — rather than a remembered one.
-//   B — refuse + retire the inference branches, lands AFTER. Behind a switch, off by
-//       default, because the refusal aborts memex-api's OWN deploys while anything is
-//       undeclared.
+//   B — refuse + retire the inference branches, lands AFTER. Shipped first behind a switch,
+//       off by default, because the refusal aborts memex-api's OWN deploys while anything
+//       is undeclared. FLIPPED 2026-09-24, on evidence: the guard run against prod printed
+//       both services `[declared]` and an empty warning list. The refusal is now the default;
+//       `REQUIRE_CONNECTION_DECLARATIONS=0` is the 3am escape hatch, nothing more.
 
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { tagAc } from "@memex-ai-ac/vitest";
 import {
   serviceTerm,
@@ -42,6 +46,7 @@ import {
   decideOutcome,
   declarationWarnings,
   undeclaredServices,
+  plannedObservation,
   DECLARATION_VAR,
   UNBLOCK_HINT,
   RELAY_LISTEN_PER_INSTANCE,
@@ -59,7 +64,6 @@ const API: ServiceObservation = {
   revision: "memex-api-fixture-001",
   maxInstances: 8,
   dbPoolMax: 4,
-  ownCode: true,
 };
 
 /**
@@ -200,50 +204,61 @@ describe("spec-525 t-15 phase A: a declared footprint is counted from the declar
   });
 });
 
-describe("spec-525 t-15 phase B: refusing the undeclared, behind a switch", () => {
-  it("is OFF by default, so landing it cannot abort our own deploys", () => {
+describe("spec-525 t-15 phase B: the undeclared are refused, and nothing is inferred", () => {
+  it("refuses by default — no opts means enforcement", () => {
     tagAc(AC_DECLARED);
 
-    // Phase B refuses undeclared services. Every service is undeclared the day it lands, so
-    // an on-by-default switch would abort memex-api's own deploy — the guard working
-    // correctly and stopping all work.
+    // The flip. Phase A shipped this behind a default-OFF switch because every service was
+    // undeclared the day it landed; that reason is gone, and a default-off refusal that
+    // nothing turns on is a TODO (REQUIRE_CONNECTION_DECLARATIONS was wired into no
+    // workflow and no deploy.sh — it could not have been turned on without a code change).
     const budget = computeBudget({ services: [API, backstageFixture(2)], usable: 197 });
-    expect(undeclaredServices(budget, {})).toEqual([]);
-    expect(undeclaredServices(budget, { requireDeclarations: false })).toEqual([]);
-  });
-
-  it("with the switch on, an undeclared service fails and the message names the string", () => {
-    tagAc(AC_DECLARED);
-
-    const budget = computeBudget({ services: [API, backstageFixture(2)], usable: 197 });
-    const refusals = undeclaredServices(budget, { requireDeclarations: true });
+    const refusals = undeclaredServices(budget);
 
     expect(refusals.length).toBe(2);
     const message = refusals.join("\n");
     expect(message).toContain(DECLARATION_VAR);
     expect(message).toContain("backstage");
     expect(message).toContain("memex-api");
-    // The names actually FOUND, so a near-miss is diagnosable from the failure alone rather
-    // than by going and reading the revision.
+    // What the guard counted instead, so a near-miss is diagnosable from the failure alone.
     expect(message).toContain("foreign-default");
-
-    // AND ITS OWN OFF-SWITCH, in the message rather than in a standard someone has to find.
-    // This refusal can be triggered by a change nobody here made — the guard enumerates
-    // every service attached to the same Cloud SQL instance, so another team renaming their
-    // variable stops OUR deploys, including a hotfix. The remedy is one variable; a remedy
-    // that takes one word and is known to nobody costs hours at 3am.
-    expect(message).toContain(UNBLOCK_HINT);
-    expect(message).toContain("REQUIRE_CONNECTION_DECLARATIONS");
-    expect(UNBLOCK_HINT).toMatch(/unset|TO UNBLOCK/i);
   });
 
-  it("closes the two-pools-one-variable under-count at ANY maxScale", () => {
+  it("has an explicit escape hatch, and says so in the refusal itself", () => {
+    tagAc(AC_DECLARED);
+
+    // This refusal can be triggered by a change nobody here made — the guard enumerates
+    // every service attached to the same Cloud SQL instance, so another team dropping their
+    // declaration stops OUR deploys, including a hotfix. The remedy is one variable, and it
+    // is printed where the person blocked will read it.
+    const budget = computeBudget({ services: [API, backstageFixture(2)], usable: 197 });
+    expect(undeclaredServices(budget, { allowUndeclared: true })).toEqual([]);
+
+    const message = undeclaredServices(budget).join("\n");
+    expect(message).toContain(UNBLOCK_HINT);
+    expect(UNBLOCK_HINT).toContain("REQUIRE_CONNECTION_DECLARATIONS=0");
+  });
+
+  it("is quiet when every service declares", () => {
+    tagAc(AC_DECLARED);
+
+    // The shape prod runs today (2026-09-24): both services declare, so enforcement costs
+    // nothing. Asserted so the flip itself cannot be what breaks a deploy.
+    const budget = computeBudget({
+      services: [{ ...API, declaredPerInstance: 5 }, backstageFixture(2, { declaredPerInstance: 10 })],
+      usable: 197,
+    });
+    expect(undeclaredServices(budget)).toEqual([]);
+  });
+
+  it("never reads DB_POOL_MAX, so a per-pool value can no longer under-count — at ANY maxScale", () => {
     tagAc(AC_DECLARED);
 
     // THE defect, in the shape that actually bites: backstage sets a PER-POOL value and
-    // declares nothing. The guard reads it as a whole footprint and under-counts by up to
-    // 2x — silently, and passing. Phase B is what closes it: with declarations required,
-    // this configuration cannot get through at all.
+    // declares nothing. The retired `applied` branch read that as a whole footprint and
+    // under-counted by up to 2x, silently and passing. Now there is no branch to take it:
+    // an undeclared service is counted at the foreign default whatever DB_POOL_MAX says,
+    // which over-counts (the safe direction), and it is refused on top.
     //
     // Asserted across maxScale values rather than at the 2 it runs today, because the
     // property must not depend on their next deploy.
@@ -251,22 +266,100 @@ describe("spec-525 t-15 phase B: refusing the undeclared, behind a switch", () =
       const perPoolOnly = backstageFixture(maxInstances, { dbPoolMax: 5 });
       const term = serviceTerm(perPoolOnly);
 
-      // What the guard computes from a per-pool value…
-      expect(term.poolSource).toBe("applied");
-      expect(term.perInstance).toBe(5 + RELAY_LISTEN_PER_INSTANCE);
-      // …against what backstage actually opens: TWO pools of 5, and no relay LISTEN.
+      expect(term.poolSource).toBe("foreign-default");
+      expect(term.perInstance).toBe(FOREIGN_SERVICE_DEFAULT_POOL + RELAY_LISTEN_PER_INSTANCE);
+      // Against what backstage actually opens: TWO pools of 5 and no relay LISTEN.
       const realPerInstance = 2 * 5;
-      expect(term.perInstance).toBeLessThan(realPerInstance + RELAY_LISTEN_PER_INSTANCE);
-      expect(term.peak).toBeLessThan(CUTOVER_REVISION_FACTOR * maxInstances * realPerInstance);
+      expect(term.peak).toBeGreaterThanOrEqual(CUTOVER_REVISION_FACTOR * maxInstances * realPerInstance);
 
-      // And phase B refuses it, so the under-count is never what a deploy runs on.
-      const refused = undeclaredServices(
-        computeBudget({ services: [perPoolOnly], usable: 197 }),
-        { requireDeclarations: true },
-      );
+      const refused = undeclaredServices(computeBudget({ services: [perPoolOnly], usable: 197 }));
       expect(refused.length).toBe(1);
       expect(refused[0]).toContain(DECLARATION_VAR);
     }
+  });
+
+  it("gives our own service no inference either — the ours-vs-foreign distinction is gone", () => {
+    tagAc(AC_DECLARED);
+
+    // `our-code-default` would have said 5 where prod's pool is 4; `applied` masked it.
+    // Both are retired together, because removing one alone promotes the other to being
+    // the lying branch. memex-api undeclared is now counted exactly like anyone else.
+    const ours = serviceTerm({ service: "memex-api", maxInstances: 3, dbPoolMax: 4 });
+    const theirs = serviceTerm({ service: "backstage", maxInstances: 3, dbPoolMax: 4 });
+    expect(ours.poolSource).toBe("foreign-default");
+    expect(ours.perInstance).toBe(theirs.perInstance);
+  });
+});
+
+describe("spec-525 t-15 phase B: the pre-flight budgets the declaration it is ABOUT to apply", () => {
+  // Found while flipping phase B: in `--mode=plan` the script replaced our own `dbPoolMax`
+  // with the value this deploy will apply but kept the LIVE revision's declaration, and the
+  // declaration wins. So a deploy moving DB_POOL_MAX 4 -> 8 was budgeted at the old 5 per
+  // instance — the pre-flight checking the configuration being replaced, not the one being
+  // shipped. Latent in phase A (DB_POOL_MAX still an input); total once DB_POOL_MAX is read
+  // by nothing.
+  const live: ServiceObservation = {
+    service: "memex-api",
+    revision: "memex-api-live",
+    maxInstances: 8,
+    declaredPerInstance: 5,
+  };
+
+  it("uses the intended declaration and maxInstances, not the live revision's", () => {
+    tagAc(AC_DECLARED);
+    const planned = plannedObservation(live, { maxInstances: "10", declaredPerInstance: "9" });
+    expect(planned.declaredPerInstance).toBe(9);
+    expect(planned.maxInstances).toBe(10);
+    expect(serviceTerm(planned).perInstance).toBe(9);
+  });
+
+  it("keeps the live maxInstances when config sets none (int's chosen posture)", () => {
+    tagAc(AC_DECLARED);
+    const planned = plannedObservation(live, { maxInstances: undefined, declaredPerInstance: "6" });
+    expect(planned.maxInstances).toBe(8);
+    expect(planned.declaredPerInstance).toBe(6);
+  });
+
+  it("does NOT fall back to the live declaration when the plan declares nothing", () => {
+    tagAc(AC_DECLARED);
+    // [per std-50] read, declared, or refused — never defaulted in silence. A plan that
+    // declares nothing is about to ship an undeclared revision; borrowing the live figure
+    // would pass it on the strength of the revision it replaces.
+    const planned = plannedObservation(live, { maxInstances: "8", declaredPerInstance: undefined });
+    expect(planned.declaredPerInstance).toBeUndefined();
+    expect(undeclaredServices(computeBudget({ services: [planned], usable: 197 })).length).toBe(1);
+  });
+});
+
+describe("spec-525 t-15 phase B: memex-api's own declaration is wired, and pinned", () => {
+  // Under enforcement our own declaration is load-bearing: drop it and the NEXT prod deploy
+  // is refused at the pre-flight. Fail-closed, but CI is the cheaper place to learn it.
+  const REPO_ROOT = join(__dirname, "..", "..", "..", "..");
+  const DEPLOY_SH = readFileSync(join(REPO_ROOT, "packages", "server", "deploy.sh"), "utf-8");
+  const DEPLOY_YML = readFileSync(join(REPO_ROOT, ".github", "workflows", "deploy.yml"), "utf-8");
+
+  it("deploy.sh puts the derived declaration on the revision", () => {
+    tagAc(AC_DECLARED);
+    expect(DEPLOY_SH).toContain(`|${DECLARATION_VAR}=\${MEMEX_DECLARED_CONNECTIONS}`);
+    expect(DEPLOY_SH).toMatch(/MEMEX_DECLARED_CONNECTIONS=\$\(\( \$\{DB_POOL_MAX:-5\} \+ 1 \)\)/);
+  });
+
+  it("deploy.sh derives it BEFORE the pre-flight and hands it to the plan run", () => {
+    tagAc(AC_DECLARED);
+    const derived = DEPLOY_SH.indexOf("MEMEX_DECLARED_CONNECTIONS=$((");
+    const planRun = DEPLOY_SH.indexOf("--mode=plan");
+    expect(derived).toBeGreaterThan(-1);
+    expect(planRun).toBeGreaterThan(derived);
+    const planLine = DEPLOY_SH.slice(DEPLOY_SH.lastIndexOf("\n", planRun), planRun);
+    expect(planLine).toContain(`${DECLARATION_VAR}="\${MEMEX_DECLARED_CONNECTIONS}"`);
+  });
+
+  it("the escape hatch is reachable from the deploy workflow without a code change", () => {
+    tagAc(AC_DECLARED);
+    // A hint naming a variable nobody can set is the defect the old switch had.
+    expect(DEPLOY_YML).toContain(
+      "REQUIRE_CONNECTION_DECLARATIONS: ${{ vars.REQUIRE_CONNECTION_DECLARATIONS }}",
+    );
   });
 });
 
@@ -290,7 +383,7 @@ describe("spec-525 t-15: no message ever prints `undefined` for a declared servi
     // reader of an optional field — which is how this one got in.
     const usable = 22; // int's db-f1-micro default (25) minus superuser_reserved (3)
     const services = [
-      { service: "memex-api", revision: "rev-1", maxInstances: 3, declaredPerInstance: 6, ownCode: true },
+      { service: "memex-api", revision: "rev-1", maxInstances: 3, declaredPerInstance: 6 },
       { service: "other", revision: "rev-2", maxInstances: 2, declaredPerInstance: 10 },
     ];
     const budget = computeBudget({ services, usable });
@@ -300,7 +393,7 @@ describe("spec-525 t-15: no message ever prints `undefined` for a declared servi
     const everything = [
       ...formatBudgetReport(budget),
       ...declarationWarnings(budget),
-      ...undeclaredServices(budget, { requireDeclarations: true }),
+      ...undeclaredServices(budget),
       ...outcome.failures,
       ...outcome.warnings,
     ].join("\n");
