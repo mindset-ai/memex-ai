@@ -30,13 +30,17 @@ export interface OwnerFacet {
 
 // Load a memex's facet vocabulary (id/key/description) for the classifier — resolved
 // via the polymorphic owner (dec-7). Empty when the owner can't be resolved.
+// Totally ordered (ord, then key — ord defaults to 0, so ties are common): trueFacetsOf
+// walks this list, so without it identical ballots were stored in different orders
+// (spec-567 issue-1).
 export async function vocabForMemex(memexId: string): Promise<VocabFacet[]> {
   const owner = await ownerForMemex(memexId);
   if (!owner) return [];
   return db
     .select({ id: facets.id, key: facets.key, description: facets.description })
     .from(facets)
-    .where(and(eq(facets.ownerType, owner.ownerType), eq(facets.ownerId, owner.ownerId)));
+    .where(and(eq(facets.ownerType, owner.ownerType), eq(facets.ownerId, owner.ownerId)))
+    .orderBy(asc(facets.ord), asc(facets.key));
 }
 
 // The owner's full facet vocabulary for display (the `facets` list verb), ordered by
