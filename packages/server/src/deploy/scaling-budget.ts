@@ -213,7 +213,7 @@ export function serviceTerm(obs: ServiceObservation): ServiceTerm {
   // a second pool it cannot see. The `+1` below belongs to what the guard COMPUTES, never
   // to what a service OPENS: backstage has no relay LISTEN at all (its UI polls), and it
   // opens TWO pools the guard has no way to count. That is the whole reason declarations
-  // exist, and adding to one would put the inference back (spec-525 t-15, ac-27).
+  // exist, and adding to one would put the inference back (spec-525 t-15, ac-32 — was ac-27).
   //
   // No coherence check against `dbPoolMax`, deliberately, even when both are present: the
   // coherent relation differs per service — memex-api's total is pool + relay (5 = 4+1),

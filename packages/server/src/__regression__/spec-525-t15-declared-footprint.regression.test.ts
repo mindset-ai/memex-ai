@@ -56,7 +56,9 @@ import {
 } from "../deploy/scaling-budget.js";
 
 const SPEC = "mindset-prod/memex-building-itself/specs/spec-525/acs";
-const AC_DECLARED = `${SPEC}/ac-27`;
+// ac-32 supersedes ac-27 (dec-9, c-28): same criterion, restated for phase B — refusal on by
+// default, nothing inferred. ac-27 keeps its history as `superseded`.
+const AC_DECLARED = `${SPEC}/ac-32`;
 
 /** memex-api's real shape: one pool of 4 plus the bus relay's `max: 1`. */
 const API: ServiceObservation = {
