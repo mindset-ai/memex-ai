@@ -50,14 +50,16 @@ const INT_CEILING = { maxConnections: 25, superuserReserved: 3, reserved: 0 }; /
 
 // ── What prod actually serves, read back from the running revisions 2026-08-14 ──
 const PROD_APPLIED = [
-  { service: "memex-api", revision: "memex-api-00130-hgj", maxInstances: 8, dbPoolMax: 4, ownCode: true },
+  // Since spec-525 t-15 phase B the budget reads only the DECLARATION: pool 4 + relay 1 = 5,
+  // which deploy.sh derives from DB_POOL_MAX. DB_POOL_MAX itself feeds the comparison only.
+  { service: "memex-api", revision: "memex-api-00130-hgj", maxInstances: 8, dbPoolMax: 4, declaredPerInstance: 5 },
   // backstage shares memex-prod and carries NO pool cap — issue-2's uncounted consumer.
-  { service: "backstage", revision: "backstage-00050-9kn", maxInstances: 3, ownCode: false },
+  { service: "backstage", revision: "backstage-00050-9kn", maxInstances: 3 },
 ];
 
 // int is deliberately unset (t-4), so it runs deploy.sh's 0/3 defaults and the code's pool.
 const INT_APPLIED = [
-  { service: "memex-api", revision: "memex-api-00623-zpb", maxInstances: 3, ownCode: true },
+  { service: "memex-api", revision: "memex-api-00623-zpb", maxInstances: 3, declaredPerInstance: 6 },
 ];
 
 describe("spec-518 ac-16: the budget counts values in force, and every term", () => {
@@ -72,8 +74,13 @@ describe("spec-518 ac-16: the budget counts values in force, and every term", ()
 
   it("a per-instance term is pool + 1, and the +1 is the spec-156 relay LISTEN", () => {
     tagAc(AC_APPLIED_BUDGET);
-    const term = serviceTerm({ service: "memex-api", maxInstances: 8, dbPoolMax: 4, ownCode: true });
+    // memex-api's DECLARED 5 is that sum (deploy.sh: pool + 1); for an undeclared service
+    // the guard still adds the relay on top of the pool it counts (spec-525 t-15).
+    const term = serviceTerm({ service: "memex-api", maxInstances: 8, declaredPerInstance: 4 + 1 });
     expect(term.perInstance).toBe(5);
+    expect(serviceTerm({ service: "x", maxInstances: 1 }).perInstance).toBe(
+      FOREIGN_SERVICE_DEFAULT_POOL + 1,
+    );
     expect(term.steady).toBe(40);
     // A deploy runs the draining and starting revisions together, and a draining instance
     // holds its pool while serving nothing — so the peak is up to 2 × maxInstances.
@@ -85,17 +92,16 @@ describe("spec-518 ac-16: the budget counts values in force, and every term", ()
     tagAc(AC_APPLIED_BUDGET);
     // This is the missing-term failure mode itself: an unconfigured consumer currently
     // contributes nothing to the arithmetic while consuming connections in reality.
-    const foreign = serviceTerm({ service: "backstage", maxInstances: 3, ownCode: false });
+    const foreign = serviceTerm({ service: "backstage", maxInstances: 3 });
     expect(foreign.poolMax).toBe(FOREIGN_SERVICE_DEFAULT_POOL);
     expect(foreign.poolSource).toBe("foreign-default");
     expect(foreign.steady).toBe(33);
 
-    // For OUR OWN image the default is knowable, so the guard reads it from the code rather
-    // than restating it — this is why the number cannot drift from what the pool really does.
-    const ours = serviceTerm({ service: "memex-api", maxInstances: 3, ownCode: true });
-    expect(ours.poolMax).toBe(DEFAULT_POOL_MAX);
-    expect(ours.poolSource).toBe("our-code-default");
-    // Over-counting a foreign service fails safe; under-counting is the defect.
+    // OUR OWN image gets no special inference any more (spec-525 t-15 phase B retired
+    // `our-code-default`, which said 5 where prod's pool is 4): undeclared is undeclared.
+    const ours = serviceTerm({ service: "memex-api", maxInstances: 3 });
+    expect(ours.poolSource).toBe("foreign-default");
+    // Over-counting fails safe; under-counting is the defect.
     expect(FOREIGN_SERVICE_DEFAULT_POOL).toBeGreaterThan(DEFAULT_POOL_MAX);
   });
 
@@ -115,7 +121,7 @@ describe("spec-518 ac-16: the budget counts values in force, and every term", ()
     // The defect here was never a wrong number — it was a missing term. A check that names
     // its terms is the only kind that notices a new one.
     const withAThird = computeBudget({
-      services: [...PROD_APPLIED, { service: "some-new-worker", maxInstances: 10, ownCode: false }],
+      services: [...PROD_APPLIED, { service: "some-new-worker", maxInstances: 10 }],
       usable: 197,
     });
     expect(withAThird.terms).toHaveLength(3);
@@ -127,7 +133,8 @@ describe("spec-518 ac-16: the budget counts values in force, and every term", ()
     // ac-16 names this case: 8 × 11 = 88 is the 2026-08-03 exhaustion, and it must fail
     // against the ceiling of the day — against 47 outright, and against today's 197 once
     // the cutover term and backstage are counted.
-    const poolTen = [{ ...PROD_APPLIED[0], dbPoolMax: 10 }, PROD_APPLIED[1]];
+    // deploy.sh derives the declaration from the pool, so DB_POOL_MAX=10 ships as 11.
+    const poolTen = [{ ...PROD_APPLIED[0], dbPoolMax: 10, declaredPerInstance: 10 + 1 }, PROD_APPLIED[1]];
     expect(serviceTerm(poolTen[0]).steady).toBe(88);
     expect(computeBudget({ services: poolTen, usable: 47 }).withinBudget).toBe(false);
     expect(computeBudget({ services: poolTen, usable: 197 }).withinBudget).toBe(false);

@@ -351,6 +351,27 @@ fi
 # of Step 5 — DB_URL stays valid for the backfills without re-establishing the proxy.
 echo "Schema migrations complete (1a/1b) — proxy stays up for post-cutover backfills (Step 5)."
 
+# DB_CONNECTIONS_PER_INSTANCE (spec-525 t-15) — memex-api declaring its OWN complete
+# per-instance connection footprint to the budget guard, which stops inferring it.
+#
+# DERIVED from the pool this same command passes, not hand-set beside it: a literal here
+# would go stale the day DB_POOL_MAX moves, and staleness in a declaration is worse than an
+# inference because the guard TRUSTS it. One pool (db/connection.ts) + the spec-156 bus
+# relay's `max: 1` (bus-relay.ts) = pool + 1. Unset DB_POOL_MAX means the code default of 5
+# applies, hence the fallback.
+#
+# ⚠ THE LIMIT, recorded rather than assumed: this arithmetic knows about TWO pools because a
+# human wrote it here. A third pool added anywhere in the server moves the real footprint and
+# NOT this number, and the guard would trust the stale declaration. The durable fix is a pool
+# registry that makes the total complete by construction — `memex-backstage` spec-19 t-3 built
+# one on their side (#65). Nothing equivalent exists here, so this line is a hand-maintained
+# contract, and that is the honest description of it.
+#
+# Derived HERE, ahead of the pre-flight, and passed to it: phase B refuses an undeclared
+# service, and the plan run must budget the declaration this deploy is about to apply — not
+# the live revision's, which it replaces.
+MEMEX_DECLARED_CONNECTIONS=$(( ${DB_POOL_MAX:-5} + 1 ))
+
 # ── Step 3b: connection-budget PRE-FLIGHT (spec-518 t-7) ──────
 # The cheap save: refuse to touch prod at all if the scaling config is not explicit, or if the
 # values about to be applied do not fit the connection ceiling. Runs HERE because the proxy from
@@ -361,7 +382,7 @@ echo "Schema migrations complete (1a/1b) — proxy stays up for post-cutover bac
 # change, and that default is the trap rather than the arithmetic. On int the guard warns and
 # continues (spec-518 dec-5) — int violates the corrected invariant at its own defaults
 # (2 × 3 × (5+1) = 36 against 22 usable) and survives it, because int's load never extends the pools.
-DB_URL="${DB_URL}" pnpm run deploy:verify-scaling -- --mode=plan
+DB_URL="${DB_URL}" DB_CONNECTIONS_PER_INSTANCE="${MEMEX_DECLARED_CONNECTIONS}" pnpm run deploy:verify-scaling -- --mode=plan
 
 # ── Step 4: Deploy to Cloud Run ───────────────────────────────
 echo ""
@@ -462,22 +483,7 @@ REMOVE_CONVERSION_SECRETS="${REMOVE_CONVERSION_SECRETS#,}"  # strip leading comm
 # raised max_connections 50 → 200 on 2026-08-12; the old ~47 is what the 2026-08-03 FATAL and the
 # 2026-08-11 outage were measured against). DB_POOL_MAX is the per-env pool cap (prod=4 under
 # maxScale 8; spec-489/spec-518/spec-332); omitted when unset.
-# DB_CONNECTIONS_PER_INSTANCE (spec-525 t-15) — memex-api declaring its OWN complete
-# per-instance connection footprint to the budget guard, which stops inferring it.
-#
-# DERIVED from the pool this same command passes, not hand-set beside it: a literal here
-# would go stale the day DB_POOL_MAX moves, and staleness in a declaration is worse than an
-# inference because the guard TRUSTS it. One pool (db/connection.ts) + the spec-156 bus
-# relay's `max: 1` (bus-relay.ts) = pool + 1. Unset DB_POOL_MAX means the code default of 5
-# applies, hence the fallback.
-#
-# ⚠ THE LIMIT, recorded rather than assumed: this arithmetic knows about TWO pools because a
-# human wrote it here. A third pool added anywhere in the server moves the real footprint and
-# NOT this number, and the guard would trust the stale declaration. The durable fix is a pool
-# registry that makes the total complete by construction — `memex-backstage` spec-19 t-3 does
-# it on their side and has not landed. Until an equivalent exists here, this line is a
-# hand-maintained contract, and that is the honest description of it.
-MEMEX_DECLARED_CONNECTIONS=$(( ${DB_POOL_MAX:-5} + 1 ))
+# DB_CONNECTIONS_PER_INSTANCE: derived above Step 3b (spec-525 t-15), so the pre-flight budgets it.
 
 # MEMEX_EMISSION_* (spec-525 t-6) are the admission gate's knobs: GATE_MODE (shadow|enforcing —
 # default shadow, the SAFE one, so a wiring mistake under-protects rather than silently

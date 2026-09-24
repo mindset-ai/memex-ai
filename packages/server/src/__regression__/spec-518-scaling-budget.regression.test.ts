@@ -102,8 +102,9 @@ const CONNECTION_TS = readFileSync(
   "utf-8",
 );
 const PROD_APPLIED = [
-  { service: "memex-api", maxInstances: 8, dbPoolMax: 4, ownCode: true },
-  { service: "backstage", maxInstances: 3, ownCode: false },
+  // Declared 5 = pool 4 + relay 1 (deploy.sh derives it); the budget reads only that.
+  { service: "memex-api", maxInstances: 8, dbPoolMax: 4, declaredPerInstance: 5 },
+  { service: "backstage", maxInstances: 3 },
 ];
 const PROD_USABLE = usableConnections({ maxConnections: 200, superuserReserved: 3, reserved: 0 });
 
