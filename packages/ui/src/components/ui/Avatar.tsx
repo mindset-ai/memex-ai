@@ -36,12 +36,14 @@ interface AvatarProps {
 export function Avatar({ person, size = 'md', className = '', decorative = false }: AvatarProps) {
   const text = avatarText(person);
   const colorStyle = avatarColorStyle(person.avatarColor);
-  const name = person.name?.trim() || person.email?.trim() || undefined;
+  // Non-string fields read as absent: rendering must not throw on a malformed payload.
+  const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+  const name = str(person.name) || str(person.email) || undefined;
   const a11y = decorative || !name ? { 'aria-hidden': true as const } : { role: 'img', 'aria-label': name };
   return (
     <span
       data-testid="avatar"
-      data-avatar-color={colorStyle ? person.avatarColor ?? undefined : 'default'}
+      data-avatar-color={colorStyle ? String(person.avatarColor) : 'default'}
       title={name}
       style={colorStyle ?? undefined}
       className={`inline-flex shrink-0 select-none items-center justify-center rounded-full border font-medium leading-none ${SIZE_CLASSES[size] ?? SIZE_CLASSES.md} ${colorStyle ? 'border-transparent' : NEUTRAL_CLASSES} ${className}`}

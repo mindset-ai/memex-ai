@@ -139,3 +139,27 @@ describe('avatar colours', () => {
     }
   });
 });
+
+describe('avatar rule: review round 1', () => {
+  it('uses letters only, never punctuation or symbols, for automatic initials', () => {
+    tagAc(AC_ONE_RULE);
+    expect(avatarText({ name: "O'Brien" })).toBe('OB');
+    expect(avatarText({ name: '👍 Bob' })).toBe('BO');
+    expect(avatarText({ name: 'Anne-Marie Smith' })).toBe('AS');
+    expect(avatarText({ name: '!!!' })).toBe('?');
+  });
+
+  it('never throws on a malformed payload: non-string fields read as absent', () => {
+    tagAc(AC_ONE_RULE);
+    const weird = { name: 42, email: {}, avatarLabel: ['X'] } as unknown as Parameters<typeof avatarText>[0];
+    expect(avatarText(weird)).toBe('?');
+    const weirdLabel = { name: 'Sam', avatarLabel: 7 } as unknown as Parameters<typeof avatarText>[0];
+    expect(avatarText(weirdLabel)).toBe('SA');
+  });
+
+  it('accepts accented letters typed in decomposed form', () => {
+    tagAc(AC_NORMALIZE);
+    // "E" + combining acute accent (U+0301) is how some keyboards and pastes arrive.
+    expect(normalizeAvatarLabel('éw')).toBe('ÉW');
+  });
+});

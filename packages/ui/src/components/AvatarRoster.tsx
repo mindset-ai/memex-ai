@@ -1,12 +1,13 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { listTeamMembersApi } from '../api/client';
+import { listTeamAvatarChoicesApi } from '../api/client';
 import { useAuth } from './AuthContext';
 
 // spec-574 — the people's avatar choices for surfaces that hold only a user id.
 //
 // Comments and Pulse rows carry an author/actor id and a stamped name, but not the
-// person's chosen letters or colour. This provider reads the team roster once per tenant
-// and exposes id → choices, so those avatars look the same as everywhere else.
+// person's chosen letters or colour. This provider reads the team's avatar choices once per
+// tenant (only members who made one, ids and choices only) and exposes id → choices, so
+// those avatars look the same as everywhere else.
 //
 // Failure is always the automatic look, never an error: the context default is an empty
 // roster, so a component rendered outside the provider (a public Memex viewed anonymously,
@@ -24,7 +25,7 @@ const EMPTY: ReadonlyMap<string, AvatarChoice> = new Map();
 const AvatarRosterContext = createContext<ReadonlyMap<string, AvatarChoice>>(EMPTY);
 
 interface AvatarRosterProviderProps {
-  /** True only where GET team/members will answer: an org member of a team Memex. */
+  /** True only where GET team/avatars will answer: an org member of a team Memex. */
   enabled: boolean;
   /** Changes when the tenant changes, so a Memex switch refetches that Memex's roster. */
   tenantKey: string;
@@ -39,7 +40,7 @@ export function AvatarRosterProvider({ enabled, tenantKey, children }: AvatarRos
     setRoster(EMPTY);
     if (!enabled || !token) return;
     let cancelled = false;
-    listTeamMembersApi(token)
+    listTeamAvatarChoicesApi(token)
       .then((members) => {
         if (cancelled || !Array.isArray(members)) return;
         const next = new Map<string, AvatarChoice>();

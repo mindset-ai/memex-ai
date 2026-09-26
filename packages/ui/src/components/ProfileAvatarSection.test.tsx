@@ -57,8 +57,8 @@ describe('ProfileAvatarSection', () => {
     expect(preview().textContent).toBe('WV');
     await userEvent.click(saveButton());
     await waitFor(() => expect(updateAvatarApi).toHaveBeenCalledTimes(1));
-    expect(updateAvatarApi.mock.calls[0]).toEqual(['test-token', { avatarLabel: 'WV', avatarColor: null }]);
-    expect(updateSession).toHaveBeenCalledWith(sessionWith({ avatarLabel: 'WV', avatarColor: null }));
+    expect(updateAvatarApi.mock.calls[0]).toEqual(['test-token', { avatarLabel: 'WV' }]);
+    expect(updateSession).toHaveBeenCalledWith(sessionWith({ avatarLabel: 'WV' }));
     expect(await screen.findByText(/avatar saved/i)).toBeInTheDocument();
   });
 
@@ -70,7 +70,7 @@ describe('ProfileAvatarSection', () => {
     expect(preview().getAttribute('data-avatar-color')).toBe('teal');
     await userEvent.click(saveButton());
     await waitFor(() => expect(updateAvatarApi).toHaveBeenCalledTimes(1));
-    expect(updateAvatarApi.mock.calls[0]).toEqual(['test-token', { avatarLabel: null, avatarColor: 'teal' }]);
+    expect(updateAvatarApi.mock.calls[0]).toEqual(['test-token', { avatarColor: 'teal' }]);
   });
 
   it('moves through the colour picker with the arrow keys', async () => {
@@ -91,7 +91,7 @@ describe('ProfileAvatarSection', () => {
     await userEvent.click(screen.getByRole('radio', { name: /default/i }));
     await userEvent.click(saveButton());
     await waitFor(() => expect(updateAvatarApi).toHaveBeenCalledTimes(1));
-    expect(updateAvatarApi.mock.calls[0]![1]).toEqual({ avatarLabel: null, avatarColor: null });
+    expect(updateAvatarApi.mock.calls[0]![1]).toEqual({ avatarColor: null });
   });
 
   it('clears chosen letters back to the automatic ones', async () => {
@@ -104,7 +104,7 @@ describe('ProfileAvatarSection', () => {
     expect(preview().textContent).toBe('WS');
     await userEvent.click(saveButton());
     await waitFor(() => expect(updateAvatarApi).toHaveBeenCalledTimes(1));
-    expect(updateAvatarApi.mock.calls[0]![1]).toEqual({ avatarLabel: null, avatarColor: null });
+    expect(updateAvatarApi.mock.calls[0]![1]).toEqual({ avatarLabel: null });
   });
 
   it.each([['a digit', 'W1'], ['a symbol', 'W!']])(
@@ -142,5 +142,56 @@ describe('ProfileAvatarSection', () => {
     render(<ProfileAvatarSection />);
     expect(preview().textContent).toBe('WS');
     expect(saveButton()).toBeDisabled();
+  });
+});
+
+describe('ProfileAvatarSection: review round 1', () => {
+  it('sends only what the person changed, so a choice made elsewhere is never wiped', async () => {
+    tagAc(AC_SET);
+    tagAc(AC_COLOR);
+    // Stale cached session: the form opens showing nothing chosen.
+    user = { ...user, avatarLabel: null, avatarColor: null };
+    const { rerender } = render(<ProfileAvatarSection />);
+    // The fresh session lands: letters "AB" were chosen on another device.
+    user = { ...user, avatarLabel: 'AB', avatarColor: null };
+    rerender(<ProfileAvatarSection />);
+    // The untouched form catches up with what is saved.
+    expect(lettersInput()).toHaveValue('AB');
+    expect(preview().textContent).toBe('AB');
+
+    await userEvent.click(screen.getByRole('radio', { name: /green/i }));
+    await userEvent.click(saveButton());
+    await waitFor(() => expect(updateAvatarApi).toHaveBeenCalledTimes(1));
+    // Only the colour: the letters are not sent, so they cannot be cleared by accident.
+    expect(updateAvatarApi.mock.calls[0]![1]).toEqual({ avatarColor: 'green' });
+  });
+
+  it('does not overwrite what the person is typing when a fresh session lands', async () => {
+    tagAc(AC_SET);
+    const { rerender } = render(<ProfileAvatarSection />);
+    await userEvent.type(lettersInput(), 'wv');
+    user = { ...user, avatarLabel: 'AB' };
+    rerender(<ProfileAvatarSection />);
+    expect(lettersInput()).toHaveValue('wv');
+  });
+
+  it('a colour since retired from the palette shows as Default and never blocks saving letters', async () => {
+    tagAc(AC_COLOR);
+    user = { ...user, avatarColor: 'chartreuse' };
+    render(<ProfileAvatarSection />);
+    expect(screen.getByRole('radio', { name: /default/i })).toHaveAttribute('aria-checked', 'true');
+    await userEvent.type(lettersInput(), 'wv');
+    await userEvent.click(saveButton());
+    await waitFor(() => expect(updateAvatarApi).toHaveBeenCalledTimes(1));
+    expect(updateAvatarApi.mock.calls[0]![1]).toEqual({ avatarLabel: 'WV' });
+  });
+});
+
+describe('ProfileAvatarSection: accessible names (review round 1)', () => {
+  it('names the letters field "Letters" only, not the button beside it', async () => {
+    tagAc(AC_SET);
+    user = { ...user, avatarLabel: 'WV' };
+    render(<ProfileAvatarSection />);
+    expect(screen.getByRole('textbox', { name: 'Letters' })).toBe(lettersInput());
   });
 });

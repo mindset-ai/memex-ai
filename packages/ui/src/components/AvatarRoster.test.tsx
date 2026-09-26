@@ -13,9 +13,9 @@ vi.mock('./AuthContext', () => ({
   useAuth: () => ({ token: 'test-token', user: authUser }),
 }));
 
-const listTeamMembersApi = vi.fn();
+const listTeamAvatarChoicesApi = vi.fn();
 vi.mock('../api/client', () => ({
-  listTeamMembersApi: (...a: unknown[]) => listTeamMembersApi(...a),
+  listTeamAvatarChoicesApi: (...a: unknown[]) => listTeamAvatarChoicesApi(...a),
 }));
 
 import { AvatarRosterProvider } from './AvatarRoster';
@@ -32,14 +32,14 @@ function shown() {
 
 beforeEach(() => {
   authUser = { id: 'me', name: 'Me', email: 'me@example.com' };
-  listTeamMembersApi.mockReset();
+  listTeamAvatarChoicesApi.mockReset();
 });
 
 describe('AvatarRosterProvider', () => {
   it("shows a comment author's chosen letters and colour from the roster", async () => {
     tagAc(AC_ROSTER);
     tagAc(AC_OTHERS_SEE);
-    listTeamMembersApi.mockResolvedValue([
+    listTeamAvatarChoicesApi.mockResolvedValue([
       { userId: AUTHOR_ID, email: 'w@example.com', avatarLabel: 'WV', avatarColor: 'teal' },
     ]);
     render(<AvatarRosterProvider enabled tenantKey="acme/main">{comment()}</AvatarRosterProvider>);
@@ -49,55 +49,55 @@ describe('AvatarRosterProvider', () => {
 
   it('falls back to the automatic look when the roster request fails', async () => {
     tagAc(AC_ROSTER);
-    listTeamMembersApi.mockRejectedValue(new Error('boom'));
+    listTeamAvatarChoicesApi.mockRejectedValue(new Error('boom'));
     render(<AvatarRosterProvider enabled tenantKey="acme/main">{comment()}</AvatarRosterProvider>);
-    await waitFor(() => expect(listTeamMembersApi).toHaveBeenCalled());
+    await waitFor(() => expect(listTeamAvatarChoicesApi).toHaveBeenCalled());
     expect(shown().textContent).toBe('WS');
     expect(shown().getAttribute('data-avatar-color')).toBe('default');
   });
 
   it('tolerates a malformed roster payload', async () => {
     tagAc(AC_ROSTER);
-    listTeamMembersApi.mockResolvedValue({ not: 'an array' });
+    listTeamAvatarChoicesApi.mockResolvedValue({ not: 'an array' });
     render(<AvatarRosterProvider enabled tenantKey="acme/main">{comment()}</AvatarRosterProvider>);
-    await waitFor(() => expect(listTeamMembersApi).toHaveBeenCalled());
+    await waitFor(() => expect(listTeamAvatarChoicesApi).toHaveBeenCalled());
     expect(shown().textContent).toBe('WS');
   });
 
   it('makes no request when disabled (personal or public Memex), and shows the automatic look', () => {
     tagAc(AC_ROSTER);
     render(<AvatarRosterProvider enabled={false} tenantKey="acme/main">{comment()}</AvatarRosterProvider>);
-    expect(listTeamMembersApi).not.toHaveBeenCalled();
+    expect(listTeamAvatarChoicesApi).not.toHaveBeenCalled();
     expect(shown().textContent).toBe('WS');
   });
 
   it('shows the automatic look with no provider at all', () => {
     tagAc(AC_ROSTER);
     render(comment());
-    expect(listTeamMembersApi).not.toHaveBeenCalled();
+    expect(listTeamAvatarChoicesApi).not.toHaveBeenCalled();
     expect(shown().textContent).toBe('WS');
   });
 
   it("shows the signed-in user's own choices from their session, ahead of the roster", async () => {
     tagAc(AC_ROSTER);
     authUser = { id: AUTHOR_ID, name: 'Will Smith', email: 'w@example.com', avatarLabel: 'ME', avatarColor: 'red' };
-    listTeamMembersApi.mockResolvedValue([
+    listTeamAvatarChoicesApi.mockResolvedValue([
       { userId: AUTHOR_ID, email: 'w@example.com', avatarLabel: 'OLD', avatarColor: 'blue' },
     ]);
     render(<AvatarRosterProvider enabled tenantKey="acme/main">{comment()}</AvatarRosterProvider>);
-    await waitFor(() => expect(listTeamMembersApi).toHaveBeenCalled());
+    await waitFor(() => expect(listTeamAvatarChoicesApi).toHaveBeenCalled());
     expect(shown().textContent).toBe('ME');
     expect(shown().getAttribute('data-avatar-color')).toBe('red');
   });
 
   it('refetches when the tenant changes', async () => {
     tagAc(AC_ROSTER);
-    listTeamMembersApi.mockResolvedValue([]);
+    listTeamAvatarChoicesApi.mockResolvedValue([]);
     const { rerender } = render(
       <AvatarRosterProvider enabled tenantKey="acme/main">{comment()}</AvatarRosterProvider>,
     );
-    await waitFor(() => expect(listTeamMembersApi).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(listTeamAvatarChoicesApi).toHaveBeenCalledTimes(1));
     rerender(<AvatarRosterProvider enabled tenantKey="acme/other">{comment()}</AvatarRosterProvider>);
-    await waitFor(() => expect(listTeamMembersApi).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(listTeamAvatarChoicesApi).toHaveBeenCalledTimes(2));
   });
 });

@@ -76,3 +76,22 @@ function hexToRgb(hex: string): string {
   const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
   return `rgb(${r}, ${g}, ${b})`;
 }
+
+describe('Avatar: malformed payloads (review round 1)', () => {
+  it('renders the automatic look when fields are not strings, instead of throwing', () => {
+    tagAc(AC_COLOR);
+    const person = { name: 42, email: {}, avatarLabel: ['X'], avatarColor: 7 } as unknown as Parameters<
+      typeof Avatar
+    >[0]['person'];
+    render(<Avatar person={person} />);
+    expect(avatar().textContent).toBe('?');
+    expect(avatar().getAttribute('data-avatar-color')).toBe('default');
+    expect(avatar().getAttribute('title')).toBeNull();
+  });
+
+  it("uses letters only for a name with punctuation, so O'Brien is OB", () => {
+    tagAc(AC_ONE_RULE);
+    render(<Avatar person={{ name: "O'Brien" }} />);
+    expect(avatar().textContent).toBe('OB');
+  });
+});

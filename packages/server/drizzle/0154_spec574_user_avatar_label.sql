@@ -4,6 +4,13 @@
 -- AVATAR_LABEL_MAX_LENGTH in @memex/shared (one or two letters, stored upper-cased).
 -- users is global (not RLS/memex-scoped), so no policy change is needed. The CHECK is
 -- validated against a column that is null on every row. Idempotent — re-running is a no-op.
+-- Lock safety: ADD COLUMN and ADD CONSTRAINT take ACCESS EXCLUSIVE on users, which every
+-- authenticated request reads. Without a timeout, a long-running reader would queue this
+-- ALTER and every request behind it. With it, the deploy fails fast instead and can be
+-- retried; the applier runs the file in one transaction, so SET LOCAL covers every
+-- statement below.
+SET LOCAL lock_timeout = '5s';
+--> statement-breakpoint
 ALTER TABLE "users"
   ADD COLUMN IF NOT EXISTS "avatar_label" text;
 --> statement-breakpoint

@@ -1,4 +1,4 @@
-import { eq, and, sql, asc, isNull } from "drizzle-orm";
+import { eq, and, or, sql, asc, isNull, isNotNull } from "drizzle-orm";
 import {
   AvatarColorError,
   AvatarLabelError,
@@ -664,6 +664,26 @@ export interface OrgMember {
 }
 
 // Lists ALL members (active + disabled) of an org for the admin configuration UI.
+// spec-574: the avatar choices of an org's ACTIVE members who have made one. Backs every
+// avatar that only knows a user id (comments, Pulse), fetched once per tenant mount, so it
+// returns ids and choices only (no emails, no names) and nobody who chose nothing, which is
+// almost everyone: the response stays small however large the org grows.
+export async function listOrgAvatarChoices(
+  orgId: string,
+): Promise<{ userId: string; avatarLabel: string | null; avatarColor: string | null }[]> {
+  return db
+    .select({ userId: users.id, avatarLabel: users.avatarLabel, avatarColor: users.avatarColor })
+    .from(orgMemberships)
+    .innerJoin(users, eq(orgMemberships.userId, users.id))
+    .where(
+      and(
+        eq(orgMemberships.orgId, orgId),
+        eq(orgMemberships.status, "active"),
+        or(isNotNull(users.avatarLabel), isNotNull(users.avatarColor)),
+      ),
+    );
+}
+
 export async function listOrgMembers(orgId: string): Promise<OrgMember[]> {
   const rows = await db
     .select({

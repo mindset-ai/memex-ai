@@ -28,7 +28,8 @@ const LETTERS_ONLY = /^\p{L}+$/u;
 export function normalizeAvatarLabel(raw: unknown): string | null {
   if (raw === null || raw === undefined) return null;
   if (typeof raw !== 'string') throw new AvatarLabelError();
-  const trimmed = raw.trim();
+  // NFC first: an accented letter typed or pasted as letter + combining mark is one letter.
+  const trimmed = raw.normalize('NFC').trim();
   if (trimmed === '') return null;
   // Length is checked on the upper-cased value because upper-casing can lengthen a string
   // (ß → SS), and the stored value is what the database constraint sees.
@@ -107,18 +108,29 @@ export interface AvatarPerson {
   avatarColor?: string | null;
 }
 
+// A field that is not a non-blank string reads as absent, so a malformed payload renders
+// the automatic look instead of throwing during render.
+function text(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+// Letters and digits only: punctuation ("O'Brien") and symbols ("👍 Bob") never become
+// avatar letters.
+const NOT_LETTER_OR_DIGIT = /[^\p{L}\p{N}]/gu;
+
 /**
  * The letters an avatar shows: the nominated label when set; otherwise first + last
  * initial of the name (or email local part), or the first two letters of a one-word
- * name; "?" when there is nothing to derive from.
+ * name, counting letters and digits only; "?" when there is nothing to derive from.
  */
 export function avatarText(person: AvatarPerson): string {
-  const label = person.avatarLabel?.trim();
+  const label = text(person.avatarLabel);
   if (label) return label;
-  const source = person.name?.trim() || person.email?.trim() || '';
+  const source = text(person.name) || text(person.email);
   const parts = source
     .replace(/@.*/, '')
     .split(/[\s._-]+/)
+    .map((part) => part.normalize('NFC').replace(NOT_LETTER_OR_DIGIT, ''))
     .filter(Boolean);
   if (parts.length === 0) return '?';
   if (parts.length === 1) return Array.from(parts[0]!).slice(0, 2).join('').toUpperCase();

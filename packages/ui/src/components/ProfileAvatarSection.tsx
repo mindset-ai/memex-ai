@@ -1,5 +1,5 @@
-import { useCallback, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { AVATAR_COLORS, AVATAR_LABEL_MAX_LENGTH, normalizeAvatarLabel } from '@memex/shared';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { AVATAR_COLORS, AVATAR_LABEL_MAX_LENGTH, avatarColorStyle, normalizeAvatarLabel } from '@memex/shared';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
 import { Alert } from './ui/Alert';
@@ -32,17 +32,31 @@ function validateLetters(raw: string): { value: string | null; error: string | n
 export function ProfileAvatarSection() {
   const { token, user, updateSession } = useAuth();
   const persistedLabel = user?.avatarLabel ?? null;
-  const persistedColor = user?.avatarColor ?? null;
+  // A saved colour no longer in the palette renders as Default everywhere, so the form
+  // treats it as Default too; otherwise it could only ever re-send a key the server refuses.
+  const persistedColor = avatarColorStyle(user?.avatarColor) ? (user?.avatarColor ?? null) : null;
 
   const [letters, setLetters] = useState(persistedLabel ?? '');
   const [color, setColor] = useState<string | null>(persistedColor);
+  // Until the person edits a field, it follows what is saved: the session this form opened
+  // with can be an older cached copy that a background refresh then replaces.
+  const [lettersTouched, setLettersTouched] = useState(false);
+  const [colorTouched, setColorTouched] = useState(false);
+  useEffect(() => {
+    if (!lettersTouched) setLetters(persistedLabel ?? '');
+  }, [persistedLabel, lettersTouched]);
+  useEffect(() => {
+    if (!colorTouched) setColor(persistedColor);
+  }, [persistedColor, colorTouched]);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const swatchRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   const { value: normalizedLetters, error: lettersError } = useMemo(() => validateLetters(letters), [letters]);
-  const changed = normalizedLetters !== persistedLabel || color !== persistedColor;
+  const lettersChanged = normalizedLetters !== persistedLabel;
+  const colorChanged = color !== persistedColor;
+  const changed = lettersChanged || colorChanged;
   const canSave = !saving && !lettersError && changed;
 
   const onSave = useCallback(async () => {
@@ -51,15 +65,22 @@ export function ProfileAvatarSection() {
     setError(null);
     setSaved(false);
     try {
-      const session = await updateAvatarApi(token, { avatarLabel: normalizedLetters, avatarColor: color });
+      // Only what the person changed: sending both would overwrite a choice made
+      // elsewhere that this form has not seen.
+      const fields: { avatarLabel?: string | null; avatarColor?: string | null } = {};
+      if (lettersChanged) fields.avatarLabel = normalizedLetters;
+      if (colorChanged) fields.avatarColor = color;
+      const session = await updateAvatarApi(token, fields);
       updateSession(session);
+      setLettersTouched(false);
+      setColorTouched(false);
       setSaved(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save your avatar. Please try again.');
     } finally {
       setSaving(false);
     }
-  }, [canSave, token, normalizedLetters, color, updateSession]);
+  }, [canSave, token, lettersChanged, colorChanged, normalizedLetters, color, updateSession]);
 
   const selectedIndex = Math.max(
     0,
@@ -70,6 +91,7 @@ export function ProfileAvatarSection() {
     const option = PICKER_OPTIONS[index];
     if (!option) return;
     setColor(option.key);
+    setColorTouched(true);
     setSaved(false);
     swatchRefs.current[index]?.focus();
   };
@@ -125,34 +147,37 @@ export function ProfileAvatarSection() {
       </div>
 
       <div className="space-y-2">
-        <label className="block text-sm text-secondary">
+        <label htmlFor="profile-avatar-letters" className="block text-sm text-secondary">
           Letters
-          <div className="flex gap-2 mt-1 items-center">
-            <Input
-              value={letters}
-              maxLength={AVATAR_LABEL_MAX_LENGTH}
-              onChange={(e) => {
-                setLetters(e.target.value);
+        </label>
+        <div className="flex gap-2 items-center">
+          <Input
+            id="profile-avatar-letters"
+            value={letters}
+            maxLength={AVATAR_LABEL_MAX_LENGTH}
+            onChange={(e) => {
+              setLetters(e.target.value);
+              setLettersTouched(true);
+              setSaved(false);
+            }}
+            placeholder="Automatic"
+            aria-invalid={lettersError ? true : undefined}
+            className="max-w-24"
+            data-testid="profile-avatar-letters"
+          />
+          {letters.trim() !== '' && (
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setLetters('');
+                setLettersTouched(true);
                 setSaved(false);
               }}
-              placeholder="Automatic"
-              aria-invalid={lettersError ? true : undefined}
-              className="max-w-24"
-              data-testid="profile-avatar-letters"
-            />
-            {letters.trim() !== '' && (
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  setLetters('');
-                  setSaved(false);
-                }}
-              >
-                Use automatic initials
-              </Button>
-            )}
-          </div>
-        </label>
+            >
+              Use automatic initials
+            </Button>
+          )}
+        </div>
         {lettersError ? (
           <p role="alert" className="text-xs text-status-danger-text">
             {lettersError}

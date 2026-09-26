@@ -154,6 +154,33 @@ describe("GET /api/team/members", () => {
     expect(body.every((m) => "avatarLabel" in m && "avatarColor" in m)).toBe(true);
   });
 
+  it("GET /api/team/avatars returns only active members who chose something, and nothing else (spec-574)", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-574/acs/ac-10");
+    const { acct } = await setupTeam({ devRole: "administrator" });
+    const tag = Date.now().toString(36);
+    const chose = await upsertUserByEmail(`tm-av-chose-${tag}@example.com`);
+    const plain = await upsertUserByEmail(`tm-av-plain-${tag}@example.com`);
+    const gone = await upsertUserByEmail(`tm-av-gone-${tag}@example.com`);
+    createdUserIds.push(chose.id, plain.id, gone.id);
+    await setAvatar(chose.id, { avatarLabel: "CV", avatarColor: "green" });
+    await setAvatar(gone.id, { avatarLabel: "GO" });
+    await db.insert(orgMemberships).values([
+      { userId: chose.id, orgId: acct.id, role: "member" },
+      { userId: plain.id, orgId: acct.id, role: "member" },
+      { userId: gone.id, orgId: acct.id, role: "member", status: "disabled" },
+    ] as any);
+
+    const res = await app.request("/api/team/avatars");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Array<Record<string, unknown>>;
+    // Vacuity: the member who chose is present, so an empty list cannot pass.
+    expect(body).toContainEqual({ userId: chose.id, avatarLabel: "CV", avatarColor: "green" });
+    expect(body.some((m) => m.userId === plain.id)).toBe(false);
+    expect(body.some((m) => m.userId === gone.id)).toBe(false);
+    // Lean by construction: ids and choices only, never emails or names.
+    for (const m of body) expect(Object.keys(m).sort()).toEqual(["avatarColor", "avatarLabel", "userId"]);
+  });
+
   // Removed in t-19 of doc-15: three "tenant context via Host header" tests
   // that used to live here are obsolete. Per std-2 / dec-3 the subdomain-based
   // tenant routing is gone — hostGuard 404s arbitrary subdomains. Personal-
