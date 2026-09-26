@@ -20,10 +20,12 @@ describe('CommentSourceAvatar', () => {
     expect(avatar).toHaveAttribute('aria-label', 'Human: Barrie Hadfield');
   });
 
-  it('falls back to a single initial for single-word names', () => {
+  // spec-574: comments use the one avatar rule, so a one-word name shows its first two
+  // letters here exactly as it does on the board and byline (previously one letter).
+  it('shows the first two letters of a single-word name, like every other avatar', () => {
     render(<CommentSourceAvatar source="human" authorName="Alice" />);
     const avatar = screen.getByTestId('comment-source-avatar');
-    expect(avatar.textContent).toBe('A');
+    expect(avatar.textContent).toBe('AL');
   });
 
   it('treats undefined source as human', () => {

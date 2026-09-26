@@ -76,6 +76,13 @@ export interface SessionPayload {
     emailVerified: boolean;
     /** spec-444: ISO timestamp of first permanent welcome-video dismiss; null = not yet dismissed. */
     videoWelcomedAt: string | null;
+    /**
+     * spec-574: nominated avatar letters; null = derive from the name. Optional because a
+     * session cached in localStorage before this field existed has no such key.
+     */
+    avatarLabel?: string | null;
+    /** spec-574: avatar palette key; null/absent = the neutral default. */
+    avatarColor?: string | null;
   };
   memberships: MembershipSummary[];
   /** The Memex the session is currently scoped to. */

@@ -196,6 +196,12 @@ export interface MemberPatchInput {
 export interface TeamMemberDto {
   userId: string;
   email: string;
+  /** spec-574: display name. Optional: absent from an older server. */
+  name?: string | null;
+  /** spec-574: nominated avatar letters. Optional: absent (older server/cached payload) reads as unset. */
+  avatarLabel?: string | null;
+  /** spec-574: avatar palette key. Optional: absent reads as the neutral default. */
+  avatarColor?: string | null;
   role: 'member' | 'administrator';
   joinedAt: string;
 }

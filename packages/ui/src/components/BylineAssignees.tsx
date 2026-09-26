@@ -24,15 +24,10 @@ import {
 import { useMemexAccess } from '../hooks/useMemexAccess';
 import { useDocChangeStream } from '../hooks/useDocChangeStream';
 import { useAuth } from './AuthContext';
+import { Avatar } from './ui/Avatar';
 
 function personLabel(a: { name: string | null; email: string | null }): string {
   return a.name?.trim() || a.email?.trim() || 'Unknown';
-}
-function initials(label: string): string {
-  const parts = label.replace(/@.*/, '').split(/[\s._-]+/).filter(Boolean);
-  if (parts.length === 0) return '?';
-  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
-  return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase();
 }
 
 export function BylineAssignees({ docId }: { docId: string }) {
@@ -144,9 +139,7 @@ export function BylineAssignees({ docId }: { docId: string }) {
             className="inline-flex h-6 items-center gap-1 pl-1 pr-1.5 rounded-full bg-overlay border border-edge text-[11px] leading-none text-heading"
             title={label}
           >
-            <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-surface text-[9px]">
-              {initials(label)}
-            </span>
+            <Avatar person={a} size="xs" decorative />
             {label}
             {canWrite && (
               <button
@@ -217,9 +210,7 @@ export function BylineAssignees({ docId }: { docId: string }) {
                     disabled={busy}
                     className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-heading hover:bg-overlay disabled:opacity-50"
                   >
-                    <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-surface text-[9px]">
-                      {initials(m.email)}
-                    </span>
+                    <Avatar person={m} size="xs" decorative />
                     <span className="truncate">{m.email}</span>
                   </button>
                 ));

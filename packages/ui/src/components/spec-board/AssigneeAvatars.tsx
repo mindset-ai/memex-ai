@@ -1,14 +1,9 @@
 import { type DocSummaryAssignee } from '../../api/types';
+import { Avatar } from '../ui/Avatar';
 
-// spec-118: a person's display label + initials for the assignee avatar.
+// spec-118: a person's display label for the assignee cluster.
 export function personLabel(a: { name: string | null; email: string | null }): string {
   return a.name?.trim() || a.email?.trim() || 'Unknown';
-}
-export function initials(label: string): string {
-  const parts = label.replace(/@.*/, '').split(/[\s._-]+/).filter(Boolean);
-  if (parts.length === 0) return '?';
-  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
-  return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase();
 }
 
 // spec-118 ac-18: the assignee(s) shown on a board card — the live responsibility
@@ -30,18 +25,10 @@ export function AssigneeAvatars({ assignees }: { assignees?: DocSummaryAssignee[
   return (
     <div className="flex items-center gap-1.5" data-testid="spec-assignees">
       <div className="flex -space-x-1.5">
-        {shown.map((a) => {
-          const label = personLabel(a);
-          return (
-            <span
-              key={a.userId}
-              title={label}
-              className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-overlay border border-edge text-[10px] font-medium text-heading ring-1 ring-panel"
-            >
-              {initials(label)}
-            </span>
-          );
-        })}
+        {shown.map((a) => (
+          // spec-574: the person's one avatar; the ring separates stacked avatars.
+          <Avatar key={a.userId} person={a} size="md" className="ring-1 ring-panel" />
+        ))}
         {overflow > 0 && (
           <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-overlay border border-edge text-[10px] font-medium text-muted ring-1 ring-panel">
             +{overflow}

@@ -19,6 +19,7 @@ import { useMemexAccess } from '../hooks/useMemexAccess';
 import { emailPreviewEnabled } from '../utils/devTools';
 import { HeaderSlotProvider, useHeaderSlotContent } from './HeaderSlot';
 import { SearchTrigger } from './SearchTrigger';
+import { Avatar } from './ui/Avatar';
 import { useWhatsNew } from './whats-new/WhatsNewContext';
 import {
   getCurrentTenant,
@@ -230,7 +231,9 @@ const OPERATIONS_NAV_LINKS: ReadonlyArray<NavLinkDef> = [
 interface UserMenuUser {
   name: string;
   email: string;
-  picture?: string | null;
+  // spec-574: the user's avatar choices, rendered by the shared Avatar.
+  avatarLabel?: string | null;
+  avatarColor?: string | null;
 }
 
 // spec-456 — icons for the account menu rows, in the heroicons-outline
@@ -528,18 +531,8 @@ function SidebarUserCard({
         onClick={() => setOpen((v) => !v)}
         className="flex-1 min-w-0 flex items-center gap-2 px-2 py-1.5 rounded-lg transition-colors hover:bg-card-hover text-left"
       >
-        {user.picture ? (
-          <img
-            src={user.picture}
-            alt={user.name}
-            className="w-8 h-8 rounded-full flex-none"
-            referrerPolicy="no-referrer"
-          />
-        ) : (
-          <div className="w-8 h-8 rounded-full flex-none flex items-center justify-center text-sm font-medium bg-btn-secondary text-secondary">
-            {user.name.charAt(0).toUpperCase()}
-          </div>
-        )}
+        {/* spec-574: the user's one avatar, the same as everyone else sees. */}
+        <Avatar person={user} size="lg" decorative />
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium truncate text-primary">{user.name}</p>
           <p className="text-xs text-muted truncate">{user.email}</p>

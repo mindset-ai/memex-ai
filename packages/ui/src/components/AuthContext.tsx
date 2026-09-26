@@ -66,6 +66,10 @@ interface User {
   name: string;
   email: string;
   picture: string;
+  /** spec-574: the letters this user nominated for their avatar; null/absent = derived. */
+  avatarLabel?: string | null;
+  /** spec-574: the palette key this user picked for their avatar; null/absent = default. */
+  avatarColor?: string | null;
 }
 
 export interface AuthState {
@@ -103,6 +107,9 @@ function userFromSession(session: SessionPayload): User {
     name: session.user.name ?? '',
     email: session.user.email,
     picture: '',
+    // `?? null`: a session cached before spec-574 has neither key.
+    avatarLabel: session.user.avatarLabel ?? null,
+    avatarColor: session.user.avatarColor ?? null,
   };
 }
 
