@@ -4,7 +4,7 @@ import {
   MemexAccessError,
   DisabledUserError,
 } from "../../services/auth.js";
-import { updateUserProfile } from "../../services/users.js";
+import { setAvatar, updateUserProfile } from "../../services/users.js";
 import { sessionMiddleware, type SessionEnv } from "../../middleware/session.js";
 import type { MemexResolverEnv } from "../../middleware/memex-resolver.js";
 import { readJsonBody, requireString } from "../validation.js";
@@ -75,6 +75,32 @@ session.patch("/profile", sessionMiddleware, async (c) => {
   const roleCoords = parseRoleCoords(body?.roleCoords);
 
   await updateUserProfile(user.id, { name, roleCoords, confirmIdentity: true });
+  const resolved = await resolveSession(user.id, c.get("currentMemexId"));
+  return c.json(resolved);
+});
+
+// PATCH /api/auth/profile/avatar
+// Body: { avatarLabel?: string | null, avatarColor?: string | null }
+// spec-574: choose how your avatar looks. `avatarLabel` is one or two letters (null to go
+// back to letters derived from your name); `avatarColor` is a palette key (null for the
+// neutral default). Each key present is written; an absent key is left alone. At least
+// one key is required: an empty body is refused rather than read as "clear". Separate
+// from PATCH /profile because that route requires `name` and re-stamps
+// identity_confirmed_at. Returns the refreshed session.
+session.patch("/profile/avatar", sessionMiddleware, async (c) => {
+  const user = c.get("user");
+  const body = await readJsonBody<{ avatarLabel?: unknown; avatarColor?: unknown }>(c);
+  const fields: { avatarLabel?: unknown; avatarColor?: unknown } = {};
+  if (body && typeof body === "object") {
+    if ("avatarLabel" in body) fields.avatarLabel = body.avatarLabel;
+    if ("avatarColor" in body) fields.avatarColor = body.avatarColor;
+  }
+  if (Object.keys(fields).length === 0) {
+    throw new ValidationError(
+      "avatarLabel or avatarColor is required (a value, or null to go back to the default)",
+    );
+  }
+  await setAvatar(user.id, fields);
   const resolved = await resolveSession(user.id, c.get("currentMemexId"));
   return c.json(resolved);
 });

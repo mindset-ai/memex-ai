@@ -14,6 +14,8 @@ import { AcCells } from './AcCells';
 import { Sparkline } from './Sparkline';
 import type { ActivityRow, ActorKind, PresentRow } from './types';
 import type { AcHealth } from '../../api/types';
+import { Avatar } from '../ui/Avatar';
+import { useAvatarChoice } from '../AvatarRoster';
 
 export interface HotSpecsProps {
   present: PresentRow[];
@@ -29,6 +31,23 @@ export interface HotSpecsProps {
 
 const QUIET_COLOR = '#d97706'; // amber-600
 const COOLING_COLOR = 'rgba(148,163,184,0.7)';
+
+// spec-574: a human worker's avatar. A component (not inline in the map) because it reads
+// the person's avatar choices from the roster context by their actor id.
+function HumanWorkerAvatar({ worker }: { worker: Worker }) {
+  const choice = useAvatarChoice(worker.actorUserId);
+  return (
+    <Avatar
+      person={{
+        name: worker.actorName,
+        avatarLabel: choice?.avatarLabel,
+        avatarColor: choice?.avatarColor,
+      }}
+      size="xs"
+      className="ring-1 ring-surface -ml-1 first:ml-0"
+    />
+  );
+}
 
 function actorColor(kind: ActorKind, palette: ReturnType<typeof useChartPalette>): string {
   if (kind === 'system') return COOLING_COLOR;
@@ -192,16 +211,19 @@ export function HotSpecCard({
       <div className="mt-2 flex items-center justify-between gap-2 min-h-4">
         {workers.length > 0 ? (
           <div className="flex items-center" data-testid="hot-spec-avatars">
-            {workers.slice(0, 4).map((w, i) => (
-              <span
-                key={`${w.actorUserId}-${w.clientId}-${i}`}
-                className="flex h-4 w-4 items-center justify-center rounded-full border border-surface -ml-1 first:ml-0 text-[8px] font-semibold text-white"
-                style={{ background: actorColor(w.actorKind, palette) }}
-                title={w.actorName ?? w.actorKind}
-              >
-                {w.actorKind === 'human' ? (w.actorName?.[0]?.toUpperCase() ?? 'U') : ''}
-              </span>
-            ))}
+            {workers.slice(0, 4).map((w, i) =>
+              w.actorKind === 'human' ? (
+                // spec-574: a person shows as their one avatar, the same as everywhere else.
+                <HumanWorkerAvatar key={`${w.actorUserId}-${w.clientId}-${i}`} worker={w} />
+              ) : (
+                <span
+                  key={`${w.actorUserId}-${w.clientId}-${i}`}
+                  className="flex h-4 w-4 items-center justify-center rounded-full border border-surface -ml-1 first:ml-0"
+                  style={{ background: actorColor(w.actorKind, palette) }}
+                  title={w.actorName ?? w.actorKind}
+                />
+              ),
+            )}
           </div>
         ) : (
           <span />

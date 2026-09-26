@@ -5,7 +5,7 @@ import { db } from "../db/connection.js";
 import { memexes, namespaces } from "../db/schema.js";
 import { sessionMiddleware, type SessionEnv } from "../middleware/session.js";
 import { getMemexById } from "../services/memexes.js";
-import { listOrgMembers } from "../services/users.js";
+import { listOrgAvatarChoices, listOrgMembers } from "../services/users.js";
 import { requireMemexId } from "./shared.js";
 
 // Team-scoped, member-visible endpoints. Unlike /api/org/* (admin-only), these are
@@ -50,6 +50,30 @@ teamRouter.get("/members", async (c) => {
   const all = await listOrgMembers(ns.ownerOrgId);
   const active = all
     .filter((m) => m.status === "active")
-    .map(({ userId, email, role, joinedAt }) => ({ userId, email, role, joinedAt }));
+    // spec-574: name + the avatar choices let every roster-backed avatar (assign picker,
+    // comments, Pulse) show the same letters for a person as the rest of the app.
+    .map(({ userId, email, name, avatarLabel, avatarColor, role, joinedAt }) => ({
+      userId,
+      email,
+      name,
+      avatarLabel,
+      avatarColor,
+      role,
+      joinedAt,
+    }));
   return c.json(active);
+});
+
+// GET /api/team/avatars — spec-574: avatar choices of the team's active members who have
+// made one, for avatars that only know a user id (comments, Pulse). Ids and choices only:
+// the roster above carries emails and every member, which a per-page-load read must not.
+teamRouter.get("/avatars", async (c) => {
+  const memexId = requireMemexId(c);
+  const memex = await db.query.memexes.findFirst({ where: eq(memexes.id, memexId) });
+  if (!memex) return c.json([]);
+  const ns = await db.query.namespaces.findFirst({
+    where: eq(namespaces.id, memex.namespaceId),
+  });
+  if (!ns?.ownerOrgId) return c.json([]);
+  return c.json(await listOrgAvatarChoices(ns.ownerOrgId));
 });

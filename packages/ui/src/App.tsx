@@ -140,6 +140,7 @@ import { ChatProvider } from './components/ChatContext';
 // pages, panels, trays, portalled modals — resolves in a single shared request.
 import { SpecRefStatusProvider } from './components/specRef/SpecRefStatusProvider';
 import { AppShell } from './components/AppShell';
+import { AvatarRosterProvider } from './components/AvatarRoster';
 import { ExploreCompanionMount } from './onboarding/ExploreCompanionMount';
 import { DocumentShell } from './components/DocumentShell';
 import { OrgConsentDialog } from './components/OrgConsentDialog';
@@ -349,11 +350,25 @@ function TenantLayout() {
         <OrgConsentDialog />
         {/* spec-200: global What's New ribbon — authed shell only. */}
         <WhatsNewRibbonConnected />
-        <AppShell>
-          <Fragment key={`${namespace}/${memex}`}>
-            <Outlet />
-          </Fragment>
-        </AppShell>
+        {/* spec-574: people's avatar choices for id-only surfaces (comments, Pulse).
+            Enabled only where the team roster answers: an org member of a team Memex.
+            A visited/featured public Memex or a personal Memex keeps the automatic look
+            and makes no request. */}
+        <AvatarRosterProvider
+          enabled={
+            matchedMembership?.kind === 'team' &&
+            matchedSource !== 'visited' &&
+            matchedSource !== 'featured' &&
+            matchedAccess !== 'read'
+          }
+          tenantKey={`${namespace}/${memex}`}
+        >
+          <AppShell>
+            <Fragment key={`${namespace}/${memex}`}>
+              <Outlet />
+            </Fragment>
+          </AppShell>
+        </AvatarRosterProvider>
         {/* spec-502 t-5: the context-aware Explore companion overlays the
             featured (building-itself) demo surface for wizard-eligible users.
             Renders nothing on the user's own memexes / when the flag is off. */}

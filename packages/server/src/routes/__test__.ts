@@ -20,7 +20,7 @@ import {
 } from "../agent/anthropic-fake.js";
 import { db } from "../db/connection.js";
 import { unsubscribeUrl } from "../services/email/unsubscribe-token.js";
-import { isLifecycleEmailUnsubscribed } from "../services/users.js";
+import { isLifecycleEmailUnsubscribed, setAvatar } from "../services/users.js";
 import {
   users,
   namespaces,
@@ -208,6 +208,28 @@ testOnlyRouter.post("/user-name", async (c) => {
   } else {
     await updateUserProfile(user.id, { name });
   }
+  return c.json({ ok: true });
+});
+
+// spec-574: set (or clear, with nulls) a user's avatar letters and colour, through the
+// same setAvatar the profile route uses. The e2e fixture calls this with nulls before
+// every test so a journey that chose an avatar for the shared dev user cannot leak it
+// into journeys that read the dev user's initials.
+const userAvatarSchema = z.object({
+  email: z.string().email(),
+  avatarLabel: z.string().nullable(),
+  avatarColor: z.string().nullable(),
+});
+testOnlyRouter.post("/user-avatar", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = userAvatarSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { email, avatarLabel, avatarColor } = parsed.data;
+  const user = await getUserByEmail(email);
+  if (!user) return c.json({ error: `User ${email} not found` }, 404);
+  await setAvatar(user.id, { avatarLabel, avatarColor });
   return c.json({ ok: true });
 });
 

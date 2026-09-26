@@ -292,6 +292,10 @@ export interface DocAssigneeView {
   userId: string;
   name: string | null;
   email: string | null;
+  /** spec-574: nominated avatar letters. Optional: absent (older server/cached payload) reads as unset. */
+  avatarLabel?: string | null;
+  /** spec-574: avatar palette key. Optional: absent reads as the neutral default. */
+  avatarColor?: string | null;
   assignedAt: string;
 }
 

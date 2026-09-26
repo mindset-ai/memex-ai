@@ -18,7 +18,8 @@ afterAll(() => {
 import { Hono } from "hono";
 import { teamRouter } from "./team.js";
 import { errorHandler } from "../middleware/error-handler.js";
-import { upsertUserByEmail } from "../services/users.js";
+import { setAvatar, upsertUserByEmail } from "../services/users.js";
+import { tagAc } from "@memex-ai-ac/vitest";
 
 const createdAccountIds: string[] = [];
 const createdUserIds: string[] = [];
@@ -133,6 +134,51 @@ describe("GET /api/team/members", () => {
     expect(body.some((m) => m.userId === disabledOther.id)).toBe(false);
     // status must not leak to the team-visible response.
     expect(body.every((m) => !("status" in m))).toBe(true);
+  });
+
+  it("carries each member's name and nominated avatar letters (spec-574)", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-574/acs/ac-9");
+    const { acct } = await setupTeam({ devRole: "administrator" });
+    const other = await upsertUserByEmail(`tm-avatar-${Date.now().toString(36)}@example.com`);
+    createdUserIds.push(other.id);
+    await db.update(users).set({ name: "Roster Person" }).where(eq(users.id, other.id));
+    await setAvatar(other.id, { avatarLabel: "RV", avatarColor: "teal" });
+    await db.insert(orgMemberships).values({ userId: other.id, orgId: acct.id, role: "member" });
+
+    const res = await app.request("/api/team/members");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Array<Record<string, unknown>>;
+    const row = body.find((m) => m.userId === other.id);
+    expect(row).toMatchObject({ name: "Roster Person", avatarLabel: "RV", avatarColor: "teal" });
+    // A member with no nomination is present with an explicit null, never absent.
+    expect(body.every((m) => "avatarLabel" in m && "avatarColor" in m)).toBe(true);
+  });
+
+  it("GET /api/team/avatars returns only active members who chose something, and nothing else (spec-574)", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-574/acs/ac-10");
+    const { acct } = await setupTeam({ devRole: "administrator" });
+    const tag = Date.now().toString(36);
+    const chose = await upsertUserByEmail(`tm-av-chose-${tag}@example.com`);
+    const plain = await upsertUserByEmail(`tm-av-plain-${tag}@example.com`);
+    const gone = await upsertUserByEmail(`tm-av-gone-${tag}@example.com`);
+    createdUserIds.push(chose.id, plain.id, gone.id);
+    await setAvatar(chose.id, { avatarLabel: "CV", avatarColor: "green" });
+    await setAvatar(gone.id, { avatarLabel: "GO" });
+    await db.insert(orgMemberships).values([
+      { userId: chose.id, orgId: acct.id, role: "member" },
+      { userId: plain.id, orgId: acct.id, role: "member" },
+      { userId: gone.id, orgId: acct.id, role: "member", status: "disabled" },
+    ] as any);
+
+    const res = await app.request("/api/team/avatars");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Array<Record<string, unknown>>;
+    // Vacuity: the member who chose is present, so an empty list cannot pass.
+    expect(body).toContainEqual({ userId: chose.id, avatarLabel: "CV", avatarColor: "green" });
+    expect(body.some((m) => m.userId === plain.id)).toBe(false);
+    expect(body.some((m) => m.userId === gone.id)).toBe(false);
+    // Lean by construction: ids and choices only, never emails or names.
+    for (const m of body) expect(Object.keys(m).sort()).toEqual(["avatarColor", "avatarLabel", "userId"]);
   });
 
   // Removed in t-19 of doc-15: three "tenant context via Host header" tests

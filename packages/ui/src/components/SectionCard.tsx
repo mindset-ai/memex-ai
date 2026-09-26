@@ -563,7 +563,7 @@ export const SectionCard = memo(function SectionCard({
               className="rounded-xl border border-edge-subtle bg-surface shadow-lg p-3 space-y-1"
             >
               <div className="flex items-center gap-2">
-                <CommentSourceAvatar source={c.source} authorName={c.authorName} />
+                <CommentSourceAvatar source={c.source} authorName={c.authorName} authorUserId={c.authorUserId} />
                 <div className="min-w-0">
                   <div className="text-xs font-medium text-primary truncate">{c.authorName}</div>
                   {c.createdAt && <div className="text-[10px] text-muted">{formatCommentTime(c.createdAt)}</div>}

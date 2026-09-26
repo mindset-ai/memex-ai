@@ -76,6 +76,13 @@ export interface SessionPayload {
     emailVerified: boolean;
     /** spec-444: ISO timestamp of first permanent welcome-video dismiss; null = not yet dismissed. */
     videoWelcomedAt: string | null;
+    /**
+     * spec-574: nominated avatar letters; null = derive from the name. Optional because a
+     * session cached in localStorage before this field existed has no such key.
+     */
+    avatarLabel?: string | null;
+    /** spec-574: avatar palette key; null/absent = the neutral default. */
+    avatarColor?: string | null;
   };
   memberships: MembershipSummary[];
   /** The Memex the session is currently scoped to. */
@@ -308,6 +315,25 @@ export async function updateProfileApi(
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.message ?? body.error ?? `Profile update failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+// spec-574: choose how your avatar looks. Each key present is saved; an absent key is
+// left as it is. `avatarLabel: null` goes back to letters derived from your name;
+// `avatarColor: null` goes back to the neutral default. Returns the refreshed session.
+export async function updateAvatarApi(
+  token: string | null,
+  fields: { avatarLabel?: string | null; avatarColor?: string | null },
+): Promise<SessionPayload> {
+  const res = await fetchWithRetry(`${BASE_URL}/auth/profile/avatar`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
+    body: JSON.stringify(fields),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.message ?? body.error ?? `Avatar update failed: ${res.status}`);
   }
   return res.json();
 }

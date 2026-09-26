@@ -196,8 +196,30 @@ export interface MemberPatchInput {
 export interface TeamMemberDto {
   userId: string;
   email: string;
+  /** spec-574: display name. Optional: absent from an older server. */
+  name?: string | null;
+  /** spec-574: nominated avatar letters. Optional: absent (older server/cached payload) reads as unset. */
+  avatarLabel?: string | null;
+  /** spec-574: avatar palette key. Optional: absent reads as the neutral default. */
+  avatarColor?: string | null;
   role: 'member' | 'administrator';
   joinedAt: string;
+}
+
+// spec-574: the avatar choices of this team's active members who have made one. Ids and
+// choices only; the roster above carries every member and their email.
+export interface TeamAvatarChoiceDto {
+  userId: string;
+  avatarLabel: string | null;
+  avatarColor: string | null;
+}
+
+export async function listTeamAvatarChoicesApi(token: string | null): Promise<TeamAvatarChoiceDto[]> {
+  const res = await fetchWithRetry(`${tBase()}/team/avatars`, {
+    headers: authHeaders(token),
+  });
+  if (!res.ok) throw new Error(`List team avatars failed: ${res.status}`);
+  return res.json();
 }
 
 export async function listTeamMembersApi(token: string | null): Promise<TeamMemberDto[]> {

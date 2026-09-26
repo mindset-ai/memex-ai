@@ -53,6 +53,10 @@ export interface DocAssigneeView {
   userId: string;
   name: string | null;
   email: string | null;
+  /** spec-574: nominated avatar letters; null = derive from the name. */
+  avatarLabel: string | null;
+  /** spec-574: palette key for the avatar colour; null = the neutral default. */
+  avatarColor: string | null;
   assignedAt: Date;
 }
 
@@ -69,6 +73,8 @@ export async function listAssignees(
       userId: docAssignees.userId,
       name: users.name,
       email: users.email,
+      avatarLabel: users.avatarLabel,
+      avatarColor: users.avatarColor,
       assignedAt: docAssignees.assignedAt,
     })
     .from(docAssignees)
@@ -94,6 +100,8 @@ export async function listAssigneesForDocs(
       userId: docAssignees.userId,
       name: users.name,
       email: users.email,
+      avatarLabel: users.avatarLabel,
+      avatarColor: users.avatarColor,
       assignedAt: docAssignees.assignedAt,
     })
     .from(docAssignees)
@@ -102,7 +110,14 @@ export async function listAssigneesForDocs(
     .orderBy(docAssignees.assignedAt);
   for (const r of rows) {
     const list = byDoc.get(r.docId) ?? [];
-    list.push({ userId: r.userId, name: r.name, email: r.email, assignedAt: r.assignedAt });
+    list.push({
+      userId: r.userId,
+      name: r.name,
+      email: r.email,
+      avatarLabel: r.avatarLabel,
+      avatarColor: r.avatarColor,
+      assignedAt: r.assignedAt,
+    });
     byDoc.set(r.docId, list);
   }
   return byDoc;

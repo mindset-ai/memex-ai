@@ -344,7 +344,11 @@ export function CommentBubble({
       )}
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-1.5 min-w-0">
-          <CommentSourceAvatar source={comment.source} authorName={comment.authorName} />
+          <CommentSourceAvatar
+            source={comment.source}
+            authorName={comment.authorName}
+            authorUserId={comment.authorUserId}
+          />
           <span
             className="text-xs font-medium text-primary truncate"
             data-testid="comment-byline-author"
