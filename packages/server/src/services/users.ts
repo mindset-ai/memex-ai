@@ -1,4 +1,5 @@
 import { eq, and, sql, asc, isNull } from "drizzle-orm";
+import { AvatarLabelError, normalizeAvatarLabel } from "@memex/shared";
 import { db } from "../db/connection.js";
 import { users, orgMemberships, namespaces, orgs, memexes, userMemexAccess } from "../db/schema.js";
 import type { User } from "../db/schema.js";
@@ -149,6 +150,30 @@ export async function updateUserProfile(
       ...(fields.confirmIdentity ? { identityConfirmedAt: new Date() } : {}),
       updatedAt: new Date(),
     })
+    .where(eq(users.id, userId))
+    .returning();
+  if (!updated) throw new ValidationError(`User ${userId} not found`);
+  return updated;
+}
+
+// spec-574: set (or clear, with null/blank) the letters the user nominated for their
+// avatar. Touches only avatar_label: the display name and identity_confirmed_at belong
+// to updateUserProfile and must not move when someone changes their avatar. Direct users
+// update, no mutate(): users is global/non-RLS with no bus entity (same as
+// updateUserProfile and markLifecycleEmailUnsubscribed).
+export async function setAvatarLabel(userId: string, raw: unknown): Promise<User> {
+  let avatarLabel: string | null;
+  try {
+    avatarLabel = normalizeAvatarLabel(raw);
+  } catch (err) {
+    if (err instanceof AvatarLabelError) {
+      throw new ValidationError(err.message, "INVALID_AVATAR_LABEL");
+    }
+    throw err;
+  }
+  const [updated] = await db
+    .update(users)
+    .set({ avatarLabel, updatedAt: new Date() })
     .where(eq(users.id, userId))
     .returning();
   if (!updated) throw new ValidationError(`User ${userId} not found`);

@@ -4,7 +4,7 @@ import {
   MemexAccessError,
   DisabledUserError,
 } from "../../services/auth.js";
-import { updateUserProfile } from "../../services/users.js";
+import { setAvatarLabel, updateUserProfile } from "../../services/users.js";
 import { sessionMiddleware, type SessionEnv } from "../../middleware/session.js";
 import type { MemexResolverEnv } from "../../middleware/memex-resolver.js";
 import { readJsonBody, requireString } from "../validation.js";
@@ -75,6 +75,24 @@ session.patch("/profile", sessionMiddleware, async (c) => {
   const roleCoords = parseRoleCoords(body?.roleCoords);
 
   await updateUserProfile(user.id, { name, roleCoords, confirmIdentity: true });
+  const resolved = await resolveSession(user.id, c.get("currentMemexId"));
+  return c.json(resolved);
+});
+
+// PATCH /api/auth/profile/avatar
+// Body: { avatarLabel: string | null }
+// spec-574: nominate the letters your avatar shows (one or two letters), or clear them
+// with null to go back to letters derived from your name. Separate from PATCH /profile
+// because that route requires `name` and re-stamps identity_confirmed_at. The key must
+// be present: an empty body is refused rather than read as "clear". Returns the
+// refreshed session.
+session.patch("/profile/avatar", sessionMiddleware, async (c) => {
+  const user = c.get("user");
+  const body = await readJsonBody<{ avatarLabel?: unknown }>(c);
+  if (!body || !("avatarLabel" in body)) {
+    throw new ValidationError("avatarLabel is required (a string, or null to clear)");
+  }
+  await setAvatarLabel(user.id, body.avatarLabel);
   const resolved = await resolveSession(user.id, c.get("currentMemexId"));
   return c.json(resolved);
 });

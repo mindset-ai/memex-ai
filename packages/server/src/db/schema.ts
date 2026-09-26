@@ -1842,10 +1842,19 @@ export const users = pgTable("users", {
   // auto-stamp every signup and make nobody eligible. Do NOT read this as analytics —
   // for backfilled rows it is deploy-time, not when they actually first verified.
   firstAcVerifiedAt: timestamp("first_ac_verified_at", { withTimezone: true }),
+  // spec-574: the one or two letters the user nominated for their avatar, stored
+  // upper-cased (normalizeAvatarLabel in @memex/shared). Null = no nomination, so the
+  // avatar derives letters from the name. Live, not stamped: rendering reads it at
+  // request time, and it never feeds a stamped author_name/actor_name.
+  avatarLabel: text("avatar_label"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   check("users_status_valid", sql`${table.status} IN ('active', 'disabled')`),
+  check(
+    "users_avatar_label_length",
+    sql`${table.avatarLabel} IS NULL OR char_length(${table.avatarLabel}) BETWEEN 1 AND 2`,
+  ),
   unique("users_namespace_id_unique").on(table.namespaceId),
 ]);
 

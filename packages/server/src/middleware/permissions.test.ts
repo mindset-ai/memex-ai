@@ -40,6 +40,7 @@ function buildApp(routePath: string) {
       lifecycleEmailUnsubscribedAt: null,
       firstAcVerifiedAt: null,
       videoWelcomedAt: null,
+      avatarLabel: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     });
