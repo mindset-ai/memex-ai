@@ -1,5 +1,10 @@
 import { eq, and, sql, asc, isNull } from "drizzle-orm";
-import { AvatarLabelError, normalizeAvatarLabel } from "@memex/shared";
+import {
+  AvatarColorError,
+  AvatarLabelError,
+  normalizeAvatarColor,
+  normalizeAvatarLabel,
+} from "@memex/shared";
 import { db } from "../db/connection.js";
 import { users, orgMemberships, namespaces, orgs, memexes, userMemexAccess } from "../db/schema.js";
 import type { User } from "../db/schema.js";
@@ -156,26 +161,32 @@ export async function updateUserProfile(
   return updated;
 }
 
-// spec-574: set (or clear, with null/blank) the letters the user nominated for their
-// avatar. Touches only avatar_label: the display name and identity_confirmed_at belong
-// to updateUserProfile and must not move when someone changes their avatar. Direct users
-// update, no mutate(): users is global/non-RLS with no bus entity (same as
-// updateUserProfile and markLifecycleEmailUnsubscribed).
-export async function setAvatarLabel(userId: string, raw: unknown): Promise<User> {
-  let avatarLabel: string | null;
+// spec-574: set (or clear, with null/blank) the letters and/or palette colour the user
+// chose for their avatar. Only the fields PRESENT in `fields` are written; an absent
+// field is left as it is. Touches nothing else: the display name and
+// identity_confirmed_at belong to updateUserProfile and must not move when someone
+// changes their avatar. Direct users update, no mutate(): users is global/non-RLS with
+// no bus entity (same as updateUserProfile and markLifecycleEmailUnsubscribed).
+export async function setAvatar(
+  userId: string,
+  fields: { avatarLabel?: unknown; avatarColor?: unknown },
+): Promise<User> {
+  const set: { avatarLabel?: string | null; avatarColor?: string | null; updatedAt: Date } = {
+    updatedAt: new Date(),
+  };
   try {
-    avatarLabel = normalizeAvatarLabel(raw);
+    if ("avatarLabel" in fields) set.avatarLabel = normalizeAvatarLabel(fields.avatarLabel);
+    if ("avatarColor" in fields) set.avatarColor = normalizeAvatarColor(fields.avatarColor);
   } catch (err) {
     if (err instanceof AvatarLabelError) {
       throw new ValidationError(err.message, "INVALID_AVATAR_LABEL");
     }
+    if (err instanceof AvatarColorError) {
+      throw new ValidationError(err.message, "INVALID_AVATAR_COLOR");
+    }
     throw err;
   }
-  const [updated] = await db
-    .update(users)
-    .set({ avatarLabel, updatedAt: new Date() })
-    .where(eq(users.id, userId))
-    .returning();
+  const [updated] = await db.update(users).set(set).where(eq(users.id, userId)).returning();
   if (!updated) throw new ValidationError(`User ${userId} not found`);
   return updated;
 }
@@ -646,6 +657,7 @@ export interface OrgMember {
   // renders the same letters for a person as the rest of the app.
   name: string | null;
   avatarLabel: string | null;
+  avatarColor: string | null;
   role: "member" | "administrator";
   status: "active" | "disabled";
   joinedAt: Date;
@@ -659,6 +671,7 @@ export async function listOrgMembers(orgId: string): Promise<OrgMember[]> {
       email: users.email,
       name: users.name,
       avatarLabel: users.avatarLabel,
+      avatarColor: users.avatarColor,
       role: orgMemberships.role,
       status: orgMemberships.status,
       joinedAt: orgMemberships.joinedAt,
@@ -699,6 +712,7 @@ export async function resolveOrgMembersByName(
       email: users.email,
       name: users.name,
       avatarLabel: users.avatarLabel,
+      avatarColor: users.avatarColor,
       role: orgMemberships.role,
       status: orgMemberships.status,
       joinedAt: orgMemberships.joinedAt,

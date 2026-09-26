@@ -1847,6 +1847,10 @@ export const users = pgTable("users", {
   // avatar derives letters from the name. Live, not stamped: rendering reads it at
   // request time, and it never feeds a stamped author_name/actor_name.
   avatarLabel: text("avatar_label"),
+  // spec-574: the palette key (AVATAR_COLORS in @memex/shared) the user picked for their
+  // avatar. Null = the neutral default. The CHECK constrains shape only; an unknown key
+  // renders as the default (avatarColorStyle), so retiring a colour is safe.
+  avatarColor: text("avatar_color"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
@@ -1854,6 +1858,10 @@ export const users = pgTable("users", {
   check(
     "users_avatar_label_length",
     sql`${table.avatarLabel} IS NULL OR char_length(${table.avatarLabel}) BETWEEN 1 AND 2`,
+  ),
+  check(
+    "users_avatar_color_shape",
+    sql`${table.avatarColor} IS NULL OR ${table.avatarColor} ~ '^[a-z]{1,20}$'`,
   ),
   unique("users_namespace_id_unique").on(table.namespaceId),
 ]);

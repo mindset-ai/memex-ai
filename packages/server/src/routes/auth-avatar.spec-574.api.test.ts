@@ -129,3 +129,60 @@ describe("PATCH /api/auth/profile/avatar", () => {
     expect(res.status).toBe(401);
   });
 });
+
+const AC_COLOR = `${SPEC}/acs/ac-14`;
+
+describe("PATCH /api/auth/profile/avatar: colour", () => {
+  it("stores a palette colour without touching the letters, and the reverse", async () => {
+    tagAc(AC_COLOR);
+    const user = await newUser();
+    await patchAvatar(user.id, { avatarLabel: "WV" });
+
+    const res = await patchAvatar(user.id, { avatarColor: "Teal" });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.user.avatarColor).toBe("teal");
+    expect(body.user.avatarLabel).toBe("WV");
+    expect(await row(user.id)).toMatchObject({ avatarLabel: "WV", avatarColor: "teal" });
+
+    await patchAvatar(user.id, { avatarLabel: "XY" });
+    expect(await row(user.id)).toMatchObject({ avatarLabel: "XY", avatarColor: "teal" });
+  });
+
+  it("sets both in one request, and clears the colour back to the default with null", async () => {
+    tagAc(AC_COLOR);
+    const user = await newUser();
+    await patchAvatar(user.id, { avatarLabel: "AB", avatarColor: "red" });
+    expect(await row(user.id)).toMatchObject({ avatarLabel: "AB", avatarColor: "red" });
+
+    const res = await patchAvatar(user.id, { avatarColor: null });
+    expect(res.status).toBe(200);
+    expect((await res.json()).user.avatarColor).toBeNull();
+    expect(await row(user.id)).toMatchObject({ avatarLabel: "AB", avatarColor: null });
+  });
+
+  it.each([["an unknown colour", "chartreuse"], ["a hex value", "#ff0000"]])(
+    "refuses %s with 400 naming the palette, and stores nothing",
+    async (_label, value) => {
+      tagAc(AC_COLOR);
+      const user = await newUser();
+      await patchAvatar(user.id, { avatarLabel: "OK", avatarColor: "blue" });
+      const res = await patchAvatar(user.id, { avatarLabel: "ZZ", avatarColor: value });
+      expect(res.status).toBe(400);
+      expect(JSON.stringify(await res.json())).toMatch(/avatar colour must be one of/i);
+      // A refused request writes nothing, including its valid letters.
+      expect(await row(user.id)).toMatchObject({ avatarLabel: "OK", avatarColor: "blue" });
+    },
+  );
+
+  it("a new user has no colour and no letters on their session", async () => {
+    tagAc(AC_COLOR);
+    const user = await newUser();
+    const me = await app.request("/api/auth/me", {
+      headers: { Authorization: `Bearer ${signSessionToken(user.id)}` },
+    });
+    const body = await me.json();
+    expect(body.user.avatarColor).toBeNull();
+    expect(body.user.avatarLabel).toBeNull();
+  });
+});

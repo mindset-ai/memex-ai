@@ -41,6 +41,7 @@ function buildApp(routePath: string) {
       firstAcVerifiedAt: null,
       videoWelcomedAt: null,
       avatarLabel: null,
+      avatarColor: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     });

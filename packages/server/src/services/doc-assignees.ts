@@ -55,6 +55,8 @@ export interface DocAssigneeView {
   email: string | null;
   /** spec-574: nominated avatar letters; null = derive from the name. */
   avatarLabel: string | null;
+  /** spec-574: palette key for the avatar colour; null = the neutral default. */
+  avatarColor: string | null;
   assignedAt: Date;
 }
 
@@ -72,6 +74,7 @@ export async function listAssignees(
       name: users.name,
       email: users.email,
       avatarLabel: users.avatarLabel,
+      avatarColor: users.avatarColor,
       assignedAt: docAssignees.assignedAt,
     })
     .from(docAssignees)
@@ -98,6 +101,7 @@ export async function listAssigneesForDocs(
       name: users.name,
       email: users.email,
       avatarLabel: users.avatarLabel,
+      avatarColor: users.avatarColor,
       assignedAt: docAssignees.assignedAt,
     })
     .from(docAssignees)
@@ -111,6 +115,7 @@ export async function listAssigneesForDocs(
       name: r.name,
       email: r.email,
       avatarLabel: r.avatarLabel,
+      avatarColor: r.avatarColor,
       assignedAt: r.assignedAt,
     });
     byDoc.set(r.docId, list);

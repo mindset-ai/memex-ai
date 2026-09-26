@@ -13,12 +13,13 @@ import { db } from "../db/connection.js";
 import { docSections, documents, orgMemberships, users, memexes, namespaces } from "../db/schema.js";
 import { createDocDraft, listDocs } from "./documents.js";
 import { assign, listAssignees, listAssigneesForDocs } from "./doc-assignees.js";
-import { listOrgMembers, setAvatarLabel, upsertUserByEmail } from "./users.js";
+import { listOrgMembers, setAvatar, upsertUserByEmail } from "./users.js";
 import { makeTestMemexWithDevAdmin } from "./test-helpers.js";
 
 const SPEC = "mindset-prod/memex-building-itself/specs/spec-574";
 const AC_READS = `${SPEC}/acs/ac-9`;
 const AC_STAMPS = `${SPEC}/acs/ac-12`;
+const AC_COLOR = `${SPEC}/acs/ac-14`;
 
 // std-37 cl-1: unique per worker and per call.
 function uniqueEmail(tag: string): string {
@@ -46,7 +47,7 @@ beforeAll(async () => {
   createdUserIds.push(labelled.id, plain.id);
   await db.update(users).set({ name: "Labelled Person" }).where(eq(users.id, labelled.id));
   await db.update(users).set({ name: "Plain Person" }).where(eq(users.id, plain.id));
-  await setAvatarLabel(labelled.id, "LV");
+  await setAvatar(labelled.id, { avatarLabel: "LV", avatarColor: "teal" });
 
   await db.insert(orgMemberships).values([
     { userId: labelled.id, orgId, role: "member" },
@@ -72,40 +73,43 @@ async function specWithBothAssigned(): Promise<string> {
   return doc.id;
 }
 
-function labelsById(rows: { userId: string; avatarLabel?: string | null }[]) {
-  return Object.fromEntries(rows.map((r) => [r.userId, r.avatarLabel]));
+function labelsById(rows: { userId: string; avatarLabel?: string | null; avatarColor?: string | null }[]) {
+  return Object.fromEntries(rows.map((r) => [r.userId, [r.avatarLabel, r.avatarColor]]));
 }
 
 describe("spec-574 ac-9: reads that join users carry the nominated letters", () => {
   it("listAssignees (the Spec byline) carries avatarLabel, null when unset", async () => {
     tagAc(AC_READS);
+    tagAc(AC_COLOR);
     const docId = await specWithBothAssigned();
     const rows = await listAssignees(memexId, docId);
     expect(rows).toHaveLength(2);
-    expect(labelsById(rows)).toEqual({ [labelled.id]: "LV", [plain.id]: null });
+    expect(labelsById(rows)).toEqual({ [labelled.id]: ["LV", "teal"], [plain.id]: [null, null] });
   });
 
   it("listAssigneesForDocs and the board's listDocs projection carry avatarLabel", async () => {
     tagAc(AC_READS);
+    tagAc(AC_COLOR);
     const docId = await specWithBothAssigned();
 
     const byDoc = await listAssigneesForDocs(memexId, [docId]);
-    expect(labelsById(byDoc.get(docId)!)).toEqual({ [labelled.id]: "LV", [plain.id]: null });
+    expect(labelsById(byDoc.get(docId)!)).toEqual({ [labelled.id]: ["LV", "teal"], [plain.id]: [null, null] });
 
     const summaries = await listDocs(memexId, { docType: "spec", includeAssignees: true });
     const card = summaries.find((s) => s.id === docId);
     expect(card?.assignees).toHaveLength(2);
-    expect(labelsById(card!.assignees!)).toEqual({ [labelled.id]: "LV", [plain.id]: null });
+    expect(labelsById(card!.assignees!)).toEqual({ [labelled.id]: ["LV", "teal"], [plain.id]: [null, null] });
   });
 
   it("listOrgMembers (the team roster) carries name and avatarLabel", async () => {
     tagAc(AC_READS);
+    tagAc(AC_COLOR);
     const members = await listOrgMembers(orgId);
     const mine = members.filter((m) => createdUserIds.includes(m.userId));
     expect(mine).toHaveLength(2);
     const byId = Object.fromEntries(mine.map((m) => [m.userId, m]));
-    expect(byId[labelled.id]).toMatchObject({ name: "Labelled Person", avatarLabel: "LV" });
-    expect(byId[plain.id]).toMatchObject({ name: "Plain Person", avatarLabel: null });
+    expect(byId[labelled.id]).toMatchObject({ name: "Labelled Person", avatarLabel: "LV", avatarColor: "teal" });
+    expect(byId[plain.id]).toMatchObject({ name: "Plain Person", avatarLabel: null, avatarColor: null });
   });
 });
 
@@ -131,7 +135,7 @@ describe("spec-574 ac-12: nominating letters never rewrites stamped attribution"
     expect(before.length).toBeGreaterThan(0);
     expect(new Set(before)).toEqual(new Set(["Stamped Author"]));
 
-    await setAvatarLabel(author.id, "SA");
+    await setAvatar(author.id, { avatarLabel: "SA", avatarColor: "red" });
 
     const [again] = await db.select({ id: documents.id }).from(documents)
       .where(eq(documents.id, createdDocIds[createdDocIds.length - 1]!));

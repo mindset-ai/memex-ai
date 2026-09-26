@@ -30,6 +30,8 @@ export interface DocSummaryAssignee {
   email: string | null;
   /** spec-574: the letters this person nominated for their avatar; null = derive from the name. */
   avatarLabel: string | null;
+  /** spec-574: the palette key picked for this person's avatar; null = the neutral default. */
+  avatarColor: string | null;
 }
 
 /**

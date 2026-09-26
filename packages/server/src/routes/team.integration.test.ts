@@ -18,7 +18,7 @@ afterAll(() => {
 import { Hono } from "hono";
 import { teamRouter } from "./team.js";
 import { errorHandler } from "../middleware/error-handler.js";
-import { setAvatarLabel, upsertUserByEmail } from "../services/users.js";
+import { setAvatar, upsertUserByEmail } from "../services/users.js";
 import { tagAc } from "@memex-ai-ac/vitest";
 
 const createdAccountIds: string[] = [];
@@ -142,16 +142,16 @@ describe("GET /api/team/members", () => {
     const other = await upsertUserByEmail(`tm-avatar-${Date.now().toString(36)}@example.com`);
     createdUserIds.push(other.id);
     await db.update(users).set({ name: "Roster Person" }).where(eq(users.id, other.id));
-    await setAvatarLabel(other.id, "RV");
+    await setAvatar(other.id, { avatarLabel: "RV", avatarColor: "teal" });
     await db.insert(orgMemberships).values({ userId: other.id, orgId: acct.id, role: "member" });
 
     const res = await app.request("/api/team/members");
     expect(res.status).toBe(200);
     const body = (await res.json()) as Array<Record<string, unknown>>;
     const row = body.find((m) => m.userId === other.id);
-    expect(row).toMatchObject({ name: "Roster Person", avatarLabel: "RV" });
+    expect(row).toMatchObject({ name: "Roster Person", avatarLabel: "RV", avatarColor: "teal" });
     // A member with no nomination is present with an explicit null, never absent.
-    expect(body.every((m) => "avatarLabel" in m)).toBe(true);
+    expect(body.every((m) => "avatarLabel" in m && "avatarColor" in m)).toBe(true);
   });
 
   // Removed in t-19 of doc-15: three "tenant context via Host header" tests

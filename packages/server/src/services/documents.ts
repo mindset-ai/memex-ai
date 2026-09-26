@@ -821,6 +821,7 @@ export async function listDocs(
           name: v.name,
           email: v.email,
           avatarLabel: v.avatarLabel,
+          avatarColor: v.avatarColor,
         }));
       }
     }

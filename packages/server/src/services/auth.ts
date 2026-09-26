@@ -34,6 +34,8 @@ export interface SessionPayload {
     videoWelcomedAt: string | null;
     /** spec-574: the letters the user nominated for their avatar; null = derive from the name. */
     avatarLabel: string | null;
+    /** spec-574: the palette key the user picked for their avatar; null = the neutral default. */
+    avatarColor: string | null;
   };
   memberships: MembershipSummary[];
   // The Memex this session is currently scoped to (null when ambiguous — see std-5).
@@ -173,6 +175,7 @@ export async function handleSsoLogin(
       emailVerified: !!user.emailVerifiedAt,
       videoWelcomedAt: user.videoWelcomedAt?.toISOString() ?? null,
       avatarLabel: user.avatarLabel ?? null,
+      avatarColor: user.avatarColor ?? null,
     },
     memberships,
     currentMemexId: current?.memexId ?? null,
@@ -269,6 +272,7 @@ export async function resolveSession(
       emailVerified: !!user.emailVerifiedAt,
       videoWelcomedAt: user.videoWelcomedAt?.toISOString() ?? null,
       avatarLabel: user.avatarLabel ?? null,
+      avatarColor: user.avatarColor ?? null,
     },
     memberships,
     emptyOrgs,
