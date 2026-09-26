@@ -642,6 +642,10 @@ export async function recordPublicMemexVisit(
 export interface OrgMember {
   userId: string;
   email: string;
+  // spec-574: display name and nominated avatar letters, so every roster-backed avatar
+  // renders the same letters for a person as the rest of the app.
+  name: string | null;
+  avatarLabel: string | null;
   role: "member" | "administrator";
   status: "active" | "disabled";
   joinedAt: Date;
@@ -653,6 +657,8 @@ export async function listOrgMembers(orgId: string): Promise<OrgMember[]> {
     .select({
       userId: users.id,
       email: users.email,
+      name: users.name,
+      avatarLabel: users.avatarLabel,
       role: orgMemberships.role,
       status: orgMemberships.status,
       joinedAt: orgMemberships.joinedAt,
@@ -691,6 +697,8 @@ export async function resolveOrgMembersByName(
     .select({
       userId: users.id,
       email: users.email,
+      name: users.name,
+      avatarLabel: users.avatarLabel,
       role: orgMemberships.role,
       status: orgMemberships.status,
       joinedAt: orgMemberships.joinedAt,

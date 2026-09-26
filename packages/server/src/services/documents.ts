@@ -816,7 +816,12 @@ export async function listDocs(
     for (const s of summaries) {
       const a = byDoc.get(s.id);
       if (a && a.length > 0) {
-        s.assignees = a.map((v) => ({ userId: v.userId, name: v.name, email: v.email }));
+        s.assignees = a.map((v) => ({
+          userId: v.userId,
+          name: v.name,
+          email: v.email,
+          avatarLabel: v.avatarLabel,
+        }));
       }
     }
   }

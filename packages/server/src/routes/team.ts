@@ -50,6 +50,15 @@ teamRouter.get("/members", async (c) => {
   const all = await listOrgMembers(ns.ownerOrgId);
   const active = all
     .filter((m) => m.status === "active")
-    .map(({ userId, email, role, joinedAt }) => ({ userId, email, role, joinedAt }));
+    // spec-574: name + avatarLabel let every roster-backed avatar (assign picker,
+    // comments, Pulse) show the same letters for a person as the rest of the app.
+    .map(({ userId, email, name, avatarLabel, role, joinedAt }) => ({
+      userId,
+      email,
+      name,
+      avatarLabel,
+      role,
+      joinedAt,
+    }));
   return c.json(active);
 });

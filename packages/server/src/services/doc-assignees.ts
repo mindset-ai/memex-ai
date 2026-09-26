@@ -53,6 +53,8 @@ export interface DocAssigneeView {
   userId: string;
   name: string | null;
   email: string | null;
+  /** spec-574: nominated avatar letters; null = derive from the name. */
+  avatarLabel: string | null;
   assignedAt: Date;
 }
 
@@ -69,6 +71,7 @@ export async function listAssignees(
       userId: docAssignees.userId,
       name: users.name,
       email: users.email,
+      avatarLabel: users.avatarLabel,
       assignedAt: docAssignees.assignedAt,
     })
     .from(docAssignees)
@@ -94,6 +97,7 @@ export async function listAssigneesForDocs(
       userId: docAssignees.userId,
       name: users.name,
       email: users.email,
+      avatarLabel: users.avatarLabel,
       assignedAt: docAssignees.assignedAt,
     })
     .from(docAssignees)
@@ -102,7 +106,13 @@ export async function listAssigneesForDocs(
     .orderBy(docAssignees.assignedAt);
   for (const r of rows) {
     const list = byDoc.get(r.docId) ?? [];
-    list.push({ userId: r.userId, name: r.name, email: r.email, assignedAt: r.assignedAt });
+    list.push({
+      userId: r.userId,
+      name: r.name,
+      email: r.email,
+      avatarLabel: r.avatarLabel,
+      assignedAt: r.assignedAt,
+    });
     byDoc.set(r.docId, list);
   }
   return byDoc;
