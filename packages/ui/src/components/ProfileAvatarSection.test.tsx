@@ -30,11 +30,11 @@ const saveButton = () => screen.getByTestId('profile-avatar-save');
 const preview = () => screen.getByTestId('profile-avatar-preview').querySelector('[data-testid="avatar"]')!;
 
 function sessionWith(fields: Record<string, unknown>) {
-  return { user: { id: 'u1', name: 'Will Smith', email: 'will@example.com', ...fields } };
+  return { user: { id: 'u1', name: 'Wren Marsh', email: 'wren@example.com', ...fields } };
 }
 
 beforeEach(() => {
-  user = { id: 'u1', name: 'Will Smith', email: 'will@example.com', avatarLabel: null, avatarColor: null };
+  user = { id: 'u1', name: 'Wren Marsh', email: 'wren@example.com', avatarLabel: null, avatarColor: null };
   updateSession.mockReset();
   updateAvatarApi.mockReset();
   updateAvatarApi.mockImplementation(async (_t: string, fields: Record<string, unknown>) => sessionWith(fields));
@@ -44,7 +44,7 @@ describe('ProfileAvatarSection', () => {
   it('previews the automatic letters and default colour for someone who has chosen nothing', () => {
     tagAc(AC_COLOR);
     render(<ProfileAvatarSection />);
-    expect(preview().textContent).toBe('WS');
+    expect(preview().textContent).toBe('WM');
     expect(preview().getAttribute('data-avatar-color')).toBe('default');
     expect(screen.getByRole('radio', { name: /default/i })).toHaveAttribute('aria-checked', 'true');
     expect(saveButton()).toBeDisabled();
@@ -101,7 +101,7 @@ describe('ProfileAvatarSection', () => {
     expect(lettersInput()).toHaveValue('WV');
     await userEvent.click(screen.getByRole('button', { name: /use automatic initials/i }));
     expect(lettersInput()).toHaveValue('');
-    expect(preview().textContent).toBe('WS');
+    expect(preview().textContent).toBe('WM');
     await userEvent.click(saveButton());
     await waitFor(() => expect(updateAvatarApi).toHaveBeenCalledTimes(1));
     expect(updateAvatarApi.mock.calls[0]![1]).toEqual({ avatarLabel: null });
@@ -138,9 +138,9 @@ describe('ProfileAvatarSection', () => {
 
   it('renders for a session cached before avatar fields existed', () => {
     tagAc(AC_COLOR);
-    user = { id: 'u1', name: 'Will Smith', email: 'will@example.com' };
+    user = { id: 'u1', name: 'Wren Marsh', email: 'wren@example.com' };
     render(<ProfileAvatarSection />);
-    expect(preview().textContent).toBe('WS');
+    expect(preview().textContent).toBe('WM');
     expect(saveButton()).toBeDisabled();
   });
 });

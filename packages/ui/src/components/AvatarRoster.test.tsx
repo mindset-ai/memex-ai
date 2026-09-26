@@ -24,7 +24,7 @@ import { CommentSourceAvatar } from './CommentSourceAvatar';
 const AUTHOR_ID = 'author-1';
 
 function comment() {
-  return <CommentSourceAvatar source="human" authorName="Will Smith" authorUserId={AUTHOR_ID} />;
+  return <CommentSourceAvatar source="human" authorName="Wren Marsh" authorUserId={AUTHOR_ID} />;
 }
 function shown() {
   return screen.getByTestId('avatar');
@@ -52,7 +52,7 @@ describe('AvatarRosterProvider', () => {
     listTeamAvatarChoicesApi.mockRejectedValue(new Error('boom'));
     render(<AvatarRosterProvider enabled tenantKey="acme/main">{comment()}</AvatarRosterProvider>);
     await waitFor(() => expect(listTeamAvatarChoicesApi).toHaveBeenCalled());
-    expect(shown().textContent).toBe('WS');
+    expect(shown().textContent).toBe('WM');
     expect(shown().getAttribute('data-avatar-color')).toBe('default');
   });
 
@@ -61,26 +61,26 @@ describe('AvatarRosterProvider', () => {
     listTeamAvatarChoicesApi.mockResolvedValue({ not: 'an array' });
     render(<AvatarRosterProvider enabled tenantKey="acme/main">{comment()}</AvatarRosterProvider>);
     await waitFor(() => expect(listTeamAvatarChoicesApi).toHaveBeenCalled());
-    expect(shown().textContent).toBe('WS');
+    expect(shown().textContent).toBe('WM');
   });
 
   it('makes no request when disabled (personal or public Memex), and shows the automatic look', () => {
     tagAc(AC_ROSTER);
     render(<AvatarRosterProvider enabled={false} tenantKey="acme/main">{comment()}</AvatarRosterProvider>);
     expect(listTeamAvatarChoicesApi).not.toHaveBeenCalled();
-    expect(shown().textContent).toBe('WS');
+    expect(shown().textContent).toBe('WM');
   });
 
   it('shows the automatic look with no provider at all', () => {
     tagAc(AC_ROSTER);
     render(comment());
     expect(listTeamAvatarChoicesApi).not.toHaveBeenCalled();
-    expect(shown().textContent).toBe('WS');
+    expect(shown().textContent).toBe('WM');
   });
 
   it("shows the signed-in user's own choices from their session, ahead of the roster", async () => {
     tagAc(AC_ROSTER);
-    authUser = { id: AUTHOR_ID, name: 'Will Smith', email: 'w@example.com', avatarLabel: 'ME', avatarColor: 'red' };
+    authUser = { id: AUTHOR_ID, name: 'Wren Marsh', email: 'w@example.com', avatarLabel: 'ME', avatarColor: 'red' };
     listTeamAvatarChoicesApi.mockResolvedValue([
       { userId: AUTHOR_ID, email: 'w@example.com', avatarLabel: 'OLD', avatarColor: 'blue' },
     ]);

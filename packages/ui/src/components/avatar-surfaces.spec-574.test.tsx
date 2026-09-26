@@ -27,8 +27,8 @@ vi.mock('../hooks/useDocChangeStream', () => ({ useDocChangeStream: () => {} }))
 import { BylineAssignees } from './BylineAssignees';
 import { AssigneeAvatars } from './spec-board/AssigneeAvatars';
 
-const CHOSEN = { userId: 'u1', name: 'Will Smith', email: 'will@x.com', avatarLabel: 'WV', avatarColor: 'teal' };
-const PLAIN = { userId: 'u2', name: 'Wilma Iles', email: 'wilma@x.com', avatarLabel: null, avatarColor: null };
+const CHOSEN = { userId: 'u1', name: 'Wren Marsh', email: 'wren@x.com', avatarLabel: 'WV', avatarColor: 'teal' };
+const PLAIN = { userId: 'u2', name: 'Wynn Ives', email: 'wynn@x.com', avatarLabel: null, avatarColor: null };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -65,7 +65,7 @@ describe('spec-574: the Spec byline and assign picker', () => {
     tagAc(AC_OTHERS_SEE);
     fetchDocAssignees.mockResolvedValue([{ ...CHOSEN, assignedAt: '2026-01-01T00:00:00Z' }]);
     render(<BylineAssignees docId="d1" />);
-    await screen.findByText('Will Smith');
+    await screen.findByText('Wren Marsh');
     const [chip] = avatarsIn(screen.getByTestId('byline-assignees'));
     expect(chip!.textContent).toBe('WV');
     expect(chip!.getAttribute('data-avatar-color')).toBe('teal');
@@ -79,11 +79,11 @@ describe('spec-574: the Spec byline and assign picker', () => {
     ]);
     render(<BylineAssignees docId="d1" />);
     await userEvent.click(await screen.findByRole('button', { name: /\+ assign/i }));
-    const willRow = await screen.findByRole('option', { name: /will@x\.com/ });
-    const [willAvatar] = within(willRow).getAllByTestId('avatar');
-    expect(willAvatar!.textContent).toBe('WV');
-    expect(willAvatar!.getAttribute('data-avatar-color')).toBe('teal');
-    const wilmaRow = screen.getByRole('option', { name: /wilma@x\.com/ });
-    expect(within(wilmaRow).getByTestId('avatar').textContent).toBe('WI');
+    const chosenRow = await screen.findByRole('option', { name: /wren@x\.com/ });
+    const [chosenAvatar] = within(chosenRow).getAllByTestId('avatar');
+    expect(chosenAvatar!.textContent).toBe('WV');
+    expect(chosenAvatar!.getAttribute('data-avatar-color')).toBe('teal');
+    const plainRow = screen.getByRole('option', { name: /wynn@x\.com/ });
+    expect(within(plainRow).getByTestId('avatar').textContent).toBe('WI');
   });
 });

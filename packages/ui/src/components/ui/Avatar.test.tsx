@@ -20,13 +20,13 @@ describe('Avatar', () => {
   it('shows nominated letters over the derived ones', () => {
     tagAc(AC_ONE_RULE);
     tagAc(AC_ONE_COMPONENT);
-    render(<Avatar person={{ name: 'Will Smith', avatarLabel: 'WV' }} />);
+    render(<Avatar person={{ name: 'Wren Marsh', avatarLabel: 'WV' }} />);
     expect(avatar().textContent).toBe('WV');
   });
 
   it('derives letters from the name, then the email, when nothing is nominated', () => {
     tagAc(AC_ONE_RULE);
-    const { rerender } = render(<Avatar person={{ name: 'Barrie Hadfield' }} />);
+    const { rerender } = render(<Avatar person={{ name: 'Bryn Hale' }} />);
     expect(avatar().textContent).toBe('BH');
     rerender(<Avatar person={{ name: null, email: 'first.last@example.com' }} />);
     expect(avatar().textContent).toBe('FL');

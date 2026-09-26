@@ -53,12 +53,12 @@ describe('normalizeAvatarLabel', () => {
 describe('avatarText', () => {
   it('prefers the nominated letters over anything derived from the name', () => {
     tagAc(AC_ONE_RULE);
-    expect(avatarText({ name: 'Will Smith', email: 'w@x.io', avatarLabel: 'WV' })).toBe('WV');
+    expect(avatarText({ name: 'Wren Marsh', email: 'w@x.io', avatarLabel: 'WV' })).toBe('WV');
   });
 
   it('derives first + last initial from a multi-part name', () => {
     tagAc(AC_ONE_RULE);
-    expect(avatarText({ name: 'Barrie Hadfield' })).toBe('BH');
+    expect(avatarText({ name: 'Bryn Hale' })).toBe('BH');
     expect(avatarText({ name: 'ada king lovelace' })).toBe('AL');
   });
 
