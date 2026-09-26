@@ -12,6 +12,7 @@
 // Open core — no `.ee.` marker (std-25): editing your own display name is table-stakes
 // account management, not an Enterprise capability.
 import { ProfileNameSection } from '../components/ProfileNameSection';
+import { ProfileAvatarSection } from '../components/ProfileAvatarSection';
 
 export function SettingsProfile() {
   return (
@@ -23,12 +24,14 @@ export function SettingsProfile() {
               the two it doesn't — a user should never wonder whether renaming here
               renames their workspace. */}
           <p className="text-sm text-secondary">
-            Your name and the email you sign in with. Memex and org settings live on
-            their own pages.
+            Your name, your avatar, and the email you sign in with. Memex and org
+            settings live on their own pages.
           </p>
         </div>
 
         <ProfileNameSection />
+        {/* spec-574: the letters and colour of the person's one avatar. */}
+        <ProfileAvatarSection />
       </div>
     </div>
   );

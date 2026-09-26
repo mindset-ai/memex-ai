@@ -319,6 +319,25 @@ export async function updateProfileApi(
   return res.json();
 }
 
+// spec-574: choose how your avatar looks. Each key present is saved; an absent key is
+// left as it is. `avatarLabel: null` goes back to letters derived from your name;
+// `avatarColor: null` goes back to the neutral default. Returns the refreshed session.
+export async function updateAvatarApi(
+  token: string | null,
+  fields: { avatarLabel?: string | null; avatarColor?: string | null },
+): Promise<SessionPayload> {
+  const res = await fetchWithRetry(`${BASE_URL}/auth/profile/avatar`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
+    body: JSON.stringify(fields),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.message ?? body.error ?? `Avatar update failed: ${res.status}`);
+  }
+  return res.json();
+}
+
 // spec-507: dismissWelcomeVideoApi (spec-444) is gone with the gate it served — the
 // video is opt-in now, so there is no dismissal to record. `videoWelcomedAt` stays on
 // the session payload below as history; nothing routes on it (dec-2).
