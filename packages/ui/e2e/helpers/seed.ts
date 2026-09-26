@@ -73,6 +73,17 @@ export async function setUserName(email: string, name: string): Promise<void> {
 }
 
 /**
+ * spec-574: set a user's avatar letters and colour; nulls return them to the automatic
+ * look. The per-test fixture resets the dev user this way so a chosen avatar can't leak.
+ */
+export async function setUserAvatar(
+  email: string,
+  avatar: { avatarLabel: string | null; avatarColor: string | null },
+): Promise<void> {
+  await call("POST", "/user-avatar", { email, ...avatar });
+}
+
+/**
  * Clear a user's display name — the onboarding journey's precondition (it then
  * walks the profile-setup screen). The per-test fixture re-sets the name
  * afterwards so a cleared name can't leak into later journeys.

@@ -18,6 +18,7 @@ export {
   getPersonalMemexByEmail,
   ensureUser,
   setUserName,
+  setUserAvatar,
   clearUserName,
   setIdentityConfirmed,
   clearUserSpecs,

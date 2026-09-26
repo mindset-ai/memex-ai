@@ -10,6 +10,7 @@ import { test as base, expect as pwExpect, type Page } from "@playwright/test";
 import {
   ensureUser,
   setUserName,
+  setUserAvatar,
   setIdentityConfirmed,
   clearOrgMemberships,
   clearUserSpecs,
@@ -56,6 +57,9 @@ export const test = base.extend<{ resources: TestResources }>({
     // now uniform (Trails) and no longer varies by the hasSpec milestone.
     await clearUserSpecs(DEV_EMAIL);
     await setUserName(DEV_EMAIL, DEV_NAME);
+    // spec-574: the dev user starts every test with the automatic avatar, so a journey
+    // that chose letters or a colour can't change the initials the next journey reads.
+    await setUserAvatar(DEV_EMAIL, { avatarLabel: null, avatarColor: null });
     // spec-305: needsOnboarding now keys off identity_confirmed_at (not !name), so
     // confirm the dev user each test — otherwise every journey is redirected to /onboarding.
     await setIdentityConfirmed(DEV_EMAIL, true);
