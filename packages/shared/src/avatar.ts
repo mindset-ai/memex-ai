@@ -40,10 +40,71 @@ export function normalizeAvatarLabel(raw: unknown): string | null {
   return upper;
 }
 
+export interface AvatarColor {
+  /** Stored in users.avatar_color. Lower-case letters only (the column's CHECK). */
+  key: string;
+  /** Shown in the profile picker. */
+  label: string;
+  background: string;
+  text: string;
+}
+
+// White letters on a mid-dark fill: legible in both themes, and each pair clears WCAG AA
+// (4.5:1), which avatar.test.ts asserts. Adding a colour needs no migration. Removing one
+// is safe too: anyone who had it renders the neutral default (avatarColorStyle).
+export const AVATAR_COLORS: readonly AvatarColor[] = [
+  { key: 'blue', label: 'Blue', background: '#2563EB', text: '#FFFFFF' },
+  { key: 'indigo', label: 'Indigo', background: '#4F46E5', text: '#FFFFFF' },
+  { key: 'violet', label: 'Violet', background: '#7C3AED', text: '#FFFFFF' },
+  { key: 'pink', label: 'Pink', background: '#BE185D', text: '#FFFFFF' },
+  { key: 'red', label: 'Red', background: '#DC2626', text: '#FFFFFF' },
+  { key: 'orange', label: 'Orange', background: '#C2410C', text: '#FFFFFF' },
+  { key: 'amber', label: 'Amber', background: '#B45309', text: '#FFFFFF' },
+  { key: 'green', label: 'Green', background: '#15803D', text: '#FFFFFF' },
+  { key: 'teal', label: 'Teal', background: '#0F766E', text: '#FFFFFF' },
+  { key: 'slate', label: 'Slate', background: '#475569', text: '#FFFFFF' },
+];
+
+export const AVATAR_COLOR_RULE = `Avatar colour must be one of: ${AVATAR_COLORS.map((c) => c.key).join(', ')}.`;
+
+export class AvatarColorError extends Error {
+  constructor() {
+    super(AVATAR_COLOR_RULE);
+    this.name = 'AvatarColorError';
+  }
+}
+
+const COLORS_BY_KEY: ReadonlyMap<string, AvatarColor> = new Map(AVATAR_COLORS.map((c) => [c.key, c]));
+
+/**
+ * Normalise a chosen avatar colour for storage: a palette key, lower-cased.
+ * Absent or blank input returns null, meaning "the neutral default".
+ * Throws AvatarColorError for anything that is not a palette key.
+ */
+export function normalizeAvatarColor(raw: unknown): string | null {
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw !== 'string') throw new AvatarColorError();
+  const key = raw.trim().toLowerCase();
+  if (key === '') return null;
+  if (!COLORS_BY_KEY.has(key)) throw new AvatarColorError();
+  return key;
+}
+
+/**
+ * Inline style for an avatar's chosen colour, or null for the neutral default.
+ * Never throws: an unknown, retired or malformed key is the neutral default.
+ */
+export function avatarColorStyle(key: unknown): { backgroundColor: string; color: string } | null {
+  if (typeof key !== 'string') return null;
+  const c = COLORS_BY_KEY.get(key);
+  return c ? { backgroundColor: c.background, color: c.text } : null;
+}
+
 export interface AvatarPerson {
   name?: string | null;
   email?: string | null;
   avatarLabel?: string | null;
+  avatarColor?: string | null;
 }
 
 /**

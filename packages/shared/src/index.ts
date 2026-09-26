@@ -204,13 +204,20 @@ export { timeAgo } from './relative-time.js';
 export { docTypePath } from './doc-type-path.js';
 // spec-259 dec-4: conservative display-name capitalization, render-layer only.
 export { capitalizeDisplayName } from './display-name.js';
-// spec-574: the one avatar rule: nominated letters, else derived initials.
+// spec-574: the one avatar rule: nominated letters (else derived initials) and an
+// optional palette colour (else the neutral default).
 export {
+  AVATAR_COLORS,
+  AVATAR_COLOR_RULE,
   AVATAR_LABEL_MAX_LENGTH,
   AVATAR_LABEL_RULE,
+  AvatarColorError,
   AvatarLabelError,
+  avatarColorStyle,
   avatarText,
+  normalizeAvatarColor,
   normalizeAvatarLabel,
+  type AvatarColor,
   type AvatarPerson,
 } from './avatar.js';
 // spec-566 dec-2: the superseded count's wording + the live-set rule, shared by

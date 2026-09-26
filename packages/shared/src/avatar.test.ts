@@ -1,6 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { tagAc } from '@memex-ai-ac/vitest';
-import { AvatarLabelError, avatarText, normalizeAvatarLabel } from './avatar.js';
+import {
+  AVATAR_COLORS,
+  AvatarColorError,
+  AvatarLabelError,
+  avatarColorStyle,
+  avatarText,
+  normalizeAvatarColor,
+  normalizeAvatarLabel,
+} from './avatar.js';
 
 // spec-574: the one avatar rule. `normalizeAvatarLabel` is what both the profile form and
 // the server accept; `avatarText` is what every avatar in the UI shows.
@@ -75,5 +83,59 @@ describe('avatarText', () => {
     tagAc(AC_ONE_RULE);
     expect(avatarText({ name: 'Sam', avatarLabel: '' })).toBe('SA');
     expect(avatarText({ name: 'Sam', avatarLabel: null })).toBe('SA');
+  });
+});
+
+const AC_COLOR = `${SPEC}/acs/ac-14`;
+
+// WCAG 2.x relative luminance / contrast ratio, to prove every palette fill keeps the
+// white letters legible at avatar sizes (AA for normal text: 4.5:1).
+function luminance(hex: string): number {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const lin = (c: number) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * lin(r!) + 0.7152 * lin(g!) + 0.0722 * lin(b!);
+}
+function contrast(a: string, b: string): number {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi! + 0.05) / (lo! + 0.05);
+}
+
+describe('avatar colours', () => {
+  it('offers a palette of unique, lower-case keys with legible letters on every fill', () => {
+    tagAc(AC_COLOR);
+    expect(AVATAR_COLORS.length).toBeGreaterThanOrEqual(6);
+    const keys = AVATAR_COLORS.map((c) => c.key);
+    expect(new Set(keys).size).toBe(keys.length);
+    for (const c of AVATAR_COLORS) {
+      expect(c.key).toMatch(/^[a-z]{1,20}$/); // the users.avatar_color CHECK
+      expect(contrast(c.background, c.text)).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  it('normalizeAvatarColor accepts palette keys and maps blank/absent to null', () => {
+    tagAc(AC_COLOR);
+    expect(normalizeAvatarColor(AVATAR_COLORS[0]!.key)).toBe(AVATAR_COLORS[0]!.key);
+    expect(normalizeAvatarColor(` ${AVATAR_COLORS[1]!.key.toUpperCase()} `)).toBe(AVATAR_COLORS[1]!.key);
+    expect(normalizeAvatarColor(null)).toBeNull();
+    expect(normalizeAvatarColor(undefined)).toBeNull();
+    expect(normalizeAvatarColor('')).toBeNull();
+  });
+
+  it.each([['an unknown key', 'chartreuse'], ['a hex value', '#ff0000'], ['a non-string', 3]])(
+    'normalizeAvatarColor refuses %s',
+    (_label, raw) => {
+      tagAc(AC_COLOR);
+      expect(() => normalizeAvatarColor(raw)).toThrow(AvatarColorError);
+    },
+  );
+
+  it('avatarColorStyle returns the pair for a palette key and null for anything else, never throwing', () => {
+    tagAc(AC_COLOR);
+    const blue = AVATAR_COLORS[0]!;
+    expect(avatarColorStyle(blue.key)).toEqual({ backgroundColor: blue.background, color: blue.text });
+    // A retired or corrupt key renders the neutral default rather than breaking a page.
+    for (const bad of ['retired', '', null, undefined, 42, {}] as unknown[]) {
+      expect(avatarColorStyle(bad)).toBeNull();
+    }
   });
 });
