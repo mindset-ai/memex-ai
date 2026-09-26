@@ -1,21 +1,62 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
-import { fetchCurrentSubscription } from '../../api/client';
-import { tenantBase } from '../../api/http';
+import { fetchCurrentSubscription, type MembershipSummary, type SessionPayload } from '../../api/client';
+import { parseTenantFromPathname } from '../../utils/tenantUrl';
+
+// The membership the subscription request would address: the URL's tenant, or (on a page
+// with no tenant in the URL) the session's current Memex, mirroring tenantBase().
+function addressedMembership(
+  session: SessionPayload | null,
+  pathname: string,
+): MembershipSummary | null {
+  const memberships = session?.memberships ?? [];
+  const tenant = parseTenantFromPathname(pathname);
+  if (tenant) {
+    return (
+      memberships.find(
+        (m) =>
+          m.slug === tenant.namespace &&
+          (m.memexSlug === tenant.memex || (!m.memexSlug && tenant.memex === 'main')),
+      ) ?? null
+    );
+  }
+  return memberships.find((m) => m.memexId === session?.currentMemexId && !!m.memexSlug) ?? null;
+}
+
+// GET orgs/current/subscription is org-scoped and admin-only. Asking anywhere else (a
+// personal Memex has no org; a member or a public-Memex visitor is not an admin) is
+// refused, and the refusal lands in the browser console on every page load.
+function canReadSubscription(m: MembershipSummary | null): boolean {
+  return (
+    !!m &&
+    m.kind === 'team' &&
+    m.role === 'administrator' &&
+    m.source !== 'visited' &&
+    m.source !== 'featured'
+  );
+}
 
 export function SeatsWarningBanner() {
-  const { token } = useAuth();
+  const { token, session } = useAuth();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const [warning, setWarning] = useState<{ purchased: number; active: number } | null>(null);
+  const allowed = canReadSubscription(addressedMembership(session, pathname));
 
   useEffect(() => {
-    // Only fetch when in a tenant context (tenantBase returns non-null)
-    if (!token || !tenantBase()) return;
+    setWarning(null);
+    if (!token || !allowed) return;
+    let cancelled = false;
     fetchCurrentSubscription(token)
-      .then((sub) => setWarning(sub.seatsWarning))
+      .then((sub) => {
+        if (!cancelled) setWarning(sub.seatsWarning);
+      })
       .catch(() => { /* non-fatal */ });
-  }, [token]);
+    return () => {
+      cancelled = true;
+    };
+  }, [token, allowed]);
 
   if (!warning) return null;
 
