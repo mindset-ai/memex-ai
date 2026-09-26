@@ -18,7 +18,9 @@ export class AvatarLabelError extends Error {
   }
 }
 
-const LETTERS_ONLY = /^\p{L}+$/u;
+// A letter, optionally followed by letters or combining marks (vowel signs such as the
+// one in "कि" are marks). A mark on its own is not a letter.
+const LETTERS_ONLY = /^\p{L}[\p{L}\p{M}]*$/u;
 
 /**
  * Normalise a nominated avatar label for storage: trimmed and upper-cased.
@@ -114,9 +116,19 @@ function text(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-// Letters and digits only: punctuation ("O'Brien") and symbols ("👍 Bob") never become
-// avatar letters.
-const NOT_LETTER_OR_DIGIT = /[^\p{L}\p{N}]/gu;
+// Letters, their combining marks, and digits only: punctuation ("O'Brien") and symbols
+// ("👍 Bob") never become avatar letters, while a vowel sign stays with its letter.
+const NOT_LETTER_OR_DIGIT = /[^\p{L}\p{M}\p{N}]/gu;
+
+// User-perceived characters, so "कि" (letter + vowel sign) counts as one. Falls back to
+// code points where Intl.Segmenter is unavailable, which only matters for such scripts.
+function characters(s: string): string[] {
+  const Segmenter = (Intl as { Segmenter?: new (l?: string, o?: { granularity: 'grapheme' }) => { segment(s: string): Iterable<{ segment: string }> } }).Segmenter;
+  if (typeof Segmenter === 'function') {
+    return Array.from(new Segmenter(undefined, { granularity: 'grapheme' }).segment(s), (x) => x.segment);
+  }
+  return Array.from(s);
+}
 
 /**
  * The letters an avatar shows: the nominated label when set; otherwise first + last
@@ -133,8 +145,8 @@ export function avatarText(person: AvatarPerson): string {
     .map((part) => part.normalize('NFC').replace(NOT_LETTER_OR_DIGIT, ''))
     .filter(Boolean);
   if (parts.length === 0) return '?';
-  if (parts.length === 1) return Array.from(parts[0]!).slice(0, 2).join('').toUpperCase();
-  const first = Array.from(parts[0]!)[0]!;
-  const last = Array.from(parts[parts.length - 1]!)[0]!;
+  if (parts.length === 1) return characters(parts[0]!).slice(0, 2).join('').toUpperCase();
+  const first = characters(parts[0]!)[0]!;
+  const last = characters(parts[parts.length - 1]!)[0]!;
   return (first + last).toUpperCase();
 }

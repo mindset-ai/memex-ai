@@ -163,3 +163,22 @@ describe('avatar rule: review round 1', () => {
     expect(normalizeAvatarLabel('éw')).toBe('ÉW');
   });
 });
+
+describe('avatar rule: review round 2', () => {
+  it('keeps vowel signs and other combining marks, taking whole characters', () => {
+    tagAc(AC_ONE_RULE);
+    expect(avatarText({ name: 'किरण' })).toBe('किर');
+    expect(avatarText({ name: 'किरण कुमार' })).toBe('किकु');
+    expect(avatarText({ name: 'วิชัย' })).toBe('วิชั');
+    // Latin is unchanged.
+    expect(avatarText({ name: 'Émile Zola' })).toBe('ÉZ');
+    expect(avatarText({ name: 'Sam' })).toBe('SA');
+  });
+
+  it('lets a person nominate a letter that carries a vowel sign', () => {
+    tagAc(AC_NORMALIZE);
+    expect(normalizeAvatarLabel('कि')).toBe('कि');
+    // A mark on its own is not a letter.
+    expect(() => normalizeAvatarLabel('ि')).toThrow(AvatarLabelError);
+  });
+});

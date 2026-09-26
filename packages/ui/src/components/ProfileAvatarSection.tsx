@@ -53,9 +53,13 @@ export function ProfileAvatarSection() {
   const [error, setError] = useState<string | null>(null);
   const swatchRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
-  const { value: normalizedLetters, error: lettersError } = useMemo(() => validateLetters(letters), [letters]);
-  const lettersChanged = normalizedLetters !== persistedLabel;
-  const colorChanged = color !== persistedColor;
+  const { value: normalizedLetters, error: validationError } = useMemo(() => validateLetters(letters), [letters]);
+  // Only an edited field counts as a change or can block a save: an untouched field shows
+  // what is saved, and a saved label that a later, stricter rule would refuse must not stop
+  // the person from changing their colour.
+  const lettersError = lettersTouched ? validationError : null;
+  const lettersChanged = lettersTouched && normalizedLetters !== persistedLabel;
+  const colorChanged = colorTouched && color !== persistedColor;
   const changed = lettersChanged || colorChanged;
   const canSave = !saving && !lettersError && changed;
 
@@ -98,6 +102,7 @@ export function ProfileAvatarSection() {
 
   // A radio group: arrow keys move the selection, Home/End jump to the ends.
   const onPickerKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (saving) return;
     const last = PICKER_OPTIONS.length - 1;
     const moves: Record<string, number> = {
       ArrowRight: selectedIndex === last ? 0 : selectedIndex + 1,
@@ -137,7 +142,7 @@ export function ProfileAvatarSection() {
               email: user?.email,
               // Preview the letters as they will be saved; while they are invalid, show
               // the automatic ones rather than something the server would refuse.
-              avatarLabel: lettersError ? null : normalizedLetters,
+              avatarLabel: validationError ? (lettersTouched ? null : persistedLabel) : normalizedLetters,
               avatarColor: color,
             }}
             size="lg"
@@ -162,12 +167,15 @@ export function ProfileAvatarSection() {
             }}
             placeholder="Automatic"
             aria-invalid={lettersError ? true : undefined}
+            // Locked while saving: an edit made mid-save would be replaced by the saved value.
+            disabled={saving}
             className="max-w-24"
             data-testid="profile-avatar-letters"
           />
           {letters.trim() !== '' && (
             <Button
               variant="secondary"
+              disabled={saving}
               onClick={() => {
                 setLetters('');
                 setLettersTouched(true);
@@ -215,6 +223,7 @@ export function ProfileAvatarSection() {
                 aria-label={option.label}
                 title={option.label}
                 tabIndex={selected ? 0 : -1}
+                disabled={saving}
                 onClick={() => pick(index)}
                 style={swatch ? { backgroundColor: swatch.background } : undefined}
                 className={`h-7 w-7 rounded-full border ${

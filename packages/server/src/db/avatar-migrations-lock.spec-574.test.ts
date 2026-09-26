@@ -31,3 +31,20 @@ describe("spec-574 avatar migrations take the users lock safely", () => {
     expect(timeout).toBeLessThan(firstAlter);
   });
 });
+
+// SET LOCAL only lasts to the end of a transaction. The lock timeout above protects the
+// ALTERs only because each migration file is applied inside ONE transaction; if an
+// applier stopped doing that, the timeout would silently become a no-op.
+describe("spec-574: hand migrations are applied one file per transaction", () => {
+  const scripts = join(__dirname, "..", "..", "scripts");
+
+  it("apply-hand-migrations.mjs wraps each file in sql.begin", () => {
+    const src = readFileSync(join(scripts, "apply-hand-migrations.mjs"), "utf8");
+    expect(src).toMatch(/sql\.begin\(/);
+  });
+
+  it("apply-hand-migrations.sh runs psql with --single-transaction", () => {
+    const src = readFileSync(join(scripts, "apply-hand-migrations.sh"), "utf8");
+    expect(src).toMatch(/--single-transaction/);
+  });
+});

@@ -195,3 +195,29 @@ describe('ProfileAvatarSection: accessible names (review round 1)', () => {
     expect(screen.getByRole('textbox', { name: 'Letters' })).toBe(lettersInput());
   });
 });
+
+describe('ProfileAvatarSection: review round 2', () => {
+  it('locks the controls while a save is in flight, so a mid-save change cannot be silently undone', async () => {
+    tagAc(AC_COLOR);
+    let resolveSave: (v: unknown) => void = () => {};
+    updateAvatarApi.mockImplementation(() => new Promise((r) => (resolveSave = r)));
+    render(<ProfileAvatarSection />);
+    await userEvent.click(screen.getByRole('radio', { name: /green/i }));
+    await userEvent.click(saveButton());
+    expect(lettersInput()).toBeDisabled();
+    for (const swatch of screen.getAllByRole('radio')) expect(swatch).toBeDisabled();
+    resolveSave(sessionWith({ avatarColor: 'green' }));
+    await waitFor(() => expect(lettersInput()).toBeEnabled());
+  });
+
+  it('a saved label that fails today’s rule does not block saving a colour', async () => {
+    tagAc(AC_COLOR);
+    user = { ...user, avatarLabel: 'W1' };
+    render(<ProfileAvatarSection />);
+    await userEvent.click(screen.getByRole('radio', { name: /green/i }));
+    expect(saveButton()).toBeEnabled();
+    await userEvent.click(saveButton());
+    await waitFor(() => expect(updateAvatarApi).toHaveBeenCalledTimes(1));
+    expect(updateAvatarApi.mock.calls[0]![1]).toEqual({ avatarColor: 'green' });
+  });
+});
