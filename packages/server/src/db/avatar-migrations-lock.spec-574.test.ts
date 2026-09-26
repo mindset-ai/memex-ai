@@ -38,13 +38,22 @@ describe("spec-574 avatar migrations take the users lock safely", () => {
 describe("spec-574: hand migrations are applied one file per transaction", () => {
   const scripts = join(__dirname, "..", "..", "scripts");
 
-  it("apply-hand-migrations.mjs wraps each file in sql.begin", () => {
-    const src = readFileSync(join(scripts, "apply-hand-migrations.mjs"), "utf8");
-    expect(src).toMatch(/sql\.begin\(/);
+  // Comments are stripped first: both scripts DESCRIBE their transaction in prose, and a
+  // guard that matched the prose would stay green with the real call removed.
+  const code = (file: string, comment: RegExp) =>
+    readFileSync(join(scripts, file), "utf8")
+      .split("\n")
+      .filter((line) => !comment.test(line))
+      .join("\n");
+
+  it("apply-hand-migrations.mjs runs each statement inside the sql.begin transaction", () => {
+    const src = code("apply-hand-migrations.mjs", /^\s*(\/\/|\*|\/\*)/);
+    // The statements are executed on the transaction handle inside the begin callback.
+    expect(src).toMatch(/sql\.begin\(\s*async\s*\(?\s*(\w+)\s*\)?\s*=>[\s\S]*?\1\.unsafe\(/);
   });
 
-  it("apply-hand-migrations.sh runs psql with --single-transaction", () => {
-    const src = readFileSync(join(scripts, "apply-hand-migrations.sh"), "utf8");
-    expect(src).toMatch(/--single-transaction/);
+  it("apply-hand-migrations.sh calls psql with --single-transaction", () => {
+    const src = code("apply-hand-migrations.sh", /^\s*#/);
+    expect(src).toMatch(/psql[^\n]*--single-transaction/);
   });
 });

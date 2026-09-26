@@ -182,3 +182,36 @@ describe('avatar rule: review round 2', () => {
     expect(() => normalizeAvatarLabel('ि')).toThrow(AvatarLabelError);
   });
 });
+
+describe('avatar rule: review round 3', () => {
+  it('ignores emoji and their variation selectors, never leaving a stray mark', () => {
+    tagAc(AC_ONE_RULE);
+    expect(avatarText({ name: '❤️ Alice Smith' })).toBe('AS');
+    expect(avatarText({ name: '✌️ Bob' })).toBe('BO');
+    expect(avatarText({ name: '☀️Sunny' })).toBe('SU');
+    expect(avatarText({ name: 'Alice ✔️' })).toBe('AL');
+    expect(avatarText({ name: '́' })).toBe('?');
+    expect(avatarText({ name: '́ Bob' })).toBe('BO');
+  });
+
+  it('segments text only when it carries combining marks, and builds the segmenter once', () => {
+    tagAc(AC_ONE_RULE);
+    const Real = Intl.Segmenter;
+    let constructed = 0;
+    (Intl as { Segmenter: unknown }).Segmenter = class extends Real {
+      constructor(...args: ConstructorParameters<typeof Real>) {
+        super(...args);
+        constructed++;
+      }
+    };
+    try {
+      for (let i = 0; i < 200; i++) avatarText({ name: `Person${i} Surname${i}` });
+      expect(constructed).toBe(0); // the common case never pays for segmentation
+      for (let i = 0; i < 200; i++) avatarText({ name: 'किरण कुमार' });
+      expect(constructed).toBeLessThanOrEqual(1);
+      expect(avatarText({ name: 'किरण कुमार' })).toBe('किकु');
+    } finally {
+      (Intl as { Segmenter: unknown }).Segmenter = Real;
+    }
+  });
+});

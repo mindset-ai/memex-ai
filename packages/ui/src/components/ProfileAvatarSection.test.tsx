@@ -201,10 +201,13 @@ describe('ProfileAvatarSection: review round 2', () => {
     tagAc(AC_COLOR);
     let resolveSave: (v: unknown) => void = () => {};
     updateAvatarApi.mockImplementation(() => new Promise((r) => (resolveSave = r)));
+    user = { ...user, avatarLabel: 'AB' };
     render(<ProfileAvatarSection />);
     await userEvent.click(screen.getByRole('radio', { name: /green/i }));
     await userEvent.click(saveButton());
     expect(lettersInput()).toBeDisabled();
+    // The clear button too: a mid-save clear would otherwise be undone by the saved "AB".
+    expect(screen.getByRole('button', { name: /use automatic initials/i })).toBeDisabled();
     for (const swatch of screen.getAllByRole('radio')) expect(swatch).toBeDisabled();
     resolveSave(sessionWith({ avatarColor: 'green' }));
     await waitFor(() => expect(lettersInput()).toBeEnabled());

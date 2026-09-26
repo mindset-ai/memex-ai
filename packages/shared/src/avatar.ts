@@ -120,14 +120,22 @@ function text(value: unknown): string {
 // ("👍 Bob") never become avatar letters, while a vowel sign stays with its letter.
 const NOT_LETTER_OR_DIGIT = /[^\p{L}\p{M}\p{N}]/gu;
 
-// User-perceived characters, so "कि" (letter + vowel sign) counts as one. Falls back to
-// code points where Intl.Segmenter is unavailable, which only matters for such scripts.
+// User-perceived characters, so "कि" (letter + vowel sign) counts as one. Segmentation is
+// only needed when the text carries combining marks; everything else is split by code point,
+// which keeps the common case as cheap as it was (avatars render in long lists). The
+// segmenter is stateless, so it is built once, on first need. Where Intl.Segmenter is
+// unavailable, code points are the fallback.
+const HAS_MARK = /\p{M}/u;
+type GraphemeSegmenter = { segment(s: string): Iterable<{ segment: string }> };
+let segmenter: GraphemeSegmenter | null | undefined;
+
 function characters(s: string): string[] {
-  const Segmenter = (Intl as { Segmenter?: new (l?: string, o?: { granularity: 'grapheme' }) => { segment(s: string): Iterable<{ segment: string }> } }).Segmenter;
-  if (typeof Segmenter === 'function') {
-    return Array.from(new Segmenter(undefined, { granularity: 'grapheme' }).segment(s), (x) => x.segment);
+  if (!HAS_MARK.test(s)) return Array.from(s);
+  if (segmenter === undefined) {
+    const Segmenter = (Intl as { Segmenter?: new (l?: string, o?: { granularity: 'grapheme' }) => GraphemeSegmenter }).Segmenter;
+    segmenter = typeof Segmenter === 'function' ? new Segmenter(undefined, { granularity: 'grapheme' }) : null;
   }
-  return Array.from(s);
+  return segmenter ? Array.from(segmenter.segment(s), (x) => x.segment) : Array.from(s);
 }
 
 /**
@@ -142,7 +150,9 @@ export function avatarText(person: AvatarPerson): string {
   const parts = source
     .replace(/@.*/, '')
     .split(/[\s._-]+/)
-    .map((part) => part.normalize('NFC').replace(NOT_LETTER_OR_DIGIT, ''))
+    // A mark left without its base (the emoji before a variation selector was stripped)
+    // is dropped, so "❤️ Alice" never shows a stray invisible mark.
+    .map((part) => part.normalize('NFC').replace(NOT_LETTER_OR_DIGIT, '').replace(/^\p{M}+/u, ''))
     .filter(Boolean);
   if (parts.length === 0) return '?';
   if (parts.length === 1) return characters(parts[0]!).slice(0, 2).join('').toUpperCase();
